@@ -1425,7 +1425,7 @@
   // disponíveis (sem filtro); com meses marcados, só entram atendimentos/
   // participações daqueles meses.
   function pessoasAtendidasParaMeses(monthValues){
-    var pessoasSet = {}; // nome em maiúsculas -> {nome, at, part, datas:[Date,...]}
+    var pessoasSet = {}; // nome em maiúsculas -> {nome, at, part, datas:[Date,...], profissionais:{nome:true}}
     function dentroDoFiltro(d){
       if(!monthValues || !monthValues.length) return true;
       return !!d && monthValues.indexOf(monthOptionValue(d)) >= 0;
@@ -1434,15 +1434,18 @@
     if(atCached){
       var iData = colIndex(atCached.headers, "data_hora");
       var iNome = colIndex(atCached.headers, "nome");
+      var iProfAt = profissionalColIndex(atCached.headers);
       if(iData >= 0 && iNome >= 0){
         atCached.rows.forEach(function(r){
           var nome = String(r[iNome]||"").trim();
           var d = parseBRDate(r[iData]);
           if(!nome || !dentroDoFiltro(d)) return;
           var chave = nome.toUpperCase();
-          if(!pessoasSet[chave]) pessoasSet[chave] = {nome:nome, at:0, part:0, datas:[]};
+          if(!pessoasSet[chave]) pessoasSet[chave] = {nome:nome, at:0, part:0, datas:[], profissionais:{}};
           pessoasSet[chave].at++;
           if(d) pessoasSet[chave].datas.push(d);
+          var prof = iProfAt >= 0 ? String(r[iProfAt]||"").trim() : '';
+          if(prof) pessoasSet[chave].profissionais[prof] = true;
         });
       }
     }
@@ -1450,15 +1453,18 @@
     if(partCached){
       var iPData = colIndex(partCached.headers, "data");
       var iPNome = colIndex(partCached.headers, "participante");
+      var iProfPart = profissionalColIndex(partCached.headers);
       if(iPData >= 0 && iPNome >= 0){
         partCached.rows.forEach(function(r){
           var nome = String(r[iPNome]||"").trim();
           var d = parseBRDate(r[iPData]);
           if(!nome || nome.indexOf("(sem lista nominal") === 0 || !dentroDoFiltro(d)) return;
           var chave = nome.toUpperCase();
-          if(!pessoasSet[chave]) pessoasSet[chave] = {nome:nome, at:0, part:0, datas:[]};
+          if(!pessoasSet[chave]) pessoasSet[chave] = {nome:nome, at:0, part:0, datas:[], profissionais:{}};
           pessoasSet[chave].part++;
           if(d) pessoasSet[chave].datas.push(d);
+          var prof = iProfPart >= 0 ? String(r[iProfPart]||"").trim() : '';
+          if(prof) pessoasSet[chave].profissionais[prof] = true;
         });
       }
     }
@@ -1479,9 +1485,16 @@
     var dataHeaders = [];
     for(var i=1;i<=maxDatas;i++){ dataHeaders.push("Data "+i); }
     return {
-      headers: ["Nome","Atendimentos","Participantes Ativ. Coletiva","Total"].concat(dataHeaders),
+      headers: ["Nome","Atendimentos","Participantes Ativ. Coletiva","Total","Profissional"].concat(dataHeaders),
       rows: pessoasLista.map(function(p){
-        var row = [p.nome, p.at, p.part, p.at+p.part];
+        // Uma pessoa com só 1 atendimento (e nenhuma coletiva) tem
+        // exatamente 1 profissional aqui — é esse que aparece nesta
+        // coluna, e ela fica filtrável junto com "Atendimentos" = 1
+        // pelo filtro de coluna já existente na lista. Com mais de um
+        // profissional envolvido, mostra todos separados por vírgula.
+        var listaProf = Object.keys(p.profissionais).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); });
+        var profissionalCol = listaProf.length ? listaProf.join(', ') : '—';
+        var row = [p.nome, p.at, p.part, p.at+p.part, profissionalCol];
         for(var i=0;i<maxDatas;i++){
           row.push(p.datas[i] ? fmtBRDate(p.datas[i]) : "—");
         }
@@ -1523,6 +1536,17 @@
       if(valor.indexOf(kw) !== -1) return EQUIPES[i].suffix;
     }
     return String(raw||"").trim() || "—";
+  }
+  // Acha a coluna de profissional de uma aba bruta, tentando o nome exato
+  // "profissional" primeiro e, se não achar, qualquer cabeçalho que
+  // contenha "PROFISSIONAL" (mesma estratégia de equipeColIndex).
+  function profissionalColIndex(headerRow){
+    var idx = colIndex(headerRow, "profissional");
+    if(idx >= 0) return idx;
+    for(var i=0;i<headerRow.length;i++){
+      if(normalizeText(headerRow[i]).indexOf("PROFISSIONAL") !== -1) return i;
+    }
+    return -1;
   }
   // Nome exato da coluna calculada de dias sem atendimento (Busca-Ativa) —
   // usado tanto pro filtro de coluna (que agrupa em faixas, não valor a
