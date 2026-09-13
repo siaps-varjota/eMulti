@@ -1776,6 +1776,44 @@
       // não o total bruto da lista.
       var metaEl = card.querySelector('.list-meta');
       if(metaEl) metaEl.textContent = fmtInt(visibleCount) + (visibleCount === 1 ? ' linha' : ' linhas');
+
+      // Recalcula colunas de quantidade "por período" (ex.:
+      // "qtd_atendimentos_periodo") pra baterem com o período (mês/meses)
+      // e demais filtros ATUALMENTE aplicados nesta lista, em vez de usar
+      // o valor bruto e fixo que já vem pronto da planilha de origem (que
+      // reflete o total da pessoa na aba inteira, não do período
+      // filtrado). Vale pra qualquer lista das abas M1/M2 que tenha uma
+      // coluna "nome" e uma coluna "qtd_..._per..." (ex.: Atendimentos).
+      var headersForQtd = cached ? cached.headers : [];
+      var nomeIdxQtd = -1;
+      headersForQtd.forEach(function(h, i){
+        if(nomeIdxQtd < 0 && normalizeText(h) === 'NOME') nomeIdxQtd = i;
+      });
+      var qtdColIdxs = [];
+      headersForQtd.forEach(function(h, i){
+        var hn = normalizeText(h);
+        if(hn.indexOf('QTD_') === 0 && hn.indexOf('PER') !== -1) qtdColIdxs.push(i);
+      });
+      if(nomeIdxQtd >= 0 && qtdColIdxs.length){
+        var countsPorNomeQtd = {};
+        card.querySelectorAll('tbody tr').forEach(function(tr){
+          if(tr.style.display === 'none') return;
+          var nomeCell = tr.children[nomeIdxQtd];
+          var nomeVal = nomeCell ? nomeCell.textContent.trim().toUpperCase() : '';
+          if(!nomeVal) return;
+          countsPorNomeQtd[nomeVal] = (countsPorNomeQtd[nomeVal] || 0) + 1;
+        });
+        card.querySelectorAll('tbody tr').forEach(function(tr){
+          if(tr.style.display === 'none') return;
+          var nomeCell = tr.children[nomeIdxQtd];
+          var nomeVal = nomeCell ? nomeCell.textContent.trim().toUpperCase() : '';
+          var count = nomeVal ? (countsPorNomeQtd[nomeVal] || 0) : 0;
+          qtdColIdxs.forEach(function(ci){
+            var cell = tr.children[ci];
+            if(cell) cell.textContent = fmtInt(count);
+          });
+        });
+      }
     }
 
     el.querySelectorAll('[data-month-filter]').forEach(function(container){
