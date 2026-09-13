@@ -1547,7 +1547,16 @@
   // pra mais atual (quem está mais atrasado aparece primeiro); em caso de
   // empate na data, 2º critério é a quantidade de consultas, crescente.
   function buscaAtivaCompute(){
-    var pessoasSet = {}; // nome em maiúsculas -> {nome, count, ultima:Date, equipe, profissional}
+    // Janela de referência da Busca-Ativa: os mesmos JANELA_MESES (4)
+    // meses usados pelo M1/M2, terminando no mês ATUAL (não no mês
+    // filtrado no topo da página — a Busca-Ativa não tem filtro de mês
+    // próprio, é sempre "os últimos 4 meses a partir de hoje"). A coluna
+    // "Atendimentos" mostrada na lista conta só os atendimentos DENTRO
+    // dessa janela — não o total histórico da pessoa.
+    var hoje = new Date();
+    var mesAtual = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+    var janelaPeriodo = calcularJanelaPeriodo(mesAtual);
+    var pessoasSet = {}; // nome em maiúsculas -> {nome, countPeriodo, ultima:Date, equipe, profissional}
     var atCached = latestSheets[suffixedName("Atendimentos")];
     if(atCached){
       var iData = colIndex(atCached.headers, "data_hora");
@@ -1560,8 +1569,14 @@
           var d = parseBRDate(r[iData]);
           if(!nome || !d) return;
           var chave = nome.toUpperCase();
-          if(!pessoasSet[chave]) pessoasSet[chave] = {nome:nome, count:0, ultima:null, equipe:'', profissional:''};
-          pessoasSet[chave].count++;
+          if(!pessoasSet[chave]) pessoasSet[chave] = {nome:nome, countPeriodo:0, ultima:null, equipe:'', profissional:''};
+          // Só entra na contagem exibida se cair dentro da janela dos
+          // últimos 4 meses — a "Última Consulta" (usada pra saber há
+          // quantos dias a pessoa está sem atendimento) continua olhando
+          // TODO o histórico, não só a janela.
+          if(withinPeriod(d, janelaPeriodo.inicio, janelaPeriodo.fim)){
+            pessoasSet[chave].countPeriodo++;
+          }
           // Equipe/Profissional guardados são sempre os da ÚLTIMA consulta
           // (a mesma que aparece na coluna "Última Consulta"), não os do
           // primeiro atendimento encontrado.
@@ -1573,7 +1588,6 @@
         });
       }
     }
-    var hoje = new Date();
     // Fim do mês atual, zerado na hora (comparação só por dia).
     var fimMes = new Date(hoje.getFullYear(), hoje.getMonth()+1, 0);
     var MS_DIA = 24*60*60*1000;
@@ -1581,7 +1595,7 @@
       .map(function(p){
         var ultimaDiaZero = new Date(p.ultima.getFullYear(), p.ultima.getMonth(), p.ultima.getDate());
         var dias = Math.round((fimMes - ultimaDiaZero) / MS_DIA);
-        return {nome:p.nome, count:p.count, ultima:p.ultima, dias:dias, equipe:p.equipe, profissional:p.profissional};
+        return {nome:p.nome, count:p.countPeriodo, ultima:p.ultima, dias:dias, equipe:p.equipe, profissional:p.profissional};
       })
       // Janela: mais de 30 dias e no máximo 120 dias sem atendimento,
       // contados até o último dia do mês atual.
