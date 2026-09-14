@@ -4,8 +4,8 @@
     --ink:#13241F;
     --ink-soft:#51605A;
     --line:#DCE4D6;
-    --header-bg:#153F35;
-    --header-bg-2:#0F2E27;
+    --header-bg:#1F7A5C;
+    --header-bg-2:#0A2620;
     --header-ink:#EEF3EA;
     --header-soft:#9FC0AE;
     --pill-regular:#B5474B;
@@ -37,7 +37,7 @@
     position:sticky;top:0;z-index:5;
   }
   .topbar{
-    background:linear-gradient(120deg,var(--header-bg),var(--header-bg-2));
+    background:linear-gradient(135deg,var(--header-bg) 0%,#153F35 55%,var(--header-bg-2) 100%);
     color:var(--header-ink);
     padding:14px 40px;
     display:flex;justify-content:space-between;align-items:center;gap:24px;flex-wrap:wrap;
