@@ -37,7 +37,7 @@
     position:sticky;top:0;z-index:5;
   }
   .topbar{
-    background:linear-gradient(90deg,#153F35 0%,#C68A3D 100%);
+    background:linear-gradient(90deg,#153F35 0%,#153F35 90%,#C68A3D 100%);
     color:var(--header-ink);
     padding:9px 40px;
     display:flex;justify-content:space-between;align-items:center;gap:24px;flex-wrap:wrap;
