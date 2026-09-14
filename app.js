@@ -2606,7 +2606,7 @@
     var dir = delta > 0.0001 ? 'up' : (delta < -0.0001 ? 'down' : 'flat');
     var fracAtual = Math.max(0, Math.min(1, atual/domainMax));
     var fracAnterior = Math.max(0, Math.min(1, anterior/domainMax));
-    var fillColor = dir==='down' ? '#0a0697' : '#4ade80';
+    var fillColor = dir==='down' ? '#252440' : '#4ade80';
     var bandStyle = bands ? ' style="background:'+evoTrackGradient(bands, domainMax)+';"' : '';
     return '<div class="ov-evo-track">'
       +   '<div class="ov-evo-band"'+bandStyle+'></div>'
