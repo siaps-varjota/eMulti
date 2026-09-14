@@ -3670,7 +3670,7 @@
       .finally(function(){
         refreshBtn.classList.remove('loading');
         refreshBtn.disabled = false;
-        refreshLabel.textContent = 'Atualizar agora';
+        refreshLabel.textContent = 'Atualizar';
       });
   }
 
