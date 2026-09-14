@@ -80,6 +80,8 @@
   .tab:hover{background:none;color:var(--ink);}
   .tab.active{background:none;border-color:var(--header-bg);color:var(--ink);}
   .tab.active:hover{background:none;}
+  .tab:focus{outline:none;}
+  .tab:focus-visible{outline:2px solid var(--header-bg);outline-offset:2px;border-radius:4px;}
 
   .filter-bar-outer{max-width:1220px;margin:20px auto 0;padding:0 40px;}
   .ref-month-row{
