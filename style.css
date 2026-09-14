@@ -274,6 +274,7 @@
   .ov-evo-delta{font-size:12px;font-weight:700;white-space:nowrap;}
   .ov-evo-empty{margin:0;font-size:11.5px;color:var(--ink-soft);line-height:1.4;}
   .ov-evo-track{position:relative;height:10px;border-radius:999px;background:var(--line);margin:8px 0 6px;overflow:visible;}
+  .ov-evo-band{position:absolute;inset:0;border-radius:999px;opacity:.5;}
   .ov-evo-fill{position:absolute;left:0;top:0;bottom:0;border-radius:999px;transition:width .3s ease;}
   .ov-evo-mark{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);opacity:.5;border-radius:1px;}
   .ov-evo-labels{display:flex;justify-content:space-between;font-size:11px;color:var(--ink-soft);line-height:1.4;}
@@ -392,14 +393,12 @@
   .ip-evo-head-left svg{width:16px;height:16px;color:var(--header-bg);flex:0 0 auto;}
   .ip-evo-head-left h4{margin:0;font-size:13.5px;font-weight:700;color:var(--ink);}
   .ip-evo-delta{font-size:13px;font-weight:700;white-space:nowrap;}
-  .ip-evo-track{
-    position:relative;height:7px;border-radius:999px;margin:6px 0 10px;
-    background:linear-gradient(90deg,var(--arc-regular),var(--arc-suficiente),var(--arc-bom),var(--arc-otimo));
-  }
-  .ip-evo-mark{position:absolute;top:-4px;bottom:-4px;width:3px;border-radius:2px;background:var(--ink);box-shadow:0 0 0 2px #fff;}
-  .ip-evo-labels{display:flex;justify-content:space-between;font-size:11.5px;color:var(--ink-soft);}
-  .ip-evo-labels span{display:block;}
-  .ip-evo-labels b{display:block;font-size:16px;color:var(--ink);font-weight:700;margin-top:3px;}
+  /* A trilha em si (fundo esmaecido + barra + traço) é a mesma usada na
+     Visão geral (.ov-evo-track etc., ver evoTrackHTML) — aqui só
+     ampliamos a tipografia dos rótulos "Anterior"/"Atual" pra combinar
+     com o restante do cartão de M1/M2. */
+  .ip-evo-embed .ov-evo-labels{font-size:11.5px;}
+  .ip-evo-embed .ov-evo-labels b{font-size:16px;}
 
   /* Card de "Leitura" (abaixo das 3 colunas) */
   .ip-reading{display:flex;gap:12px;align-items:flex-start;background:#EAF6EF;border-color:#D8ECDD;margin-bottom:24px;}
