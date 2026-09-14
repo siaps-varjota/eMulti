@@ -2516,7 +2516,7 @@
       var a1 = 180 - (b.from/domainMax)*180;
       var a2 = 180 - (b.to/domainMax)*180;
       var ativa = (b.classe === classeAtual);
-      return '<path d="'+arcPath(cx,cy,r,a1,a2)+'" stroke="'+b.color+'" stroke-width="'+thick+'" fill="none" stroke-opacity="'+(ativa?1:0.22)+'"/>';
+      return '<path d="'+arcPath(cx,cy,r,a1,a2)+'" stroke="'+b.color+'" stroke-width="'+thick+'" fill="none" stroke-opacity="'+(ativa?1:0.5)+'"/>';
     }).join('');
     var frac = (value===null || value===undefined || isNaN(value)) ? 0 : Math.max(0, Math.min(1, value/domainMax));
     var targetAngle = 180 - frac*180;
@@ -2606,7 +2606,7 @@
     var dir = delta > 0.0001 ? 'up' : (delta < -0.0001 ? 'down' : 'flat');
     var fracAtual = Math.max(0, Math.min(1, atual/domainMax));
     var fracAnterior = Math.max(0, Math.min(1, anterior/domainMax));
-    var fillColor = dir==='down' ? '#153F35' : '#153F35';
+    var fillColor = dir==='down' ? '#b91c1c' : (dir==='up' ? '#15803d' : '#51605A');
     var bandStyle = bands ? ' style="background:'+evoTrackGradient(bands, domainMax)+';"' : '';
     return '<div class="ov-evo-track">'
       +   '<div class="ov-evo-band"'+bandStyle+'></div>'
@@ -2652,8 +2652,7 @@
       + '<div class="ov-main">'
       +   '<div class="ov-value-block"><span class="ov-value" style="color:'+st.accent+';">'+opts.valueTxt+'</span>'
       +     '<span class="ov-value-cap">'+opts.valueCap+'</span></div>'
-      +   '<div class="ov-ring-wrap">'+ovRingSVG(opts.value, opts.domainMax, opts.bands, opts.classe, st, opts.gaugeId)
-      +     '<div class="ov-ring-center"><span class="ov-ring-value">'+opts.ringTxt+'</span></div></div>'
+      +   '<div class="ov-ring-wrap">'+ovRingSVG(opts.value, opts.domainMax, opts.bands, opts.classe, st, opts.gaugeId)+'</div>'
       + '</div>'
       + ovEvoHTML(opts.value, opts.anterior, opts.domainMax, opts.decimals, opts.suffix||'', opts.bands)
       + ovLegendHTML(opts.legend)
