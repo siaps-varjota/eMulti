@@ -2634,7 +2634,7 @@
       +   '<div class="ov-ring-wrap">'+ovRingSVG(opts.value, opts.domainMax, opts.bands, opts.classe, st, opts.gaugeId)
       +     '<div class="ov-ring-center"><span class="ov-ring-value">'+opts.ringTxt+'</span></div></div>'
       + '</div>'
-      + '<div class="ip-evo-embed">'+ipEvoContentHTML(opts.value, opts.anterior, opts.domainMax, opts.decimals, opts.suffix||'')+'</div>'
+      + '<div class="ip-evo-embed">'+ipEvoContentHTML(opts.value, opts.anterior, opts.domainMax, opts.decimals, opts.suffix||'', opts.bands)+'</div>'
       + ovLegendHTML(opts.legend)
       + '</div>';
   }
@@ -2688,7 +2688,22 @@
   // Conteúdo interno de "Evolução (Quadrimestre)" — sem o wrapper de card
   // próprio, pra poder ser embutido dentro de outro cartão (o do gauge)
   // ou, se algum dia precisar de novo isolado, envolvido por fora.
-  function ipEvoContentHTML(value, anterior, domainMax, decimals, suffix){
+  // Gradiente da trilha de evolução alinhado às faixas reais de
+  // classificação do indicador: cada cor fica "cheia" no meio da sua
+  // própria faixa (em vez de distribuídas em partes iguais), então a
+  // transição visual entre cores acontece bem em cima da fronteira real
+  // entre faixas (ex.: Suficiente/Bom exatamente onde o indicador muda
+  // de classificação), não numa posição arbitrária.
+  function evoTrackGradient(bands, domainMax){
+    var stops = bands.map(function(b){
+      var mid = (b.from + b.to) / 2;
+      var pct = Math.max(0, Math.min(100, (mid/domainMax)*100));
+      return b.color + ' ' + pct.toFixed(1) + '%';
+    });
+    return 'linear-gradient(90deg,' + stops.join(',') + ')';
+  }
+
+  function ipEvoContentHTML(value, anterior, domainMax, decimals, suffix, bands){
     suffix = suffix || '';
     if(anterior==null || value==null){
       return '<div class="ip-evo-head"><div class="ip-evo-head-left">'+IP_TREND_ICON_SVG+'<h4>Evolução (Quadrimestre)</h4></div></div>'
@@ -2700,11 +2715,12 @@
     var color = dir==='up' ? '#15803d' : (dir==='down' ? '#b91c1c' : 'var(--ink-soft)');
     var deltaTxt = (delta>0?'+':'') + fmtDec(delta,decimals) + suffix;
     var frac = Math.max(0, Math.min(1, value/domainMax));
+    var trackStyle = bands ? ' style="background:'+evoTrackGradient(bands, domainMax)+';"' : '';
     return '<div class="ip-evo-head">'
       +   '<div class="ip-evo-head-left">'+IP_TREND_ICON_SVG+'<h4>Evolução (Quadrimestre)</h4></div>'
       +   '<span class="ip-evo-delta" style="color:'+color+';">'+arrow+' '+deltaTxt+'</span>'
       + '</div>'
-      + '<div class="ip-evo-track"><div class="ip-evo-mark" style="left:'+(frac*100).toFixed(1)+'%;"></div></div>'
+      + '<div class="ip-evo-track"'+trackStyle+'><div class="ip-evo-mark" style="left:'+(frac*100).toFixed(1)+'%;"></div></div>'
       + '<div class="ip-evo-labels">'
       +   '<span>Anterior<b>'+fmtDec(anterior,decimals)+suffix+'</b></span>'
       +   '<span style="text-align:right;">Atual<b>'+fmtDec(value,decimals)+suffix+'</b></span>'
@@ -2727,7 +2743,7 @@
       +     (capText ? '<p class="ip-result-cap">'+capText+'</p>' : '')
       +   '</div>'
       + '</div>'
-      + '<div class="ip-evo-embed">'+ipEvoContentHTML(value, anterior, domainMax, decimals, suffix)+'</div>'
+      + '<div class="ip-evo-embed">'+ipEvoContentHTML(value, anterior, domainMax, decimals, suffix, bands)+'</div>'
       + '</div>';
   }
 
