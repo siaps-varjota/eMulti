@@ -2634,7 +2634,7 @@
       +   '<div class="ov-ring-wrap">'+ovRingSVG(opts.value, opts.domainMax, opts.bands, opts.classe, st, opts.gaugeId)
       +     '<div class="ov-ring-center"><span class="ov-ring-value">'+opts.ringTxt+'</span></div></div>'
       + '</div>'
-      + ovEvoHTML(opts.value, opts.anterior, opts.domainMax, opts.decimals, opts.suffix||'')
+      + '<div class="ip-evo-embed">'+ipEvoContentHTML(opts.value, opts.anterior, opts.domainMax, opts.decimals, opts.suffix||'')+'</div>'
       + ovLegendHTML(opts.legend)
       + '</div>';
   }
