@@ -2587,11 +2587,40 @@
     var notaFinal = (p1!=null && p2!=null) ? (p1+p2) : null;
     return {m1:m1, m2:m2, notaFinal:notaFinal, label:quadShortLabel(anchorAnterior)};
   }
+  // Trilha compartilhada da "Evolução (Quadrimestre)": fundo esmaecido
+  // (50% de opacidade) com o gradiente das faixas reais do indicador
+  // (mesmas cores do arco/legenda, alinhadas aos limiares de classificação
+  // — ver evoTrackGradient), com uma barra sólida por cima preenchendo até
+  // o valor atual e um traço marcando onde estava o valor do quadrimestre
+  // anterior.
+  function evoTrackGradient(bands, domainMax){
+    var stops = bands.map(function(b){
+      var mid = (b.from + b.to) / 2;
+      var pct = Math.max(0, Math.min(100, (mid/domainMax)*100));
+      return b.color + ' ' + pct.toFixed(1) + '%';
+    });
+    return 'linear-gradient(90deg,' + stops.join(',') + ')';
+  }
+  function evoTrackHTML(atual, anterior, domainMax, decimals, suffix, bands){
+    var delta = atual - anterior;
+    var dir = delta > 0.0001 ? 'up' : (delta < -0.0001 ? 'down' : 'flat');
+    var fracAtual = Math.max(0, Math.min(1, atual/domainMax));
+    var fracAnterior = Math.max(0, Math.min(1, anterior/domainMax));
+    var fillColor = dir==='down' ? '#f87171' : '#4ade80';
+    var bandStyle = bands ? ' style="background:'+evoTrackGradient(bands, domainMax)+';"' : '';
+    return '<div class="ov-evo-track">'
+      +   '<div class="ov-evo-band"'+bandStyle+'></div>'
+      +   '<div class="ov-evo-fill" style="width:'+(fracAtual*100).toFixed(1)+'%;background:'+fillColor+';"></div>'
+      +   '<div class="ov-evo-mark" style="left:'+(fracAnterior*100).toFixed(1)+'%;"></div>'
+      + '</div>'
+      + '<div class="ov-evo-labels"><span>Anterior<br><b>'+fmtDec(anterior,decimals)+suffix+'</b></span>'
+      +   '<span style="text-align:right;">Atual<br><b>'+fmtDec(atual,decimals)+suffix+'</b></span></div>';
+  }
   // Bloco "Evolução - Quadrimestre": compara o valor atual com o do
   // quadrimestre anterior (calcularQuadrimestreAnterior). Sem dado
   // suficiente pra reconstruir o período anterior, mostra um aviso em vez
   // da barra de comparação.
-  function ovEvoHTML(atual, anterior, domainMax, decimals, suffix){
+  function ovEvoHTML(atual, anterior, domainMax, decimals, suffix, bands){
     suffix = suffix || '';
     if(anterior==null || atual==null){
       return '<div class="ov-evo">'
@@ -2604,20 +2633,12 @@
     var arrow = dir==='up' ? '↗' : (dir==='down' ? '↘' : '→');
     var deltaColor = dir==='up' ? '#15803d' : (dir==='down' ? '#b91c1c' : 'var(--ink-soft)');
     var deltaTxt = (delta>0?'+':'')+fmtDec(delta,decimals)+suffix;
-    var fracAtual = Math.max(0, Math.min(1, atual/domainMax));
-    var fracAnterior = Math.max(0, Math.min(1, anterior/domainMax));
-    var fillColor = dir==='down' ? '#f87171' : '#4ade80';
     return '<div class="ov-evo">'
       + '<div class="ov-evo-head">'
       +   '<p class="ov-evo-title">Evolução (quadrimestre)</p>'
       +   '<span class="ov-evo-delta" style="color:'+deltaColor+';">'+arrow+' '+deltaTxt+'</span>'
       + '</div>'
-      + '<div class="ov-evo-track">'
-      +   '<div class="ov-evo-fill" style="width:'+(fracAtual*100).toFixed(1)+'%;background:'+fillColor+';"></div>'
-      +   '<div class="ov-evo-mark" style="left:'+(fracAnterior*100).toFixed(1)+'%;"></div>'
-      + '</div>'
-      + '<div class="ov-evo-labels"><span>Anterior<br><b>'+fmtDec(anterior,decimals)+suffix+'</b></span>'
-      +   '<span style="text-align:right;">Atual<br><b>'+fmtDec(atual,decimals)+suffix+'</b></span></div>'
+      + evoTrackHTML(atual, anterior, domainMax, decimals, suffix, bands)
       + '</div>';
   }
   // Cartão no modelo "ícone + anel + evolução" (só na Visão geral).
@@ -2634,7 +2655,7 @@
       +   '<div class="ov-ring-wrap">'+ovRingSVG(opts.value, opts.domainMax, opts.bands, opts.classe, st, opts.gaugeId)
       +     '<div class="ov-ring-center"><span class="ov-ring-value">'+opts.ringTxt+'</span></div></div>'
       + '</div>'
-      + '<div class="ip-evo-embed">'+ipEvoContentHTML(opts.value, opts.anterior, opts.domainMax, opts.decimals, opts.suffix||'', opts.bands)+'</div>'
+      + ovEvoHTML(opts.value, opts.anterior, opts.domainMax, opts.decimals, opts.suffix||'', opts.bands)
       + ovLegendHTML(opts.legend)
       + '</div>';
   }
@@ -2688,21 +2709,6 @@
   // Conteúdo interno de "Evolução (Quadrimestre)" — sem o wrapper de card
   // próprio, pra poder ser embutido dentro de outro cartão (o do gauge)
   // ou, se algum dia precisar de novo isolado, envolvido por fora.
-  // Gradiente da trilha de evolução alinhado às faixas reais de
-  // classificação do indicador: cada cor fica "cheia" no meio da sua
-  // própria faixa (em vez de distribuídas em partes iguais), então a
-  // transição visual entre cores acontece bem em cima da fronteira real
-  // entre faixas (ex.: Suficiente/Bom exatamente onde o indicador muda
-  // de classificação), não numa posição arbitrária.
-  function evoTrackGradient(bands, domainMax){
-    var stops = bands.map(function(b){
-      var mid = (b.from + b.to) / 2;
-      var pct = Math.max(0, Math.min(100, (mid/domainMax)*100));
-      return b.color + ' ' + pct.toFixed(1) + '%';
-    });
-    return 'linear-gradient(90deg,' + stops.join(',') + ')';
-  }
-
   function ipEvoContentHTML(value, anterior, domainMax, decimals, suffix, bands){
     suffix = suffix || '';
     if(anterior==null || value==null){
@@ -2714,17 +2720,11 @@
     var arrow = dir==='up' ? '↗' : (dir==='down' ? '↘' : '→');
     var color = dir==='up' ? '#15803d' : (dir==='down' ? '#b91c1c' : 'var(--ink-soft)');
     var deltaTxt = (delta>0?'+':'') + fmtDec(delta,decimals) + suffix;
-    var frac = Math.max(0, Math.min(1, value/domainMax));
-    var trackStyle = bands ? ' style="background:'+evoTrackGradient(bands, domainMax)+';"' : '';
     return '<div class="ip-evo-head">'
       +   '<div class="ip-evo-head-left">'+IP_TREND_ICON_SVG+'<h4>Evolução (Quadrimestre)</h4></div>'
       +   '<span class="ip-evo-delta" style="color:'+color+';">'+arrow+' '+deltaTxt+'</span>'
       + '</div>'
-      + '<div class="ip-evo-track"'+trackStyle+'><div class="ip-evo-mark" style="left:'+(frac*100).toFixed(1)+'%;"></div></div>'
-      + '<div class="ip-evo-labels">'
-      +   '<span>Anterior<b>'+fmtDec(anterior,decimals)+suffix+'</b></span>'
-      +   '<span style="text-align:right;">Atual<b>'+fmtDec(value,decimals)+suffix+'</b></span>'
-      + '</div>';
+      + evoTrackHTML(value, anterior, domainMax, decimals, suffix, bands);
   }
 
   // Cartão do gauge (coluna 1): arco + resultado no topo, legenda de
