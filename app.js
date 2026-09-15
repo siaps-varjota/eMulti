@@ -2732,16 +2732,15 @@
   function ipGaugeCardHTML(value, domainMax, bands, gaugeId, valueHtml, classLabel, capText, anterior, decimals, suffix, legend){
     return '<div class="card ip-gauge-card" style="border-top:4px solid '+arcHex(classLabel)+';">'
       + '<div class="ip-gauge-row">'
-      +   '<div class="ip-gauge-visual">'+buildGauge(value, domainMax, bands, gaugeId)
-      +     (legend ? gaugeLegendHTML(legend) : '')
-      +   '</div>'
+      +   '<div class="ip-gauge-visual">'+buildGauge(value, domainMax, bands, gaugeId)+'</div>'
       +   '<div class="ip-result-block">'
       +     '<p class="ip-result-label">Resultado do indicador</p>'
       +     '<div class="ip-result-value">'+valueHtml+'</div>'
       +     '<span class="pill" style="background:'+pillHex(classLabel)+'">'+(classLabel||'—')+'</span>'
-      +     (capText ? '<p class="ip-result-cap">'+capText+'</p>' : '')
       +   '</div>'
       + '</div>'
+      + (legend ? '<div class="ip-gauge-legend-row">'+gaugeLegendHTML(legend)+'</div>' : '')
+      + (capText ? '<p class="ip-formula-divider">'+capText+'</p>' : '')
       + '<div class="ip-evo-embed">'+ipEvoContentHTML(value, anterior, domainMax, decimals, suffix, bands)+'</div>'
       + '</div>';
   }
