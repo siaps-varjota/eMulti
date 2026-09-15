@@ -257,13 +257,26 @@
     display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;white-space:nowrap;
     font-size:14px;font-weight:600;padding:5px 12px;border-radius:999px;
   }
-  .ov-main{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:16px;}
-  .ov-value-block{display:flex;flex-direction:column;gap:4px;align-self:flex-start;}
-  .ov-value{font-family:'Fraunces',serif;font-size:36px;font-weight:600;}
+  /* flex-end (mesmo ajuste das abas M1/M2): a base do valor grande
+     passa a encostar na base do anel do gauge ao lado, em vez de ficar
+     centralizada com ele. */
+  .ov-main{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin-bottom:0;}
+  .ov-value-block{display:flex;flex-direction:column;}
+  .ov-value{font-family:'Fraunces',serif;font-size:36px;font-weight:600;line-height:1;}
   .ov-value-cap{font-size:11px;color:var(--ink-soft);line-height:1.3;}
   /* Gauges da Visão geral 30% maiores (84px -> 109px), acompanhando o
      SVG do anel (ver ovRingSVG em app.js). */
   .ov-ring-wrap{display:flex;flex-direction:column;align-items:center;flex:0 0 auto;}
+
+  /* Fórmula em linha única (ex.: "2.168 atendimentos ÷ 899 pessoas"),
+     como barra divisória entre o bloco valor+anel e a Evolução do
+     quadrimestre logo abaixo — mesmo padrão das abas M1/M2. */
+  .ov-formula-divider{
+    margin:14px 0;padding:7px 12px;
+    text-align:center;font-size:11px;font-weight:600;letter-spacing:.1px;
+    color:var(--ink-soft);white-space:nowrap;overflow-x:auto;
+    border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+  }
   .ov-ring-center{
     margin-top:2px;display:flex;flex-direction:column;
     align-items:center;justify-content:center;
