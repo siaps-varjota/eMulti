@@ -2385,20 +2385,14 @@
     return "M "+p1.x+" "+p1.y+" A "+r+" "+r+" 0 "+large+" 1 "+p2.x+" "+p2.y;
   }
   function buildGauge(value, domainMax, bands, gaugeId){
-    var cx=115,cy=100,r=92,thick=16;
-    // Abertura total do arco: era 180° (meia lua, de 180° a 0°); agora 240°,
-    // ou seja, 30° "a mais" de cada lado abaixo da linha horizontal central.
-    // GAUGE_SWEEP/GAUGE_START controlam isso — as cores das faixas (b.color,
-    // vindas de arcHex/arcHexOv) continuam exatamente as mesmas de antes.
-    var GAUGE_SWEEP = 240;
-    var GAUGE_START = 90 + GAUGE_SWEEP/2; // 210° (era 180°)
+    var cx=115,cy=122,r=92,thick=16;
     var bandsSvg = bands.map(function(b){
-      var a1 = GAUGE_START - (b.from/domainMax)*GAUGE_SWEEP;
-      var a2 = GAUGE_START - (b.to/domainMax)*GAUGE_SWEEP;
+      var a1 = 180 - (b.from/domainMax)*180;
+      var a2 = 180 - (b.to/domainMax)*180;
       return '<path d="'+arcPath(cx,cy,r,a1,a2)+'" stroke="'+b.color+'" stroke-width="'+thick+'" fill="none" stroke-linecap="round"/>';
     }).join('');
     var frac = (value===null || value===undefined || isNaN(value)) ? 0 : Math.max(0, Math.min(1, value/domainMax));
-    var targetAngle = GAUGE_START - frac*GAUGE_SWEEP;
+    var targetAngle = 180 - frac*180;
     var needleRotation = 180 - targetAngle; // graus a girar o ponteiro (que nasce apontando p/ 0)
     var needleLen = r - thick/2 - 6;
     var tipBase = polar(cx,cy,needleLen,180);
@@ -2409,12 +2403,12 @@
     var needleSvg = '<g id="'+gaugeId+'" class="gauge-needle" style="transform-origin:'+cx+'px '+cy+'px;--target-angle:'+needleRotation+'deg;">'
       + '<line x1="'+cx+'" y1="'+cy+'" x2="'+tipBase.x+'" y2="'+tipBase.y+'" stroke="#13241F" stroke-width="3" stroke-linecap="round"/>'
       + '<circle cx="'+cx+'" cy="'+cy+'" r="5.5" fill="#13241F"/></g>';
-    // Altura do viewBox recalculada pra abertura de 240°: com cy=100 o topo
-    // do arco (90°) encosta em y=0 e a ponta inferior das faixas (210°/-30°)
-    // termina em y=154 (cy + r*0.5 + thick/2) — antes era um semicírculo puro
-    // (0 0 230 134); agora as pontas "descem" abaixo do centro, então a caixa
-    // ficou mais alta pra não cortar as bordas do arco.
-    return '<svg class="gauge-svg" viewBox="0 0 230 154">'+bandsSvg+needleSvg+'</svg>';
+    // Altura do viewBox cortada rente à base do arco (cy=122 + folga do
+    // traço/agulha) em vez dos 148 originais — sobrava ~16px de espaço
+    // vazio abaixo do semicírculo, o que impedia alinhar visualmente a
+    // base do número do indicador com a base do arco (ver .ip-gauge-row
+    // e .ip-result-value no CSS).
+    return '<svg class="gauge-svg" viewBox="0 0 230 134">'+bandsSvg+needleSvg+'</svg>';
   }
   function animateGauges(){
     // Mantida como no-op por compatibilidade com as chamadas existentes em
@@ -2508,39 +2502,43 @@
   // Anel de progresso (valor ÷ domainMax) — usado no lugar do arco meia-lua
   // nos cartões da Visão geral.
   function ovRingSVG(value, domainMax, bands, classeAtual, st, gaugeId){
-    // Meia lua (mesmo desenho do gauge das abas M1/M2): faixas
-    // proporcionais ao domainMax, só a faixa do valor atual em cor
-    // cheia, as demais esmaecidas, e um ponteiro indicando a posição
-    // exata do valor. Altura do viewBox (h) maior que a estritamente
-    // necessária pro arco (que termina em cy=74) — a sobra de baixo é
-    // proposital: é o "vão" onde o número grande (.ov-value) encaixa
-    // por cima, puxado com margin-top negativo (ver CSS), pra ficar
-    // visualmente colado/dentro do arco em vez de solto ao lado.
-    var w=140, h=100, cx=70, cy=74, r=58, thick=14;
+    // Arco de 240° (era meia lua de 180°): faixas proporcionais ao
+    // domainMax, só a faixa do valor atual em cor cheia, as demais
+    // esmaecidas, e um ponteiro indicando a posição exata do valor.
+    // GAUGE_SWEEP/GAUGE_START controlam a abertura — as cores das faixas
+    // continuam exatamente as mesmas de antes (vêm de b.color/st.accent).
+    // cy foi recalculado pra o topo do arco (90°) encostar em y=0, e h
+    // aumentado pra caber as pontas do arco (que agora descem abaixo do
+    // centro) mais os mesmos 24px de "vão" reservados na base pro número
+    // grande (.ov-value) continuar mordendo o mesmo espaço via margin-top
+    // negativo (ver .ov-value no CSS) — nada mudou nesse comportamento.
+    var GAUGE_SWEEP = 240;
+    var GAUGE_START = 90 + GAUGE_SWEEP/2; // 210° (era 180°)
+    var w=140, h=125, cx=70, cy=65, r=58, thick=14;
     if(!bands || !bands.length){
       // fallback: se não vier bands, desenha só uma faixa cheia até o valor
-      // (mesma lógica de antes, em formato de meia lua).
+      // (mesma lógica de antes, agora em formato de 240°).
       var frac0 = (value==null || !domainMax) ? 0 : Math.max(0, Math.min(1, value/domainMax));
-      var a0 = 180 - frac0*180;
+      var a0 = GAUGE_START - frac0*GAUGE_SWEEP;
       return '<svg class="gauge-svg ov-ring-svg" viewBox="0 0 '+w+' '+h+'">'
-        + '<path d="'+arcPath(cx,cy,r,180,0)+'" stroke="'+st.badgeBg+'" stroke-width="'+thick+'" fill="none"/>'
-        + '<path d="'+arcPath(cx,cy,r,180,a0)+'" stroke="'+st.accent+'" stroke-width="'+thick+'" fill="none" stroke-linecap="round"/>'
+        + '<path d="'+arcPath(cx,cy,r,GAUGE_START,GAUGE_START-GAUGE_SWEEP)+'" stroke="'+st.badgeBg+'" stroke-width="'+thick+'" fill="none"/>'
+        + '<path d="'+arcPath(cx,cy,r,GAUGE_START,a0)+'" stroke="'+st.accent+'" stroke-width="'+thick+'" fill="none" stroke-linecap="round"/>'
         + '</svg>';
     }
     var bandsSvg = bands.map(function(b){
-      var a1 = 180 - (b.from/domainMax)*180;
-      var a2 = 180 - (b.to/domainMax)*180;
+      var a1 = GAUGE_START - (b.from/domainMax)*GAUGE_SWEEP;
+      var a2 = GAUGE_START - (b.to/domainMax)*GAUGE_SWEEP;
       var ativa = (b.classe === classeAtual);
       return '<path d="'+arcPath(cx,cy,r,a1,a2)+'" stroke="'+b.color+'" stroke-width="'+thick+'" fill="none" stroke-opacity="'+(ativa?1:0.5)+'"/>';
     }).join('');
     var frac = (value===null || value===undefined || isNaN(value)) ? 0 : Math.max(0, Math.min(1, value/domainMax));
-    var targetAngle = 180 - frac*180;
+    var targetAngle = GAUGE_START - frac*GAUGE_SWEEP;
     var needleRotation = 180 - targetAngle; // graus a girar o ponteiro (que nasce apontando p/ 0)
     var needleLen = r - thick/2 - 5;
     var tipBase = polar(cx,cy,needleLen,180);
     // Ponteiro sempre desenhado apontando pra "0" (esquerda) e girado até o
     // valor real via CSS (.gauge-needle + --target-angle) — mesma técnica
-    // usada no gauge de meia lua das abas M1/M2, pra ter o mesmo efeito de
+    // usada no gauge de 240° das abas M1/M2, pra ter o mesmo efeito de
     // movimento em vez de aparecer já na posição final.
     var needleSvg = '<g id="'+gaugeId+'" class="gauge-needle" style="transform-origin:'+cx+'px '+cy+'px;--target-angle:'+needleRotation+'deg;">'
       + '<line x1="'+cx+'" y1="'+cy+'" x2="'+tipBase.x+'" y2="'+tipBase.y+'" stroke="#13241F" stroke-width="2.5" stroke-linecap="round"/>'
