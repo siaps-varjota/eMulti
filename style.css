@@ -259,18 +259,22 @@
   }
   /* Bloco arco + número: coluna centralizada (não mais lado a lado). O
      número fica logo abaixo do arco e é puxado pra cima (margin-top
-     negativo) até "morder" o vão vazio reservado na base do SVG (ver
-     ovRingSVG), formando um único elemento visual coeso em vez de duas
-     peças soltas com espaço em branco nas laterais.
-     Arco e número reduzidos em 30% (220px -> 154px; 38px -> 27px) —
-     margin-top do número escalado na mesma proporção (-34px -> -24px)
-     pra continuar "mordendo" a mesma fração do vão vazio do SVG. */
+     negativo) até ficar coladinho na ponta do ponteiro, formando um único
+     elemento visual coeso em vez de duas peças soltas com espaço em
+     branco nas laterais.
+     Desde que o arco da Visão geral passou a ser de 240° (em vez de meia
+     lua/180°), a área abaixo do pivô do ponteiro ficou bem mais alta —
+     as pontas do arco descem pras laterais, mas o centro (onde o número
+     entra) segue livre. Por isso o margin-top ficou bem mais negativo
+     (-24px -> -61px) do que na versão de 180°, senão o número sobrava
+     longe do ponteiro. Se cy/h do SVG (ver ovRingSVG em app.js) mudarem
+     de novo, esse valor precisa ser recalculado. */
   .ov-main{display:flex;flex-direction:column;align-items:center;gap:0;margin-bottom:0;}
   .ov-ring-wrap{display:flex;justify-content:center;width:100%;flex:0 0 auto;}
   .ov-ring-svg{max-width:154px;}
   .ov-value{
     font-family:'Inter',sans-serif;font-weight:800;font-size:27px;line-height:1;
-    margin-top:-24px;text-align:center;
+    margin-top:-61px;text-align:center;
   }
   .ov-value-cap{font-size:11px;color:var(--ink-soft);line-height:1.3;}
   /* Gauges da Visão geral 30% maiores (84px -> 109px), acompanhando o
