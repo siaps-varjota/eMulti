@@ -1380,7 +1380,44 @@
     }
 
     var colors = getProfColors();
-    gridEl.innerHTML = profListaAtual.map(function(p, idx){
+
+    // ---- Card "Panorama da Equipe" ----
+    // Consolida os números de todos os profissionais listados (mesma
+    // conta de cada card individual, só que somada), pra dar uma visão
+    // geral da equipe antes de descer pros cards por profissional. Não
+    // deduplica paciente que passou por mais de um profissional — é a
+    // soma direta dos totais já calculados por profissional.
+    var equipe = profListaAtual.reduce(function(acc, p){
+      acc.totalAtendimentos += p.totalAtendimentos || 0;
+      acc.totalPacientes += p.totalPacientes || 0;
+      acc.c1 += p.c1||0; acc.c2 += p.c2||0; acc.c3 += p.c3||0; acc.c4 += p.c4||0;
+      return acc;
+    }, {totalAtendimentos:0, totalPacientes:0, c1:0, c2:0, c3:0, c4:0});
+    var equipeRecorrentes = equipe.c2 + equipe.c3 + equipe.c4;
+    equipe.taxaRetorno = equipe.totalPacientes ? (equipeRecorrentes/equipe.totalPacientes*100) : null;
+    equipe.media = equipe.totalPacientes ? (equipe.totalAtendimentos/equipe.totalPacientes) : null;
+    var corRetornoEquipe = equipe.taxaRetorno==null ? 'var(--ink-soft)' : (equipe.taxaRetorno>=50 ? 'var(--pill-bom)' : 'var(--pill-regular)');
+    var qtdProfissionais = profListaAtual.length;
+
+    var cardEquipe = '<div class="card" style="margin-bottom:0;">'
+      + '<div class="prof-header">'
+      +   '<div class="prof-avatar">E</div>'
+      +   '<div class="prof-info"><h3>PANORAMA DA EQUIPE</h3><span>'+fmtInt(qtdProfissionais)+' profissional'+(qtdProfissionais===1?'':'is')+' · '+fmtInt(equipe.totalAtendimentos)+' atendimentos no período</span></div>'
+      + '</div>'
+      + '<div class="kpi-container">'
+      +   '<div class="kpi-item"><label>Pacientes Únicos</label><span>'+fmtInt(equipe.totalPacientes)+'</span></div>'
+      +   '<div class="kpi-item"><label>Taxa Retorno</label><span style="color:'+corRetornoEquipe+';">'+(equipe.taxaRetorno==null?'—':fmtDec(equipe.taxaRetorno,0)+'%')+'</span></div>'
+      +   '<div class="kpi-item"><label>Média Cons/Pac</label><span>'+(equipe.media==null?'—':fmtDec(equipe.media,1))+'</span></div>'
+      + '</div>'
+      + '<div class="card-charts-layout">'
+      +   '<div class="chart-box"><canvas id="prof-donut-equipe"></canvas>'
+      +     '<div class="donut-center-text"><span class="val">'+(equipe.taxaRetorno==null?'—':fmtDec(equipe.taxaRetorno,0)+'%')+'</span><span class="lbl">Retorno</span></div>'
+      +   '</div>'
+      +   '<div class="chart-box"><canvas id="prof-bar-equipe"></canvas></div>'
+      + '</div>'
+      + '</div>';
+
+    gridEl.innerHTML = cardEquipe + profListaAtual.map(function(p, idx){
       var corRetorno = p.taxaRetorno==null ? 'var(--ink-soft)' : (p.taxaRetorno>=50 ? 'var(--pill-bom)' : 'var(--pill-regular)');
       return '<div class="card" style="margin-bottom:0;">'
         + '<div class="prof-header">'
@@ -1403,6 +1440,35 @@
 
     if(typeof Chart === 'undefined') return;
     setTimeout(function(){
+      // Donut/barra do card "Panorama da Equipe" — mesmos moldes dos
+      // cards individuais, com ids fixos "-equipe" em vez de índice.
+      var donutEquipeEl = document.getElementById('prof-donut-equipe');
+      if(donutEquipeEl){
+        profChartInstances.push(new Chart(donutEquipeEl, {
+          type: 'doughnut',
+          data: {
+            labels: ['1 Consulta', 'Retornou (2+)'],
+            datasets: [{ data: [equipe.c1, equipeRecorrentes], backgroundColor: [colors[0], colors[3]], borderWidth: 0 }]
+          },
+          options: { cutout: '75%', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+        }));
+      }
+      var barEquipeEl = document.getElementById('prof-bar-equipe');
+      if(barEquipeEl){
+        profChartInstances.push(new Chart(barEquipeEl, {
+          type: 'bar',
+          data: {
+            labels: ['1', '2', '3', '4+'],
+            datasets: [{ data: [equipe.c1,equipe.c2,equipe.c3,equipe.c4], backgroundColor: colors, borderRadius: 4 }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { x: { grid: { display: false } }, y: { display: false } }
+          }
+        }));
+      }
+
       profListaAtual.forEach(function(p, idx){
         var recorrentes = p.c2+p.c3+p.c4;
         var donutEl = document.getElementById('prof-donut-'+idx);
