@@ -387,7 +387,7 @@
   }
 
   var CLASS_PILL_HEX = {"Ótimo":"#2F6F5E","Bom":"#6B8F71","Suficiente":"#C68A3D","Regular":"#B5474B"};
-  var CLASS_ARC_HEX = {"Regular":"#DC4C4C","Suficiente":"#F2A93B","Bom":"#4CAF6D","Ótimo":"#3B7DDD"};
+  var CLASS_ARC_HEX = {"Regular":"#E63737","Suficiente":"#F4A734","Bom":"#2BB659","Ótimo":"#2775E7"};
   // Versão só um pouco mais intensa/saturada, usada apenas nos anéis da
   // Visão geral (ovRingSVG) — não afeta os gauges grandes das abas M1/M2,
   // que continuam usando CLASS_ARC_HEX normalmente.
@@ -2606,7 +2606,7 @@
     var dir = delta > 0.0001 ? 'up' : (delta < -0.0001 ? 'down' : 'flat');
     var fracAtual = Math.max(0, Math.min(1, atual/domainMax));
     var fracAnterior = Math.max(0, Math.min(1, anterior/domainMax));
-    var fillColor = dir==='down' ? '#b91c1c' : (dir==='up' ? '#15803d' : '#51605A');
+    var fillColor = dir==='down' ? '#A84747' : (dir==='up' ? '#15803d' : '#51605A');
     var bandStyle = bands ? ' style="background:'+evoTrackGradient(bands, domainMax)+';"' : '';
     return '<div class="ov-evo-track">'
       +   '<div class="ov-evo-band"'+bandStyle+'></div>'
