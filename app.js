@@ -2385,14 +2385,21 @@
     return "M "+p1.x+" "+p1.y+" A "+r+" "+r+" 0 "+large+" 1 "+p2.x+" "+p2.y;
   }
   function buildGauge(value, domainMax, bands, gaugeId){
-    var cx=115,cy=122,r=92,thick=16;
+    var cx=115,cy=100,r=92,thick=16;
+    // Arco de 240° — mesma abertura usada nos mini-gauges da Visão geral
+    // (ver ovRingSVG), aplicada aqui pros gauges grandes das abas M1/M2 (e
+    // do card de desempenho individual, que reaproveita esta função). As
+    // cores das faixas (b.color, vindas de arcHex/arcHexOv) continuam
+    // exatamente as mesmas de antes.
+    var GAUGE_SWEEP = 240;
+    var GAUGE_START = 90 + GAUGE_SWEEP/2; // 210° (era 180°)
     var bandsSvg = bands.map(function(b){
-      var a1 = 180 - (b.from/domainMax)*180;
-      var a2 = 180 - (b.to/domainMax)*180;
+      var a1 = GAUGE_START - (b.from/domainMax)*GAUGE_SWEEP;
+      var a2 = GAUGE_START - (b.to/domainMax)*GAUGE_SWEEP;
       return '<path d="'+arcPath(cx,cy,r,a1,a2)+'" stroke="'+b.color+'" stroke-width="'+thick+'" fill="none" stroke-linecap="round"/>';
     }).join('');
     var frac = (value===null || value===undefined || isNaN(value)) ? 0 : Math.max(0, Math.min(1, value/domainMax));
-    var targetAngle = 180 - frac*180;
+    var targetAngle = GAUGE_START - frac*GAUGE_SWEEP;
     var needleRotation = 180 - targetAngle; // graus a girar o ponteiro (que nasce apontando p/ 0)
     var needleLen = r - thick/2 - 6;
     var tipBase = polar(cx,cy,needleLen,180);
@@ -2403,12 +2410,13 @@
     var needleSvg = '<g id="'+gaugeId+'" class="gauge-needle" style="transform-origin:'+cx+'px '+cy+'px;--target-angle:'+needleRotation+'deg;">'
       + '<line x1="'+cx+'" y1="'+cy+'" x2="'+tipBase.x+'" y2="'+tipBase.y+'" stroke="#13241F" stroke-width="3" stroke-linecap="round"/>'
       + '<circle cx="'+cx+'" cy="'+cy+'" r="5.5" fill="#13241F"/></g>';
-    // Altura do viewBox cortada rente à base do arco (cy=122 + folga do
-    // traço/agulha) em vez dos 148 originais — sobrava ~16px de espaço
-    // vazio abaixo do semicírculo, o que impedia alinhar visualmente a
-    // base do número do indicador com a base do arco (ver .ip-gauge-row
-    // e .ip-result-value no CSS).
-    return '<svg class="gauge-svg" viewBox="0 0 230 134">'+bandsSvg+needleSvg+'</svg>';
+    // Altura do viewBox recalculada pra abertura de 240°: com cy=100 o topo
+    // do arco (90°) encosta em y=0 e a ponta inferior das faixas (210°/-30°)
+    // termina em y=154 — antes era um semicírculo puro (0 0 230 134); agora
+    // as pontas descem abaixo do centro, então a caixa ficou mais alta pra
+    // não cortar as bordas do arco (ver também .gauge-value no CSS, cujo
+    // margin-top foi recalculado pra continuar "colado" no ponteiro).
+    return '<svg class="gauge-svg" viewBox="0 0 230 154">'+bandsSvg+needleSvg+'</svg>';
   }
   function animateGauges(){
     // Mantida como no-op por compatibilidade com as chamadas existentes em
