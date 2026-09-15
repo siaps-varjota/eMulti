@@ -3137,24 +3137,30 @@
     }
 
     // Linha de tendência preliminar: reta de regressão linear (mínimos
-    // quadrados) sobre os pontos exibidos, indicando a direção geral da
-    // série sem o "serrilhado" mês a mês — só aparece quando o pill
+    // quadrados) SÓ com os meses "não oficiais" — isto é, calculados pelo
+    // próprio painel a partir da planilha, excluindo os meses em que
+    // p.oficial=true (valor veio da aba Q2-26 via aplicarOverrideOficial,
+    // não da planilha). Indica a direção geral dos dados "crus" da
+    // planilha, sem o serrilhado mês a mês — só aparece quando o pill
     // "Preliminar" (canto superior direito do card) está ativo (ver
     // setupPreliminarToggle / CSS .show-preliminar .tp-trendline).
     var trendLineSvg = '';
-    if(opts.trendLine && coords.length>=2){
-      var nTL = coords.length, sumX=0, sumY=0, sumXY=0, sumXX=0;
-      coords.forEach(function(c){ sumX+=c.x; sumY+=c.y; sumXY+=c.x*c.y; sumXX+=c.x*c.x; });
-      var denomTL = (nTL*sumXX - sumX*sumX);
-      var slope = denomTL !== 0 ? (nTL*sumXY - sumX*sumY)/denomTL : 0;
-      var intercept = (sumY - slope*sumX)/nTL;
-      var tx1 = coords[0].x, ty1 = slope*tx1+intercept;
-      var tx2 = coords[coords.length-1].x, ty2 = slope*tx2+intercept;
-      var labelAbove = ty2 <= ty1;
-      trendLineSvg = '<g class="tp-trendline">'
-        + '<line x1="'+tx1+'" y1="'+ty1+'" x2="'+tx2+'" y2="'+ty2+'" stroke="#6B6B6B" stroke-width="1.6" stroke-dasharray="5 4" stroke-linecap="round"/>'
-        + '<text x="'+(tx2-2)+'" y="'+(labelAbove ? ty2-6 : ty2+13)+'" font-size="8.5" font-weight="700" fill="#6B6B6B" text-anchor="end">Tendência preliminar</text>'
-        + '</g>';
+    if(opts.trendLine){
+      var tlCoords = coords.filter(function(c,i){ return !points[i].oficial; });
+      if(tlCoords.length>=2){
+        var nTL = tlCoords.length, sumX=0, sumY=0, sumXY=0, sumXX=0;
+        tlCoords.forEach(function(c){ sumX+=c.x; sumY+=c.y; sumXY+=c.x*c.y; sumXX+=c.x*c.x; });
+        var denomTL = (nTL*sumXX - sumX*sumX);
+        var slope = denomTL !== 0 ? (nTL*sumXY - sumX*sumY)/denomTL : 0;
+        var intercept = (sumY - slope*sumX)/nTL;
+        var tx1 = tlCoords[0].x, ty1 = slope*tx1+intercept;
+        var tx2 = tlCoords[tlCoords.length-1].x, ty2 = slope*tx2+intercept;
+        var labelAbove = ty2 <= ty1;
+        trendLineSvg = '<g class="tp-trendline">'
+          + '<line x1="'+tx1+'" y1="'+ty1+'" x2="'+tx2+'" y2="'+ty2+'" stroke="#6B6B6B" stroke-width="1.6" stroke-dasharray="5 4" stroke-linecap="round"/>'
+          + '<text x="'+(tx2-2)+'" y="'+(labelAbove ? ty2-6 : ty2+13)+'" font-size="8.5" font-weight="700" fill="#6B6B6B" text-anchor="end">Tendência preliminar</text>'
+          + '</g>';
+      }
     }
 
     return '<svg class="spark-svg trend-interactive" viewBox="0 0 '+W+' '+(H+14)+'">'
@@ -3380,16 +3386,16 @@
     // calcularSerieTendencia) — não é mais o histórico de vezes que a
     // página foi atualizada.
     var trend = '<div class="card trend-card-combo">'
-      + '<button type="button" id="trendPreliminarToggle" class="trend-preliminar-toggle" title="Mostrar a linha de tendência preliminar (reta de regressão) nos gráficos abaixo"><i></i>Preliminar</button>'
+      + '<button type="button" id="trendPreliminarToggle" class="trend-preliminar-toggle" title="Mostrar a linha de tendência preliminar (reta de regressão) calculada só com os meses não oficiais, direto da planilha"><i></i>Preliminar</button>'
       + '<div class="trend-sub"><h4>M1 mês a mês</h4>'
         + '<p class="cur">Mês de referência ('+refMonthLabel()+'): '+fmtDec(d.m1,2)+'</p>'
-        + sparkline(serieTendencia.map(function(p){ return {y:p.m1, label:monthShortLabel(p.mes), value:fmtDec(p.m1,2), quadKey:quadKeyOfDate(p.mes), quadLabel:quadCode(p.mes)}; }).filter(function(p){return p.y!=null;}), '#153F35', {quadAvg:true, classify:classificarM1, hideAxis:true, trendLine:true})
+        + sparkline(serieTendencia.map(function(p){ return {y:p.m1, label:monthShortLabel(p.mes), value:fmtDec(p.m1,2), quadKey:quadKeyOfDate(p.mes), quadLabel:quadCode(p.mes), oficial:!!p.m1Oficial}; }).filter(function(p){return p.y!=null;}), '#153F35', {quadAvg:true, classify:classificarM1, hideAxis:true, trendLine:true})
         + '</div>'
       + '<div class="trend-sub"><h4>M2 (%) mês a mês</h4>'
         + '<p class="cur">Mês de referência ('+refMonthLabel()+'): '+fmtDec(d.m2,2)+'%</p>'
-        + sparkline(serieTendencia.map(function(p){ return {y:p.m2, label:monthShortLabel(p.mes), value:fmtDec(p.m2,2)+'%', quadKey:quadKeyOfDate(p.mes), quadLabel:quadCode(p.mes)}; }).filter(function(p){return p.y!=null;}), '#C68A3D', {quadAvg:true, suffix:'%', classify:classificarM2, trendLine:true})
+        + sparkline(serieTendencia.map(function(p){ return {y:p.m2, label:monthShortLabel(p.mes), value:fmtDec(p.m2,2)+'%', quadKey:quadKeyOfDate(p.mes), quadLabel:quadCode(p.mes), oficial:!!p.m2Oficial}; }).filter(function(p){return p.y!=null;}), '#C68A3D', {quadAvg:true, suffix:'%', classify:classificarM2, trendLine:true})
         + '</div>'
-      + '<p class="footnote">Cada ponto já é a janela de '+JANELA_MESES+' meses terminando naquele mês. Linha tracejada = média do quadrimestre no período exibido. O pill "Preliminar" (canto superior direito) mostra/esconde a linha de tendência preliminar dos dois gráficos.</p>'
+      + '<p class="footnote">Cada ponto já é a janela de '+JANELA_MESES+' meses terminando naquele mês. Linha tracejada = média do quadrimestre no período exibido. O pill "Preliminar" (canto superior direito) mostra/esconde a linha de tendência, calculada só com os meses não oficiais (direto da planilha, sem o override da aba Q2-26).</p>'
       + '</div>';
     document.getElementById('trendRow').innerHTML = trend;
     setupTrendInteractivity();
