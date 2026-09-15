@@ -2502,17 +2502,21 @@
   // Anel de progresso (valor ÷ domainMax) — usado no lugar do arco meia-lua
   // nos cartões da Visão geral.
   function ovRingSVG(value, domainMax, bands, classeAtual, st, gaugeId){
-    // Meia lua (mesmo desenho do gauge das abas M1/M2, só que em miniatura
-    // pra caber no card da Visão geral): faixas proporcionais ao domainMax,
-    // só a faixa do valor atual em cor cheia, as demais esmaecidas, e um
-    // ponteiro indicando a posição exata do valor.
-    var w=140, h=82, cx=70, cy=74, r=58, thick=14;
+    // Meia lua (mesmo desenho do gauge das abas M1/M2): faixas
+    // proporcionais ao domainMax, só a faixa do valor atual em cor
+    // cheia, as demais esmaecidas, e um ponteiro indicando a posição
+    // exata do valor. Altura do viewBox (h) maior que a estritamente
+    // necessária pro arco (que termina em cy=74) — a sobra de baixo é
+    // proposital: é o "vão" onde o número grande (.ov-value) encaixa
+    // por cima, puxado com margin-top negativo (ver CSS), pra ficar
+    // visualmente colado/dentro do arco em vez de solto ao lado.
+    var w=140, h=100, cx=70, cy=74, r=58, thick=14;
     if(!bands || !bands.length){
       // fallback: se não vier bands, desenha só uma faixa cheia até o valor
       // (mesma lógica de antes, em formato de meia lua).
       var frac0 = (value==null || !domainMax) ? 0 : Math.max(0, Math.min(1, value/domainMax));
       var a0 = 180 - frac0*180;
-      return '<svg width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'">'
+      return '<svg class="gauge-svg ov-ring-svg" viewBox="0 0 '+w+' '+h+'">'
         + '<path d="'+arcPath(cx,cy,r,180,0)+'" stroke="'+st.badgeBg+'" stroke-width="'+thick+'" fill="none"/>'
         + '<path d="'+arcPath(cx,cy,r,180,a0)+'" stroke="'+st.accent+'" stroke-width="'+thick+'" fill="none" stroke-linecap="round"/>'
         + '</svg>';
@@ -2535,7 +2539,7 @@
     var needleSvg = '<g id="'+gaugeId+'" class="gauge-needle" style="transform-origin:'+cx+'px '+cy+'px;--target-angle:'+needleRotation+'deg;">'
       + '<line x1="'+cx+'" y1="'+cy+'" x2="'+tipBase.x+'" y2="'+tipBase.y+'" stroke="#13241F" stroke-width="2.5" stroke-linecap="round"/>'
       + '<circle cx="'+cx+'" cy="'+cy+'" r="4.5" fill="#13241F"/></g>';
-    return '<svg width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'">'+bandsSvg+needleSvg+'</svg>';
+    return '<svg class="gauge-svg ov-ring-svg" viewBox="0 0 '+w+' '+h+'">'+bandsSvg+needleSvg+'</svg>';
   }
   // Régua de faixas (Regular → Ótimo) no rodapé do card, cada chip com a
   // cor do respectivo status.
@@ -2647,10 +2651,11 @@
       + '</div>';
   }
   // Cartão no modelo "ícone + anel + evolução" (só na Visão geral).
-  // Mesmo ajuste feito nas abas M1/M2: a legenda "X atendimentos ÷ Y
-  // pessoas" sai de dentro do bloco do valor e vira uma barra de linha
-  // única entre o indicador (valor + anel) e a Evolução do quadrimestre
-  // — ver .ov-formula-divider no CSS.
+  // Valor grande fica embaixo do arco (não mais ao lado), centralizado
+  // com ele, puxado por cima com margin-top negativo pra formar um
+  // bloco visualmente único — ver .ov-main/.ov-value no CSS. A legenda
+  // "X atendimentos ÷ Y pessoas" vira uma barra de linha única entre
+  // esse bloco e a Evolução do quadrimestre.
   function overviewCardHTML(opts){
     var st = ovStatus(opts.classe);
     return '<div class="card ov-card" style="border-top:4px solid '+st.accent+';">'
@@ -2659,8 +2664,8 @@
       +   '<span class="ov-badge" style="background:'+st.badgeBg+';color:'+st.badgeText+';">'+st.icon+' '+(opts.classe||'—')+'</span>'
       + '</div>'
       + '<div class="ov-main">'
-      +   '<div class="ov-value-block"><span class="ov-value" style="color:'+st.accent+';">'+opts.valueTxt+'</span></div>'
       +   '<div class="ov-ring-wrap">'+ovRingSVG(opts.value, opts.domainMax, opts.bands, opts.classe, st, opts.gaugeId)+'</div>'
+      +   '<div class="ov-value" style="color:'+st.accent+';">'+opts.valueTxt+'</div>'
       + '</div>'
       + (opts.valueCap ? '<p class="ov-formula-divider">'+opts.valueCap+'</p>' : '')
       + ovEvoHTML(opts.value, opts.anterior, opts.domainMax, opts.decimals, opts.suffix||'', opts.bands)
