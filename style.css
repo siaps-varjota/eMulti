@@ -406,13 +406,20 @@
      lado a lado dentro do mesmo cartão; a Evolução do quadrimestre fica
      embutida logo abaixo, dentro do mesmo cartão (ver .ip-evo-embed). */
   .ip-gauge-card{display:flex;flex-direction:column;justify-content:center;height:100%;}
-  /* flex-end (em vez de center): a base do bloco do número passa a
-     encostar na base do SVG do gauge (que agora também termina rente
-     ao arco — ver viewBox em buildGauge/app.js), criando uma linha de
-     base horizontal única entre o arco e o "2,43". */
-  .ip-gauge-row{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap;}
-  .ip-gauge-visual{flex:1 1 190px;min-width:170px;max-width:230px;}
+  /* flex-start (em vez do antigo flex-end): agora o número mora dentro
+     do ip-gauge-visual (logo abaixo do ponteiro), então o ip-result-block
+     ficou bem mais curto (só rótulo + badge) e alinha melhor pelo topo. */
+  .ip-gauge-row{display:flex;align-items:flex-start;gap:18px;flex-wrap:wrap;}
+  .ip-gauge-visual{flex:1 1 190px;min-width:170px;max-width:230px;display:flex;flex-direction:column;align-items:center;}
   .ip-gauge-visual .gauge-svg{width:100%;height:auto;}
+  /* Número puxado pra cima (margin-top negativo) até ficar logo abaixo do
+     ponteiro, "dentro" da área vazia que sobra no centro do arco de 240°
+     (as pontas do arco descem pras laterais, mas o centro, embaixo do
+     pivô, continua livre) — mesma técnica do .ov-value na Visão geral.
+     Calculado pro SVG renderizando no seu max-width (230px, escala 1:1
+     com o viewBox de 230x154, pivô em cy=100): se o max-width mudar, este
+     valor precisa ser recalculado. */
+  .ip-gauge-visual .ip-result-value{margin-top:-48px;text-align:center;}
   .ip-result-block{flex:1 1 140px;min-width:130px;}
   /* Rótulo + badge de classificação juntos no topo do bloco; o número
      fica como último elemento, então é a base DELE (não a do badge)
