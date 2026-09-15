@@ -1280,6 +1280,17 @@
     var totals = lista.map(function(p){
       return p.totalPacientes != null ? p.totalPacientes : (p.c1+p.c2+p.c3+p.c4);
     });
+    // Altura do canvas proporcional ao Nº de profissionais: sem isso, com
+    // container de altura fixa e muitas barras, o Chart.js ativa autoSkip
+    // no eixo Y e passa a esconder o nome de linhas alternadas (ou a cada
+    // 3ª, dependendo de quantas cabem) pra não sobrepor o texto — ver
+    // ticks.autoSkip:false abaixo, que só funciona de verdade se também
+    // houver altura de sobra pra encaixar uma linha por profissional.
+    var rowH = 42, minH = 220;
+    var neededH = Math.max(minH, lista.length * rowH + 60);
+    var wrap = canvas.parentElement;
+    if(wrap) wrap.style.height = neededH + 'px';
+    canvas.style.height = neededH + 'px';
     if(profChartMain){ profChartMain.destroy(); profChartMain = null; }
     profChartMain = new Chart(canvas.getContext('2d'), {
       type: 'bar',
@@ -1304,7 +1315,14 @@
             max: profViewMode==='percent' ? 100 : undefined,
             ticks: { callback: function(v){ return profViewMode==='percent' ? v+'%' : v; } }
           },
-          y: { stacked: true }
+          y: {
+            stacked: true,
+            // autoSkip:false força o Chart.js a desenhar o nome de TODOS
+            // os profissionais, mesmo que a fonte precise apertar um
+            // pouco — sem isso, ele escondia nomes alternados pra não
+            // sobrepor texto quando a altura do canvas era insuficiente.
+            ticks: { autoSkip: false }
+          }
         },
         plugins: {
           profTotalLabel: { totals: totals },
