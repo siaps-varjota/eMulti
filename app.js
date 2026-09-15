@@ -2403,7 +2403,12 @@
     var needleSvg = '<g id="'+gaugeId+'" class="gauge-needle" style="transform-origin:'+cx+'px '+cy+'px;--target-angle:'+needleRotation+'deg;">'
       + '<line x1="'+cx+'" y1="'+cy+'" x2="'+tipBase.x+'" y2="'+tipBase.y+'" stroke="#13241F" stroke-width="3" stroke-linecap="round"/>'
       + '<circle cx="'+cx+'" cy="'+cy+'" r="5.5" fill="#13241F"/></g>';
-    return '<svg class="gauge-svg" viewBox="0 0 230 148">'+bandsSvg+needleSvg+'</svg>';
+    // Altura do viewBox cortada rente à base do arco (cy=122 + folga do
+    // traço/agulha) em vez dos 148 originais — sobrava ~16px de espaço
+    // vazio abaixo do semicírculo, o que impedia alinhar visualmente a
+    // base do número do indicador com a base do arco (ver .ip-gauge-row
+    // e .ip-result-value no CSS).
+    return '<svg class="gauge-svg" viewBox="0 0 230 134">'+bandsSvg+needleSvg+'</svg>';
   }
   function animateGauges(){
     // Mantida como no-op por compatibilidade com as chamadas existentes em
@@ -2730,13 +2735,20 @@
   // faixas logo abaixo do arco, e a Evolução do quadrimestre embutida no
   // final, dentro do mesmo cartão.
   function ipGaugeCardHTML(value, domainMax, bands, gaugeId, valueHtml, classLabel, capText, anterior, decimals, suffix, legend){
+    // Badge de classificação subiu pra linha do rótulo ("Resultado do
+    // indicador" + pill lado a lado) e o número ficou como último
+    // elemento do bloco — assim a base do número (não mais a do pill)
+    // é o que encosta no fim do card, batendo com a base do arco do
+    // gauge ao lado (ver .ip-gauge-row{align-items:flex-end} no CSS).
     return '<div class="card ip-gauge-card" style="border-top:4px solid '+arcHex(classLabel)+';">'
       + '<div class="ip-gauge-row">'
       +   '<div class="ip-gauge-visual">'+buildGauge(value, domainMax, bands, gaugeId)+'</div>'
       +   '<div class="ip-result-block">'
-      +     '<p class="ip-result-label">Resultado do indicador</p>'
+      +     '<div class="ip-result-head">'
+      +       '<p class="ip-result-label">Resultado do indicador</p>'
+      +       '<span class="pill" style="background:'+pillHex(classLabel)+'">'+(classLabel||'—')+'</span>'
+      +     '</div>'
       +     '<div class="ip-result-value">'+valueHtml+'</div>'
-      +     '<span class="pill" style="background:'+pillHex(classLabel)+'">'+(classLabel||'—')+'</span>'
       +   '</div>'
       + '</div>'
       + (legend ? '<div class="ip-gauge-legend-row">'+gaugeLegendHTML(legend)+'</div>' : '')
@@ -3279,7 +3291,7 @@
     // meta), igual ao modelo de referência, + leitura textual + listas ----
     document.getElementById('gaugeRowM1').innerHTML =
       ipGaugeCardHTML(d.m1, 4, CLASS_BANDS_M1, 'needle-m1tab-m1', fmtDec(d.m1,2), d.classificacaoM1,
-        fmtInt(numM1Gauge)+' atendimentos + '+fmtInt(denM1Gauge)+' pessoas',
+        fmtInt(numM1Gauge)+' atendimentos ÷ '+fmtInt(denM1Gauge)+' pessoas',
         quadAnterior.m1, 2, '', LEGEND_M1);
     document.getElementById('compRowM1').innerHTML =
         '<div class="card comp-card">'+compCardHeaderHTML('Composição do numerador', numM1Gauge)+numM1Bar+'</div>'
@@ -3293,7 +3305,7 @@
     // ---- Aba M2: mesmo layout de 3 colunas + leitura + listas ----
     document.getElementById('gaugeRowM2').innerHTML =
       ipGaugeCardHTML(d.m2, 8, CLASS_BANDS_M2, 'needle-m2tab-m2', fmtDec(d.m2,2)+'<span class="unit">%</span>', d.classificacaoM2,
-        fmtInt(numM2Gauge)+' compartilhadas + '+fmtInt(denM2Gauge)+' ações',
+        fmtInt(numM2Gauge)+' compartilhadas ÷ '+fmtInt(denM2Gauge)+' ações',
         quadAnterior.m2, 2, '%', LEGEND_M2);
     document.getElementById('compRowM2').innerHTML =
         '<div class="card comp-card">'+compCardHeaderHTML('Composição do numerador', numM2Gauge)+numM2Bar+'</div>'
