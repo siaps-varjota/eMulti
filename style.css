@@ -83,7 +83,7 @@
   .tab:focus{outline:none;}
   .tab:focus-visible{outline:2px solid var(--header-bg);outline-offset:2px;border-radius:4px;}
 
-  .filter-bar-outer{max-width:1340px;margin:20px auto 0;padding:0 40px;}
+  .filter-bar-outer{max-width:1400px;margin:20px auto 0;padding:0 40px;}
   .ref-month-row{
     display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;width:100%;
     background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
