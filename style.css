@@ -261,13 +261,16 @@
      número fica logo abaixo do arco e é puxado pra cima (margin-top
      negativo) até "morder" o vão vazio reservado na base do SVG (ver
      ovRingSVG), formando um único elemento visual coeso em vez de duas
-     peças soltas com espaço em branco nas laterais. */
+     peças soltas com espaço em branco nas laterais.
+     Arco e número reduzidos em 30% (220px -> 154px; 38px -> 27px) —
+     margin-top do número escalado na mesma proporção (-34px -> -24px)
+     pra continuar "mordendo" a mesma fração do vão vazio do SVG. */
   .ov-main{display:flex;flex-direction:column;align-items:center;gap:0;margin-bottom:0;}
   .ov-ring-wrap{display:flex;justify-content:center;width:100%;flex:0 0 auto;}
-  .ov-ring-svg{max-width:220px;}
+  .ov-ring-svg{max-width:154px;}
   .ov-value{
-    font-family:'Inter',sans-serif;font-weight:800;font-size:38px;line-height:1;
-    margin-top:-34px;text-align:center;
+    font-family:'Inter',sans-serif;font-weight:800;font-size:27px;line-height:1;
+    margin-top:-24px;text-align:center;
   }
   .ov-value-cap{font-size:11px;color:var(--ink-soft);line-height:1.3;}
   /* Gauges da Visão geral 30% maiores (84px -> 109px), acompanhando o
@@ -276,10 +279,12 @@
 
   /* Fórmula em linha única (ex.: "2.168 atendimentos ÷ 899 pessoas"),
      como barra divisória entre o bloco valor+anel e a Evolução do
-     quadrimestre logo abaixo — mesmo padrão das abas M1/M2. */
+     quadrimestre logo abaixo — mesmo padrão das abas M1/M2. Fonte 10%
+     maior (11px -> 12px) pra ficar mais legível ao lado do arco/número
+     menores. */
   .ov-formula-divider{
     margin:14px 0;padding:7px 12px;
-    text-align:center;font-size:11px;font-weight:600;letter-spacing:.1px;
+    text-align:center;font-size:12px;font-weight:600;letter-spacing:.1px;
     color:var(--ink-soft);white-space:nowrap;overflow-x:auto;
     border-top:1px solid var(--line);border-bottom:1px solid var(--line);
   }
