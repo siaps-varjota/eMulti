@@ -2756,20 +2756,21 @@
   // faixas logo abaixo do arco, e a Evolução do quadrimestre embutida no
   // final, dentro do mesmo cartão.
   function ipGaugeCardHTML(value, domainMax, bands, gaugeId, valueHtml, classLabel, capText, anterior, decimals, suffix, legend){
-    // Badge de classificação subiu pra linha do rótulo ("Resultado do
-    // indicador" + pill lado a lado) e o número ficou como último
-    // elemento do bloco — assim a base do número (não mais a do pill)
-    // é o que encosta no fim do card, batendo com a base do arco do
-    // gauge ao lado (ver .ip-gauge-row{align-items:flex-end} no CSS).
+    // O número (valueHtml) agora fica dentro do próprio gauge, logo abaixo
+    // do ponteiro (mesma técnica de margin-top negativo usada no ov-value
+    // da Visão geral — ver .ip-gauge-visual .ip-result-value no CSS), em
+    // vez de ficar solto no bloco lateral. O bloco lateral (ip-result-block)
+    // guarda só o rótulo + badge de classificação.
     return '<div class="card ip-gauge-card" style="border-top:4px solid '+arcHex(classLabel)+';">'
       + '<div class="ip-gauge-row">'
-      +   '<div class="ip-gauge-visual">'+buildGauge(value, domainMax, bands, gaugeId)+'</div>'
+      +   '<div class="ip-gauge-visual">'+buildGauge(value, domainMax, bands, gaugeId)
+      +     '<div class="ip-result-value">'+valueHtml+'</div>'
+      +   '</div>'
       +   '<div class="ip-result-block">'
       +     '<div class="ip-result-head">'
       +       '<p class="ip-result-label">Resultado do indicador</p>'
       +       '<span class="pill" style="background:'+pillHex(classLabel)+'">'+(classLabel||'—')+'</span>'
       +     '</div>'
-      +     '<div class="ip-result-value">'+valueHtml+'</div>'
       +   '</div>'
       + '</div>'
       + (legend ? '<div class="ip-gauge-legend-row">'+gaugeLegendHTML(legend)+'</div>' : '')
