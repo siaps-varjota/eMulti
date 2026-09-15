@@ -378,15 +378,37 @@
      lado a lado dentro do mesmo cartão; a Evolução do quadrimestre fica
      embutida logo abaixo, dentro do mesmo cartão (ver .ip-evo-embed). */
   .ip-gauge-card{display:flex;flex-direction:column;justify-content:center;height:100%;}
-  .ip-gauge-row{display:flex;align-items:center;gap:18px;flex-wrap:wrap;}
+  /* flex-end (em vez de center): a base do bloco do número passa a
+     encostar na base do SVG do gauge (que agora também termina rente
+     ao arco — ver viewBox em buildGauge/app.js), criando uma linha de
+     base horizontal única entre o arco e o "2,43". */
+  .ip-gauge-row{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap;}
   .ip-gauge-visual{flex:1 1 190px;min-width:170px;max-width:230px;}
   .ip-gauge-visual .gauge-svg{width:100%;height:auto;}
   .ip-result-block{flex:1 1 140px;min-width:130px;}
+  /* Rótulo + badge de classificação juntos no topo do bloco; o número
+     fica como último elemento, então é a base DELE (não a do badge)
+     que se alinha com a base do arco. */
+  .ip-result-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;flex-wrap:wrap;}
   .ip-result-label{margin:0;font-size:12.5px;color:var(--ink-soft);}
-  .ip-result-value{font-family:'Fraunces',serif;font-size:40px;font-weight:600;margin:2px 0 10px;line-height:1;color:var(--ink);}
+  .ip-result-value{font-family:'Fraunces',serif;font-size:40px;font-weight:600;margin:0;line-height:1;color:var(--ink);}
   .ip-result-value .unit{font-size:21px;font-weight:500;color:var(--ink-soft);}
   .ip-result-cap{margin:10px 0 0;font-size:11.5px;color:var(--ink-soft);line-height:1.4;}
+
+  /* Fórmula em linha única (ex.: "2.168 atendimentos ÷ 899 pessoas"),
+     estilizada como uma barra divisória entre o card do indicador e o
+     bloco de Evolução do quadrimestre logo abaixo. */
+  .ip-formula-divider{
+    margin:16px 0 0;padding:9px 16px;
+    text-align:center;font-size:12.5px;font-weight:600;letter-spacing:.1px;
+    color:var(--ink-soft);white-space:nowrap;overflow-x:auto;
+    border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+  }
   .ip-evo-embed{width:100%;margin-top:20px;padding-top:18px;border-top:1px solid var(--line);}
+  /* Quando a barra da fórmula já existe logo acima, ela mesma faz o
+     papel de divisória — evita uma segunda linha duplicada rente à
+     primeira. */
+  .ip-formula-divider + .ip-evo-embed{border-top:none;padding-top:16px;margin-top:0;}
 
   /* Card de Evolução (coluna 3) */
   .ip-evo-card{display:flex;flex-direction:column;}
