@@ -2647,6 +2647,10 @@
       + '</div>';
   }
   // Cartão no modelo "ícone + anel + evolução" (só na Visão geral).
+  // Mesmo ajuste feito nas abas M1/M2: a legenda "X atendimentos ÷ Y
+  // pessoas" sai de dentro do bloco do valor e vira uma barra de linha
+  // única entre o indicador (valor + anel) e a Evolução do quadrimestre
+  // — ver .ov-formula-divider no CSS.
   function overviewCardHTML(opts){
     var st = ovStatus(opts.classe);
     return '<div class="card ov-card" style="border-top:4px solid '+st.accent+';">'
@@ -2655,10 +2659,10 @@
       +   '<span class="ov-badge" style="background:'+st.badgeBg+';color:'+st.badgeText+';">'+st.icon+' '+(opts.classe||'—')+'</span>'
       + '</div>'
       + '<div class="ov-main">'
-      +   '<div class="ov-value-block"><span class="ov-value" style="color:'+st.accent+';">'+opts.valueTxt+'</span>'
-      +     '<span class="ov-value-cap">'+opts.valueCap+'</span></div>'
+      +   '<div class="ov-value-block"><span class="ov-value" style="color:'+st.accent+';">'+opts.valueTxt+'</span></div>'
       +   '<div class="ov-ring-wrap">'+ovRingSVG(opts.value, opts.domainMax, opts.bands, opts.classe, st, opts.gaugeId)+'</div>'
       + '</div>'
+      + (opts.valueCap ? '<p class="ov-formula-divider">'+opts.valueCap+'</p>' : '')
       + ovEvoHTML(opts.value, opts.anterior, opts.domainMax, opts.decimals, opts.suffix||'', opts.bands)
       + ovLegendHTML(opts.legend)
       + '</div>';
