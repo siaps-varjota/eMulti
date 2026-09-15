@@ -421,11 +421,13 @@
      valor precisa ser recalculado. */
   .ip-gauge-visual .ip-result-value{margin-top:-48px;text-align:center;}
   .ip-result-block{flex:1 1 140px;min-width:130px;}
-  /* Rótulo + badge de classificação juntos no topo do bloco; o número
-     fica como último elemento, então é a base DELE (não a do badge)
-     que se alinha com a base do arco. */
-  .ip-result-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;flex-wrap:wrap;}
-  .ip-result-label{margin:0;font-size:12.5px;color:var(--ink-soft);}
+  /* Rótulo + badge de classificação agora empilhados e centralizados
+     (era lado a lado com justify-content:space-between) — "Bom" fica
+     centralizado logo abaixo de "Resultado do indicador". */
+  .ip-result-head{display:flex;flex-direction:column;align-items:center;gap:8px;margin-bottom:6px;}
+  /* Mesma tipografia de "Composição do numerador" (ver .comp-card h4 no
+     CSS): 14.5px/peso 500, cor --ink (era 12.5px, cor --ink-soft). */
+  .ip-result-label{margin:0;font-size:14.5px;font-weight:500;color:var(--ink);}
   .ip-result-value{font-family:'Inter',sans-serif;font-size:40px;font-weight:800;margin:0;line-height:1;color:var(--ink);}
   .ip-result-value .unit{font-size:21px;font-weight:500;color:var(--ink-soft);}
   .ip-result-cap{margin:10px 0 0;font-size:11.5px;color:var(--ink-soft);line-height:1.4;}
