@@ -1935,7 +1935,9 @@
         ? visiveis.map(linhaRiscoHtml).join('')
         : '<tr><td colspan="6" class="footnote" style="padding:14px 12px;">Nenhum paciente encontrado com esse filtro.</td></tr>';
 
-      if(metaEl) metaEl.textContent = fmtInt(visiveis.length) + (visiveis.length===1 ? ' paciente' : ' pacientes');
+      // O quantitativo deve representar o total encontrado pelo filtro,
+      // mesmo quando a tabela limita a exibição aos 40 primeiros registros.
+      if(metaEl) metaEl.textContent = fmtInt(riscoFiltrado.length) + (riscoFiltrado.length===1 ? ' paciente' : ' pacientes');
       if(footnoteEl){
         footnoteEl.textContent = riscoFiltrado.length > 40
           ? 'Mostrando os 40 pacientes há mais tempo sem voltar na tela (de '+fmtInt(riscoFiltrado.length)+' no total com o filtro atual) — o PDF traz a lista completa do filtro.'
@@ -2134,50 +2136,6 @@
   // Monta o gráfico de barras verticais "Comparativo por profissional",
   // com as barras de tempo até a 2ª consulta e de 2ª até a 3ª consulta
   // lado a lado (agrupadas) pra cada profissional, num só gráfico.
-  // Linhas médias exclusivas do gráfico da aba Análises.
-  // Cada linha usa a mesma cor da série/barras correspondente.
-  var analisesMediaPlugin = {
-    id: 'analisesMediaPlugin',
-    afterDraw: function(chart){
-      if(!chart || !chart.chartArea || !chart.data || !chart.data.datasets) return;
-      var ctx = chart.ctx;
-      var yScale = chart.scales && chart.scales.y;
-      if(!yScale) return;
-
-      ctx.save();
-      chart.data.datasets.forEach(function(dataset, datasetIndex){
-        var valores = (dataset.data || []).filter(function(v){
-          return typeof v === 'number' && isFinite(v);
-        });
-        if(!valores.length) return;
-
-        var media = valores.reduce(function(total, valor){ return total + valor; }, 0) / valores.length;
-        var y = yScale.getPixelForValue(media);
-        var cor = Array.isArray(dataset.backgroundColor)
-          ? dataset.backgroundColor[0]
-          : (dataset.backgroundColor || '#2F6F5E');
-
-        ctx.beginPath();
-        ctx.setLineDash([7, 5]);
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = cor;
-        ctx.globalAlpha = 0.95;
-        ctx.moveTo(chart.chartArea.left, y);
-        ctx.lineTo(chart.chartArea.right, y);
-        ctx.stroke();
-
-        var texto = 'Média: ' + Math.round(media) + ' dias';
-        ctx.setLineDash([]);
-        ctx.font = "600 11px 'Inter', sans-serif";
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'bottom';
-        ctx.fillStyle = cor;
-        ctx.fillText(texto, chart.chartArea.right - 4, y - (datasetIndex ? 4 : 16));
-      });
-      ctx.restore();
-    }
-  };
-
   function renderComparativoProfChart(canvas, comparativoProf, comparativoProf23){
     if(!canvas) return;
     if(!comparativoProf.length && !comparativoProf23.length){
@@ -2211,7 +2169,6 @@
     });
     var chart = new Chart(canvas, {
       type: 'bar',
-      plugins: [analisesMediaPlugin],
       data: {
         labels: nomes,
         datasets: [
