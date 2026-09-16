@@ -21,20 +21,13 @@
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
   body{
-    /* Tipografia sem serifa, firme e acessível para painéis de saúde.
-       Evita o aspecto fino/embaçado e mantém boa leitura em telas menores. */
-    font-family:'Atkinson Hyperlegible','Segoe UI',Roboto,Arial,sans-serif;
+    font-family:'Inter',sans-serif;
     background:var(--paper);
     color:var(--ink);
     font-variant-numeric:tabular-nums;
     line-height:1.5;
-    -webkit-font-smoothing:antialiased;
-    text-rendering:optimizeLegibility;
   }
-  h1,h2,h3,.serif{
-    font-family:'Atkinson Hyperlegible','Segoe UI',Roboto,Arial,sans-serif;
-    letter-spacing:-.01em;
-  }
+  h1,h2,h3,.serif{font-family:'Fraunces',serif;}
 
   /* ---------- Header + Tabbar (grudados, rolam e "grudam" juntos) ---------- */
   /* O sticky fica no WRAPPER, não só no .topbar — assim o menu de abas
@@ -718,10 +711,3 @@
     .tab{flex:0 0 auto;white-space:nowrap;}
     .main{padding:20px 20px 50px;}
   }
-
-
-  /* Reforço de legibilidade para indicadores, equipes e filtros */
-  .topbar-left .kicker,.topbar-meta .periodo,.topbar-meta .dt,.ov-evo-title{letter-spacing:.06em;}
-  .topbar-left .kicker,.topbar-left .tagline,.topbar-meta .periodo,.topbar-meta .dt{font-weight:600;}
-  .kpi-item label,.kpi-item span,.kpi-container,.legend,.footnote,.data-table,.list-meta{font-weight:500;}
-  .gauge-value,.ov-value,.ip-result-value,.meta-card-value,.prof-avatar{font-weight:800;}
