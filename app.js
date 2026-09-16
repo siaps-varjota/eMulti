@@ -1639,22 +1639,28 @@
     var porDiaSemana = [0,0,0,0,0,0,0];
     pacientes.forEach(function(p){ p.datas.forEach(function(d){ porDiaSemana[d.getDay()]++; }); });
 
-    // Comparativo por profissional: mediana de dias até a 2ª consulta,
-    // atribuída a cada profissional que atendeu o paciente (aproximação —
-    // a aba não diz qual profissional fez qual consulta específica).
-    var porProf = {};
-    pacientes.forEach(function(p){
-      if(p.datas.length < 2) return;
-      var dias = diffDias(p.datas[0], p.datas[1]);
-      Object.keys(p.profissionais).forEach(function(prof){
-        if(!ehProfissionalComparativoEmulti(prof)) return;
-        if(!porProf[prof]) porProf[prof] = [];
-        porProf[prof].push(dias);
+    // Comparativo por profissional: mediana de dias entre duas consultas
+    // consecutivas, atribuída a cada profissional que atendeu o paciente
+    // (aproximação — a aba não diz qual profissional fez qual consulta
+    // específica). idxA/idxB são os índices (0-based) das duas consultas
+    // na sequência do paciente (ex.: 0,1 = 1ª→2ª; 1,2 = 2ª→3ª).
+    function calcularComparativoProf(idxA, idxB){
+      var porProf = {};
+      pacientes.forEach(function(p){
+        if(p.datas.length <= idxB) return;
+        var dias = diffDias(p.datas[idxA], p.datas[idxB]);
+        Object.keys(p.profissionais).forEach(function(prof){
+          if(!ehProfissionalComparativoEmulti(prof)) return;
+          if(!porProf[prof]) porProf[prof] = [];
+          porProf[prof].push(dias);
+        });
       });
-    });
-    var comparativoProf = Object.keys(porProf).map(function(prof){
-      return {profissional:prof, n:porProf[prof].length, medianaDias: mediana(porProf[prof])};
-    }).sort(function(a,b){ return a.medianaDias - b.medianaDias; });
+      return Object.keys(porProf).map(function(prof){
+        return {profissional:prof, n:porProf[prof].length, medianaDias: mediana(porProf[prof])};
+      }).sort(function(a,b){ return a.medianaDias - b.medianaDias; });
+    }
+    var comparativoProf = calcularComparativoProf(0, 1);
+    var comparativoProf23 = calcularComparativoProf(1, 2);
 
     // Pacientes em risco de abandono: já romperam o "silêncio" normal (mais
     // tempo sem voltar do que a mediana histórica de 1ª→2ª consulta) mas
@@ -1684,6 +1690,7 @@
       diasSemanaLabels: DIAS_SEMANA,
       porDiaSemana: porDiaSemana,
       comparativoProf: comparativoProf,
+      comparativoProf23: comparativoProf23,
       medianaBase: medianaBase,
       risco: risco
     };
@@ -1698,7 +1705,7 @@
     var comDados = intervalos.filter(function(it){ return it.stats; });
     var W = 640, cols = 2;
     var rows = Math.ceil(intervalos.length/cols);
-    var outerPad = 16, gapX = 28, gapY = 22, cellH = 100;
+    var outerPad = 12, gapX = 18, gapY = 10, cellH = 68;
     var cellW = (W - outerPad*2 - gapX*(cols-1)) / cols;
     var H = outerPad*2 + cellH*rows + gapY*(rows-1);
     var maxVal = comDados.length ? Math.max.apply(null, comDados.map(function(it){ return it.stats.max; })) : 1;
@@ -1709,14 +1716,14 @@
       var col = i % cols, row = Math.floor(i/cols);
       var cellX = outerPad + col*(cellW+gapX);
       var cellY = outerPad + row*(cellH+gapY);
-      var labelY = cellY + 14;
-      var label = '<text x="'+cellX+'" y="'+labelY+'" font-size="12" font-weight="700" fill="var(--ink)">'+escapeHtml(it.label)+'</text>';
+      var labelY = cellY + 11;
+      var label = '<text x="'+cellX+'" y="'+labelY+'" font-size="10.5" font-weight="700" fill="var(--ink)">'+escapeHtml(it.label)+'</text>';
       if(!it.stats){
-        return '<g>'+label+'<text x="'+cellX+'" y="'+(cellY+cellH/2)+'" font-size="10.5" fill="var(--ink-soft)">Sem pacientes suficientes ainda</text></g>';
+        return '<g>'+label+'<text x="'+cellX+'" y="'+(cellY+cellH/2)+'" font-size="9.5" fill="var(--ink-soft)">Sem pacientes suficientes ainda</text></g>';
       }
-      var s = it.stats, boxH = 18, cy = cellY + 64;
-      var valTxt = '<text x="'+(cellX+cellW)+'" y="'+labelY+'" font-size="12" font-weight="700" fill="var(--ink)" text-anchor="end">'+fmtInt(Math.round(s.mediana))+' dias</text>'
-        + '<text x="'+(cellX+cellW)+'" y="'+(labelY+13)+'" font-size="9" fill="var(--ink-soft)" text-anchor="end">mediana · n='+s.n+'</text>';
+      var s = it.stats, boxH = 13, cy = cellY + 44;
+      var valTxt = '<text x="'+(cellX+cellW)+'" y="'+labelY+'" font-size="10.5" font-weight="700" fill="var(--ink)" text-anchor="end">'+fmtInt(Math.round(s.mediana))+' dias</text>'
+        + '<text x="'+(cellX+cellW)+'" y="'+(labelY+11)+'" font-size="8" fill="var(--ink-soft)" text-anchor="end">mediana · n='+s.n+'</text>';
       var whisker = '<line x1="'+x(cellX,s.min)+'" y1="'+cy+'" x2="'+x(cellX,s.max)+'" y2="'+cy+'" stroke="var(--ink-soft)" stroke-width="1.4"/>'
         + '<line x1="'+x(cellX,s.min)+'" y1="'+(cy-6)+'" x2="'+x(cellX,s.min)+'" y2="'+(cy+6)+'" stroke="var(--ink-soft)" stroke-width="1.4"/>'
         + '<line x1="'+x(cellX,s.max)+'" y1="'+(cy-6)+'" x2="'+x(cellX,s.max)+'" y2="'+(cy+6)+'" stroke="var(--ink-soft)" stroke-width="1.4"/>';
@@ -1841,33 +1848,42 @@
         setTimeout(function(){ try{ semanaChart.resize(); }catch(e){} }, 0);
       }
       var compCanvas = document.getElementById('analisesCompProf');
-      if(compCanvas && data.comparativoProf.length){
-        var compChart = new Chart(compCanvas, {
-          type: 'bar',
-          data: {
-            labels: data.comparativoProf.map(function(p){ return p.profissional; }),
-            datasets: [{ label:'Mediana de dias até a 2ª consulta', data: data.comparativoProf.map(function(p){ return Math.round(p.medianaDias); }), backgroundColor:'#C68A3D', borderRadius:4, categoryPercentage:0.7, barPercentage:0.9 }]
-          },
-          options: {
-            responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { display: false }, tooltip: { bodyFont:{size:13}, titleFont:{size:13} } },
-            scales: {
-              x: { ticks: { autoSkip:false, font:{size:13}, maxRotation:40, minRotation:0 } },
-              y: { beginAtZero: true, ticks: { font:{size:13} } }
-            }
-          }
-        });
-        analisesChartInstances.push(compChart);
-        // Redimensiona explicitamente no próximo tick — em alguns
-        // navegadores o Chart.js não pega o tamanho certo do container se
-        // o gráfico foi criado no mesmo instante em que a aba ficou
-        // visível.
-        setTimeout(function(){ try{ compChart.resize(); }catch(e){} }, 0);
-      } else if(compCanvas){
-        var wrap2 = compCanvas.parentElement;
-        if(wrap2) wrap2.innerHTML = '<p class="footnote">Sem dados suficientes ainda.</p>';
-      }
+      renderComparativoProfChart(compCanvas, data.comparativoProf, 'Mediana de dias até a 2ª consulta');
+      var compCanvas23 = document.getElementById('analisesCompProf23');
+      renderComparativoProfChart(compCanvas23, data.comparativoProf23, 'Mediana de dias da 2ª até a 3ª consulta');
     }, 50);
+  }
+
+  // Monta o gráfico de barras verticais "Comparativo por profissional"
+  // (usado tanto pro intervalo 1ª→2ª quanto 2ª→3ª) — evita duplicar a
+  // mesma configuração do Chart.js duas vezes.
+  function renderComparativoProfChart(canvas, comparativoProf, datasetLabel){
+    if(!canvas) return;
+    if(!comparativoProf.length){
+      var wrap2 = canvas.parentElement;
+      if(wrap2) wrap2.innerHTML = '<p class="footnote">Sem dados suficientes ainda.</p>';
+      return;
+    }
+    var chart = new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels: comparativoProf.map(function(p){ return p.profissional; }),
+        datasets: [{ label: datasetLabel, data: comparativoProf.map(function(p){ return Math.round(p.medianaDias); }), backgroundColor:'#C68A3D', borderRadius:4, categoryPercentage:0.7, barPercentage:0.9 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { bodyFont:{size:13}, titleFont:{size:13} } },
+        scales: {
+          x: { ticks: { autoSkip:false, font:{size:13}, maxRotation:40, minRotation:0 } },
+          y: { beginAtZero: true, ticks: { font:{size:13} } }
+        }
+      }
+    });
+    analisesChartInstances.push(chart);
+    // Redimensiona explicitamente no próximo tick — em alguns navegadores
+    // o Chart.js não pega o tamanho certo do container se o gráfico foi
+    // criado no mesmo instante em que a aba ficou visível.
+    setTimeout(function(){ try{ chart.resize(); }catch(e){} }, 0);
   }
 
   // Injeta o botão da aba e o painel "Análises" no DOM (o HTML base do
@@ -1918,6 +1934,10 @@
       + '<div class="card" style="margin-bottom:16px;">'
       +   '<h4 style="margin-top:0;">Comparativo por profissional — tempo até a 2ª consulta</h4>'
       +   '<div class="chart-box-full" style="height:220px;"><canvas id="analisesCompProf"></canvas></div>'
+      + '</div>'
+      + '<div class="card" style="margin-bottom:16px;">'
+      +   '<h4 style="margin-top:0;">Comparativo por profissional — tempo da 2ª até a 3ª consulta</h4>'
+      +   '<div class="chart-box-full" style="height:220px;"><canvas id="analisesCompProf23"></canvas></div>'
       + '</div>'
       + '<div class="card">'
       +   '<h4 style="margin-top:0;">Pacientes em risco de abandono</h4>'
