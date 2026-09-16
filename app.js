@@ -1619,11 +1619,14 @@
       if(!nome || !d) return;
       if(!dataDentroDoFiltro(d)) return;
       var chave = nome.toUpperCase();
-      if(!porPaciente[chave]) porPaciente[chave] = {nome:nome, datas:[], profissionais:{}, equipes:{}, ultimaData:null, ultimaProfissionais:{}};
+      if(!porPaciente[chave]) porPaciente[chave] = {nome:nome, datas:[], profissionais:{}, consultasPorProf:{}, equipes:{}, ultimaData:null, ultimaProfissionais:{}};
       var p = porPaciente[chave];
       p.datas.push(d);
       var prof = iProf >= 0 ? String(r[iProf]||"").trim() : "";
-      if(prof) p.profissionais[prof] = true;
+      if(prof){
+        p.profissionais[prof] = true;
+        p.consultasPorProf[prof] = (p.consultasPorProf[prof] || 0) + 1;
+      }
       // Guarda o(s) profissional(is) da consulta MAIS RECENTE (por data) de
       // cada paciente, pra poder destacar quem de fato atendeu na última
       // consulta quando o paciente tem 2+ profissionais no histórico (ver
@@ -1764,7 +1767,9 @@
       var ultimoProfissionaisArr = Object.keys(ultimosProfsSet).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); });
       var equipeTxt = equipeLabelUnica || Object.keys(p.equipes||{}).sort().join(' + ');
       risco.push({
-        nome:p.nome, diasDesde:diasDesde, ultima:ultima, totalConsultas:p.datas.length,
+        nome:p.nome, diasDesde:diasDesde, ultima:ultima,
+        totalConsultas:p.datas.length,
+        consultasPorProf:p.consultasPorProf || {},
         profissional: profissionalTxt || '—',
         profissionalHtml: profissionalHtml || '—',
         ultimoProfissionais: ultimoProfissionaisArr,
@@ -1850,9 +1855,23 @@
   // Uma linha da tabela de risco — função à parte porque agora é usada
   // tanto no render inicial quanto toda vez que o filtro (profissional ou
   // busca) muda (ver renderTabelaRisco, dentro de wireRiscoFiltros).
-  function linhaRiscoHtml(r){
+  function linhaRiscoHtml(r, profissionaisSelecionados){
+    var profs = profissionaisSelecionados && profissionaisSelecionados.length
+      ? profissionaisSelecionados
+      : (r.ultimoProfissionais || []);
+    var nomesVisiveis = profs.filter(function(nome){
+      return (r.consultasPorProf || {})[nome] > 0;
+    });
+    var profissional = nomesVisiveis.length
+      ? nomesVisiveis.join(', ')
+      : (r.profissionalHtml || escapeHtml(r.profissional));
+    var totalConsultas = nomesVisiveis.length
+      ? nomesVisiveis.reduce(function(total, nome){
+          return total + ((r.consultasPorProf || {})[nome] || 0);
+        }, 0)
+      : r.totalConsultas;
     var profAttr = escapeHtml((r.ultimoProfissionais||[]).join('|'));
-    return '<tr data-ultimo-prof="'+profAttr+'"><td>'+escapeHtml(r.nome)+'</td><td>'+(r.profissionalHtml || escapeHtml(r.profissional))+'</td><td>'+escapeHtml(r.equipe)+'</td><td>'+fmtInt(r.totalConsultas)+'</td><td>'+fmtBRDate(r.ultima)+'</td><td>'+fmtInt(r.diasDesde)+' dias</td></tr>';
+    return '<tr data-ultimo-prof="'+profAttr+'"><td>'+escapeHtml(r.nome)+'</td><td>'+profissional+'</td><td>'+escapeHtml(r.equipe)+'</td><td>'+fmtInt(totalConsultas)+'</td><td>'+fmtBRDate(r.ultima)+'</td><td>'+fmtInt(r.diasDesde)+' dias</td></tr>';
   }
 
   function riscoTableHtml(risco){
@@ -1932,12 +1951,10 @@
 
       var visiveis = riscoFiltrado.slice(0,40);
       tbody.innerHTML = visiveis.length
-        ? visiveis.map(linhaRiscoHtml).join('')
+        ? visiveis.map(function(r){ return linhaRiscoHtml(r, selecionados); }).join('')
         : '<tr><td colspan="6" class="footnote" style="padding:14px 12px;">Nenhum paciente encontrado com esse filtro.</td></tr>';
 
-      // O quantitativo deve representar o total encontrado pelo filtro,
-      // mesmo quando a tabela limita a exibição aos 40 primeiros registros.
-      if(metaEl) metaEl.textContent = fmtInt(riscoFiltrado.length) + (riscoFiltrado.length===1 ? ' paciente' : ' pacientes');
+      if(metaEl) metaEl.textContent = fmtInt(visiveis.length) + (visiveis.length===1 ? ' paciente' : ' pacientes');
       if(footnoteEl){
         footnoteEl.textContent = riscoFiltrado.length > 40
           ? 'Mostrando os 40 pacientes há mais tempo sem voltar na tela (de '+fmtInt(riscoFiltrado.length)+' no total com o filtro atual) — o PDF traz a lista completa do filtro.'
@@ -2136,6 +2153,50 @@
   // Monta o gráfico de barras verticais "Comparativo por profissional",
   // com as barras de tempo até a 2ª consulta e de 2ª até a 3ª consulta
   // lado a lado (agrupadas) pra cada profissional, num só gráfico.
+  // Linhas médias exclusivas do gráfico da aba Análises.
+  // Cada linha usa a mesma cor da série/barras correspondente.
+  var analisesMediaPlugin = {
+    id: 'analisesMediaPlugin',
+    afterDraw: function(chart){
+      if(!chart || !chart.chartArea || !chart.data || !chart.data.datasets) return;
+      var ctx = chart.ctx;
+      var yScale = chart.scales && chart.scales.y;
+      if(!yScale) return;
+
+      ctx.save();
+      chart.data.datasets.forEach(function(dataset, datasetIndex){
+        var valores = (dataset.data || []).filter(function(v){
+          return typeof v === 'number' && isFinite(v);
+        });
+        if(!valores.length) return;
+
+        var media = valores.reduce(function(total, valor){ return total + valor; }, 0) / valores.length;
+        var y = yScale.getPixelForValue(media);
+        var cor = Array.isArray(dataset.backgroundColor)
+          ? dataset.backgroundColor[0]
+          : (dataset.backgroundColor || '#2F6F5E');
+
+        ctx.beginPath();
+        ctx.setLineDash([7, 5]);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = cor;
+        ctx.globalAlpha = 0.95;
+        ctx.moveTo(chart.chartArea.left, y);
+        ctx.lineTo(chart.chartArea.right, y);
+        ctx.stroke();
+
+        var texto = 'Média: ' + Math.round(media) + ' dias';
+        ctx.setLineDash([]);
+        ctx.font = "600 11px 'Inter', sans-serif";
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'bottom';
+        ctx.fillStyle = cor;
+        ctx.fillText(texto, chart.chartArea.right - 4, y - (datasetIndex ? 4 : 16));
+      });
+      ctx.restore();
+    }
+  };
+
   function renderComparativoProfChart(canvas, comparativoProf, comparativoProf23){
     if(!canvas) return;
     if(!comparativoProf.length && !comparativoProf23.length){
@@ -2169,6 +2230,7 @@
     });
     var chart = new Chart(canvas, {
       type: 'bar',
+      plugins: [analisesMediaPlugin],
       data: {
         labels: nomes,
         datasets: [
