@@ -136,6 +136,17 @@
   // marcada, as linhas de AMBAS entram no cálculo (resultado combinado/
   // somado das equipes selecionadas). Sempre fica pelo menos 1 marcada.
   var currentEquipes = [EQUIPES[0]];
+  // Filtro de Equipe da aba Análises — INDEPENDENTE do filtro global do
+  // topo (currentEquipes): mudar um não muda o outro (a pedido). Mesmo
+  // visual/comportamento do seletor do topo (single-select + "Todas"),
+  // mas filtra client-side em cima do cache bruto (latestRawSheets), sem
+  // disparar um novo fetch. Começa igual ao padrão do filtro do topo.
+  var analisesEquipes = [EQUIPES[0]];
+  // Quadrimestre(s) marcados no multisselect da aba Análises (array de
+  // {ano, qIndex}). Vazio = comportamento padrão de sempre: histórico
+  // COMPLETO, sem restringir por período. 1+ marcados: as análises
+  // passam a considerar só as consultas dentro desses quadrimestres.
+  var analisesQuads = [];
 
   function suffixedName(baseName){
     return baseName + " — " + currentEquipes.map(function(e){ return e.suffix; }).join('+');
@@ -1568,29 +1579,45 @@
 
   // Monta, por paciente (nome em maiúsculas), a lista ORDENADA de datas de
   // atendimento e o conjunto de profissionais que o atenderam — base pra
-  // todas as análises abaixo. Usa a aba Atendimentos inteira (sem filtro
-  // de período), já filtrada por equipe.
-  function construirHistoricosPacientes(wb){
-    var ws = wb && wb.Sheets ? wb.Sheets[suffixedName("Atendimentos")] : null;
-    var rows = ws ? sheetToRows(ws) : [];
+  // todas as análises abaixo. Usa a aba Atendimentos BRUTA (todas as
+  // equipes, cache latestRawSheets), filtrada aqui mesmo pela Equipe e,
+  // se houver, pelo(s) Quadrimestre(s) marcados no filtro PRÓPRIO desta
+  // aba (analisesEquipes/analisesQuads) — independente do filtro global
+  // do topo e do filtro de Quadrimestre/Mês usado nas outras abas.
+  function construirHistoricosPacientes(){
+    var rows = sheetToRows(latestRawSheets["Atendimentos"] || []);
+    rows = filtrarLinhasPorEquipe(rows, analisesEquipes);
     var header = rows[0] || [];
     var iData = colIndex(header, "data_hora");
     var iNome = colIndex(header, "nome");
     var iProf = colIndex(header, "profissional");
     if(iData < 0 || iNome < 0) return [];
-    // Com 2+ equipes selecionadas ao mesmo tempo, um mesmo paciente pode
-    // ter atendimentos vindos de equipes diferentes — guarda qual(is)
-    // equipe(s) de fato atenderam cada paciente (coluna "equipe_unidade"),
-    // usado só pra exibir a coluna "Equipe" na lista de risco de
-    // abandono. Com 1 equipe só selecionada não precisa nem olhar a
-    // coluna: já é a mesma pra todo mundo (ver risco.push, mais abaixo).
-    var precisaSepararPorEquipe = currentEquipes.length > 1;
+    // Com 2+ equipes selecionadas ao mesmo tempo neste filtro, um mesmo
+    // paciente pode ter atendimentos vindos de equipes diferentes —
+    // guarda qual(is) equipe(s) de fato atenderam cada paciente (coluna
+    // "equipe_unidade"), usado só pra exibir a coluna "Equipe" na lista
+    // de risco de abandono. Com 1 equipe só selecionada não precisa nem
+    // olhar a coluna: já é a mesma pra todo mundo (ver risco.push, mais
+    // abaixo).
+    var precisaSepararPorEquipe = analisesEquipes.length > 1;
     var iEquipe = precisaSepararPorEquipe ? equipeColIndex(header) : -1;
+    // Nenhum quadrimestre marcado (padrão) = sem restrição de período,
+    // olha pro histórico inteiro. 1+ marcados: só datas dentro de algum
+    // desses quadrimestres entram no cálculo.
+    var faixasQuad = analisesQuads.map(function(q){
+      var inicio = new Date(q.ano, q.qIndex*4, 1, 0,0,0,0);
+      var fim = new Date(q.ano, q.qIndex*4+4, 0, 23,59,59,999);
+      return {inicio:inicio, fim:fim};
+    });
+    function dataDentroDoFiltro(d){
+      return !faixasQuad.length || faixasQuad.some(function(f){ return d >= f.inicio && d <= f.fim; });
+    }
     var porPaciente = {};
     rows.slice(1).forEach(function(r){
       var nome = String(r[iNome]||"").trim();
       var d = parseBRDate(r[iData]);
       if(!nome || !d) return;
+      if(!dataDentroDoFiltro(d)) return;
       var chave = nome.toUpperCase();
       if(!porPaciente[chave]) porPaciente[chave] = {nome:nome, datas:[], profissionais:{}, equipes:{}, ultimaData:null, ultimaProfissionais:{}};
       var p = porPaciente[chave];
@@ -1623,8 +1650,8 @@
     });
   }
 
-  function calcularAnalises(wb){
-    var pacientes = construirHistoricosPacientes(wb);
+  function calcularAnalises(){
+    var pacientes = construirHistoricosPacientes();
     if(!pacientes.length) return {totalPacientes:0, pacientes:[]};
 
     // Intervalo (em dias) entre 1ª→2ª, 2ª→3ª, 3ª→4ª, 4ª→5ª consulta de
@@ -1708,7 +1735,7 @@
     var medianaBase = intervalos[0].stats ? intervalos[0].stats.mediana : null;
     var hoje = new Date();
     var risco = [];
-    var equipeLabelUnica = currentEquipes.length === 1 ? currentEquipes[0].label : null;
+    var equipeLabelUnica = analisesEquipes.length === 1 ? analisesEquipes[0].label : null;
     // Classificação completa de quem já teve 2+ consultas (base de
     // comparação pra "Pacientes em risco de abandono" não ser lida contra
     // o total geral de pacientes, que inclui quem nunca voltou nem uma vez
@@ -1935,7 +1962,7 @@
       return;
     }
     var filtroAtivo = typeof totalGeral === 'number' && totalGeral > risco.length;
-    var equipeLabel = currentEquipes.map(function(e){ return e.label; }).join(' + ');
+    var equipeLabel = analisesEquipes.map(function(e){ return e.label; }).join(' + ');
     var doc = new jspdfNs.jsPDF({orientation:'landscape', unit:'pt', format:'a4'});
     var pageWidth = doc.internal.pageSize.getWidth();
     var pageHeight = doc.internal.pageSize.getHeight();
@@ -2207,7 +2234,11 @@
       + '</style>'
       + '<div class="card" style="margin-bottom:16px;">'
       +   '<h3 style="margin:0 0 4px;">Perfil de pacientes — '+'<span id="analisesTotalPacientes">—</span> pacientes no histórico</h3>'
-      +   '<p class="footnote" style="margin:0;">Estas análises olham pro histórico completo de atendimentos da equipe selecionada (não usam o filtro de Quadrimestre/Mês do topo).</p>'
+      +   '<p class="footnote" style="margin:0 0 12px;">Estas análises usam um filtro de Equipe e Quadrimestre PRÓPRIO desta aba (independente do filtro do topo). Sem nenhum quadrimestre marcado, olham pro histórico completo de atendimentos.</p>'
+      +   '<div class="list-filters">'
+      +     '<div class="list-month-filter"><label class="list-month-filter-label">Quadrimestre</label><div class="ms-wrap" id="analisesQuadMs"></div></div>'
+      +     '<div class="list-month-filter"><label class="list-month-filter-label">Equipe</label><div class="ms-wrap" id="analisesEquipeMs"></div></div>'
+      +   '</div>'
       + '</div>'
       + '<div class="card" style="margin-bottom:16px;">'
       +   '<h4 style="margin-top:0;">Tempo entre consultas</h4>'
@@ -2241,8 +2272,62 @@
       +   '<div id="analisesRisco"></div>'
       + '</div>';
     panelRef.parentElement.appendChild(panel);
+    wireAnalisesFiltrosTopo();
   }
   injetarAbaAnalises();
+
+  // Liga os filtros PRÓPRIOS da aba Análises (Quadrimestre multisselect +
+  // Equipe), independentes do filtro do topo — mudar qualquer um dos dois
+  // recalcula e redesenha só esta aba (calcularAnalises usa analisesEquipes/
+  // analisesQuads direto do cache bruto, sem precisar buscar a planilha de
+  // novo). Chamada uma única vez, junto com injetarAbaAnalises.
+  function wireAnalisesFiltrosTopo(){
+    var quadContainer = document.getElementById('analisesQuadMs');
+    var equipeContainer = document.getElementById('analisesEquipeMs');
+    if(!quadContainer || !equipeContainer) return;
+
+    function recalcularERedesenhar(){
+      renderAnalises(calcularAnalises());
+    }
+
+    var TODAS_KEY = 'todas';
+    var analisesEquipeMs = createMultiSelect(equipeContainer, {
+      placeholder: 'Selecione', multi: false, search: false,
+      onChange: function(keys){
+        analisesEquipes = keys[0] === TODAS_KEY ? EQUIPES.slice()
+          : EQUIPES.filter(function(eq){ return eq.key === keys[0]; });
+        recalcularERedesenhar();
+      }
+    });
+    analisesEquipeMs.setOptions(
+      EQUIPES.map(function(eq){ return {value: eq.key, label: eq.label}; })
+        .concat([{value: TODAS_KEY, label: 'Todas'}])
+    );
+    analisesEquipeMs.setSelected([analisesEquipes.length > 1 ? TODAS_KEY : analisesEquipes[0].key]);
+
+    var analisesQuadMs = createMultiSelect(quadContainer, {
+      placeholder: 'Histórico completo', multi: true, search: false, showTags: true,
+      onChange: function(keys){
+        analisesQuads = keys.map(function(k){
+          var parts = k.split('-');
+          return {ano: +parts[0], qIndex: +parts[1]};
+        });
+        recalcularERedesenhar();
+      }
+    });
+    var anoAtual = new Date().getFullYear();
+    var mesAtualIdx = new Date().getMonth();
+    var qAtual = Math.floor(mesAtualIdx/4);
+    var quadOpts = [];
+    for(var ano=anoAtual; ano>=anoAtual-2; ano--){
+      for(var q=2; q>=0; q--){
+        if(ano===anoAtual && q>qAtual) continue; // não mostra quadrimestre futuro do ano atual
+        quadOpts.push({value: ano+'-'+q, label: QUAD_LABELS[q]+'/'+ano});
+      }
+    }
+    analisesQuadMs.setOptions(quadOpts);
+    analisesQuadMs.setSelected(analisesQuads.map(function(q){ return q.ano+'-'+q.qIndex; }));
+  }
 
   // ---------- Listas ----------
   // "Pessoas atendidas" com filtro de mês PRÓPRIO (independente do filtro
@@ -4434,6 +4519,12 @@
   // referência" no seletor reusa este cache e recalcula tudo na hora, sem
   // precisar buscar a planilha de novo na rede.
   var latestWb = null;
+  // Igual latestWb, mas SEM o filtro por equipe (todas juntas, uma linha
+  // por atendimento, por nome real da aba) — usado só pelo filtro de
+  // Equipe INDEPENDENTE da aba Análises (analisesEquipes), pra poder
+  // trocar de equipe ali sem precisar buscar a planilha de novo (ver
+  // fetchAndLoad e construirHistoricosPacientes).
+  var latestRawSheets = {};
 
   // Recalcula M1/M2/pontos/nota + a série de tendência pro mês de
   // referência atual (refMonthDates), a partir do cache latestWb.
@@ -4513,7 +4604,7 @@
     }
 
     var performanceProfissionais = calcularPerformanceProfissionais(latestWb, periodoDatas);
-    var analisesData = calcularAnalises(latestWb);
+    var analisesData = calcularAnalises();
 
     populateSheetsCache(latestWb);
     // "Pessoas atendidas" agora NÃO usa mais extracted.pessoasAtendidas
@@ -4597,6 +4688,7 @@
         results.forEach(function(r){
           var parsedRows = parseCsv(r.csvText);
           if(!parsedRows.length) return;
+          latestRawSheets[r.name] = parsedRows;
           // r.name é o nome REAL da aba (sem sufixo). Filtra as linhas pela
           // equipe selecionada e guarda no workbook sob a chave "sufixada"
           // — o resto do painel (cálculo, listas) continua lendo por essa
