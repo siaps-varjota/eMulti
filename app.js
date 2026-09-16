@@ -1585,11 +1585,21 @@
       var d = parseBRDate(r[iData]);
       if(!nome || !d) return;
       var chave = nome.toUpperCase();
-      if(!porPaciente[chave]) porPaciente[chave] = {nome:nome, datas:[], profissionais:{}, equipes:{}};
-      porPaciente[chave].datas.push(d);
-      if(iProf >= 0){
-        var prof = String(r[iProf]||"").trim();
-        if(prof) porPaciente[chave].profissionais[prof] = true;
+      if(!porPaciente[chave]) porPaciente[chave] = {nome:nome, datas:[], profissionais:{}, equipes:{}, ultimaData:null, ultimaProfissionais:{}};
+      var p = porPaciente[chave];
+      p.datas.push(d);
+      var prof = iProf >= 0 ? String(r[iProf]||"").trim() : "";
+      if(prof) p.profissionais[prof] = true;
+      // Guarda o(s) profissional(is) da consulta MAIS RECENTE (por data) de
+      // cada paciente, pra poder destacar quem de fato atendeu na última
+      // consulta quando o paciente tem 2+ profissionais no histórico (ver
+      // uso em "risco de abandono", mais abaixo).
+      if(!p.ultimaData || d.getTime() > p.ultimaData.getTime()){
+        p.ultimaData = d;
+        p.ultimaProfissionais = {};
+        if(prof) p.ultimaProfissionais[prof] = true;
+      } else if(d.getTime() === p.ultimaData.getTime() && prof){
+        p.ultimaProfissionais[prof] = true;
       }
       if(precisaSepararPorEquipe && iEquipe >= 0){
         var valorEquipe = normalizeText(r[iEquipe]);
@@ -1692,11 +1702,21 @@
         var ultima = p.datas[p.datas.length-1];
         var diasDesde = diffDias(ultima, hoje);
         if(diasDesde > medianaBase && diasDesde <= medianaBase*3){
-          var profissionalTxt = Object.keys(p.profissionais).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); }).join(', ');
+          var todosProfs = Object.keys(p.profissionais).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); });
+          var ultimosProfsSet = p.ultimaProfissionais || {};
+          // Com 2+ profissionais no histórico do paciente, destaca em
+          // negrito quem de fato fez a ÚLTIMA consulta (profissionalHtml,
+          // usado na tela). O PDF continua em texto puro (profissional).
+          var profissionalHtml = todosProfs.map(function(nomeProf){
+            var escapado = escapeHtml(nomeProf);
+            return (todosProfs.length >= 2 && ultimosProfsSet[nomeProf]) ? '<b>'+escapado+'</b>' : escapado;
+          }).join(', ');
+          var profissionalTxt = todosProfs.join(', ');
           var equipeTxt = equipeLabelUnica || Object.keys(p.equipes||{}).sort().join(' + ');
           risco.push({
             nome:p.nome, diasDesde:diasDesde, ultima:ultima, totalConsultas:p.datas.length,
             profissional: profissionalTxt || '—',
+            profissionalHtml: profissionalHtml || '—',
             equipe: equipeTxt || '—'
           });
         }
@@ -1778,7 +1798,7 @@
   function riscoTableHtml(risco){
     if(!risco.length) return '<p class="footnote">Nenhum paciente na janela de risco no momento (ou ainda não há intervalo histórico suficiente pra calcular).</p>';
     var linhas = risco.slice(0,40).map(function(r){
-      return '<tr><td>'+escapeHtml(r.nome)+'</td><td>'+escapeHtml(r.profissional)+'</td><td>'+escapeHtml(r.equipe)+'</td><td>'+fmtInt(r.totalConsultas)+'</td><td>'+fmtBRDate(r.ultima)+'</td><td>'+fmtInt(r.diasDesde)+' dias</td></tr>';
+      return '<tr><td>'+escapeHtml(r.nome)+'</td><td>'+(r.profissionalHtml || escapeHtml(r.profissional))+'</td><td>'+escapeHtml(r.equipe)+'</td><td>'+fmtInt(r.totalConsultas)+'</td><td>'+fmtBRDate(r.ultima)+'</td><td>'+fmtInt(r.diasDesde)+' dias</td></tr>';
     }).join('');
     var pdfBtnHtml = '<button type="button" class="pdf-btn" id="btnRiscoPdf">'
       + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h1a1.5 1.5 0 0 0 0-3H9v5"/><path d="M13 12v5h1a2 2 0 0 0 0-5z"/><path d="M18.5 12H17v5"/><path d="M17 14.5h1.3"/></svg>'
