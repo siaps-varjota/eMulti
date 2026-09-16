@@ -671,6 +671,7 @@
     "MARCILENE ALVES DA SILVA",
     "HANNA LUIZA OLIVEIRA GOMES",
     "KARISE SANTOS VASCONCELOS",
+    "LETÍCIA EMILLY MESQUITA DE SOUSA",
     "ANNA MAEVILLY LIRA LOPES MARTINS"
   ].map(normalizeText);
   function ehProfissionalComparativoEmulti(nome){
