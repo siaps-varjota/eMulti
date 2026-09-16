@@ -4257,8 +4257,52 @@
     });
   }
 
+  // ---------- Agendamento ----------
+  var agendamentoConfig = {equipe:'todas', profissional:'', diaSemana:1, intervaloDias:30};
+  try { var salvo = JSON.parse(localStorage.getItem('painelAgendamentoConfig') || 'null'); if(salvo) Object.assign(agendamentoConfig, salvo); } catch(e){}
+  var DIAS_SEMANA_AGENDAMENTO = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
+  function salvarAgendamentoConfig(){ try{ localStorage.setItem('painelAgendamentoConfig', JSON.stringify(agendamentoConfig)); }catch(e){} }
+  function nomesProfissionaisAgendamento(){
+    var nomes={}; profissionaisRoster.forEach(function(p){ if(p && p.nome) nomes[p.nome]=true; });
+    var rows=sheetToRows(latestRawSheets['Atendimentos']||[]), h=rows[0]||[], idx=profissionalColIndex(h);
+    if(idx>=0) rows.slice(1).forEach(function(r){ var n=String(r[idx]||'').trim(); if(n) nomes[n]=true; });
+    return Object.keys(nomes).sort(function(a,b){return a.localeCompare(b,'pt-BR');});
+  }
+  function dadosAgendamento(){
+    var rows=sheetToRows(latestRawSheets['Atendimentos']||[]), h=rows[0]||[];
+    var iData=colIndex(h,'data_hora'), iNome=colIndex(h,'nome'), iProf=profissionalColIndex(h), iEquipe=equipeColIndex(h);
+    if(iData<0||iNome<0) return [];
+    var eqs=agendamentoConfig.equipe==='todas'?EQUIPES:EQUIPES.filter(function(e){return e.key===agendamentoConfig.equipe;});
+    var pf=normalizeText(agendamentoConfig.profissional), mapa={};
+    rows.slice(1).forEach(function(r){
+      var nome=String(r[iNome]||'').trim(), d=parseBRDate(r[iData]), prof=iProf>=0?String(r[iProf]||'').trim():'';
+      if(!nome||!d) return;
+      if(iEquipe>=0 && eqs.length && !eqs.some(function(e){return normalizeText(r[iEquipe]).indexOf(normalizeText(e.matchKeyword))!==-1;})) return;
+      if(pf && normalizeText(prof)!==pf) return;
+      var k=nome.toUpperCase(); if(!mapa[k]||d>mapa[k].ultima) mapa[k]={nome:nome,ultima:d,profissional:prof};
+    });
+    var intervalo=Math.max(1,Math.min(365,parseInt(agendamentoConfig.intervaloDias,10)||30));
+    return Object.keys(mapa).map(function(k){var p=mapa[k], prev=new Date(p.ultima.getTime()); prev.setDate(prev.getDate()+intervalo); while(prev.getDay()!==Number(agendamentoConfig.diaSemana)) prev.setDate(prev.getDate()+1); return {nome:p.nome,profissional:p.profissional||agendamentoConfig.profissional||'—',ultima:p.ultima,prevista:prev,intervalo:intervalo};}).sort(function(a,b){return a.prevista-b.prevista||a.nome.localeCompare(b.nome,'pt-BR');});
+  }
+  function renderAgendamentoConfig(){
+    var eq=document.getElementById('agendamentoEquipe'), pf=document.getElementById('agendamentoProfissional'); if(!eq||!pf) return;
+    eq.innerHTML=EQUIPES.map(function(e){return '<option value="'+escapeHtml(e.key)+'">'+escapeHtml(e.label)+'</option>';}).join('')+'<option value="todas">Todas</option>';
+    pf.innerHTML='<option value="">Todos os profissionais</option>'+nomesProfissionaisAgendamento().map(function(n){return '<option value="'+escapeHtml(n)+'">'+escapeHtml(n)+'</option>';}).join('');
+    eq.value=agendamentoConfig.equipe; pf.value=agendamentoConfig.profissional; document.getElementById('agendamentoDia').value=String(agendamentoConfig.diaSemana); document.getElementById('agendamentoIntervalo').value=agendamentoConfig.intervaloDias;
+  }
+  function renderAgendamento(){
+    var el=document.getElementById('agendamentoTabela'), resumo=document.getElementById('agendamentoResumo'); if(!el||!resumo) return;
+    var rows=dadosAgendamento(); resumo.textContent=rows.length+' paciente'+(rows.length===1?'':'s')+' na agenda · '+DIAS_SEMANA_AGENDAMENTO[Number(agendamentoConfig.diaSemana)]+' · intervalo de '+agendamentoConfig.intervaloDias+' dia'+(Number(agendamentoConfig.intervaloDias)===1?'':'s');
+    if(!rows.length){el.innerHTML='<div class="list-placeholder">Nenhum paciente encontrado para os filtros atuais.</div>';return;}
+    el.innerHTML='<div class="table-wrap"><table class="data-table agendamento-table"><thead><tr><th>Paciente</th><th>Profissional</th><th>Última consulta</th><th>Próximo agendamento</th><th>Intervalo</th></tr></thead><tbody>'+rows.map(function(r){return '<tr><td>'+escapeHtml(r.nome)+'</td><td>'+escapeHtml(r.profissional)+'</td><td>'+fmtBRDate(r.ultima)+'</td><td><b>'+fmtBRDate(r.prevista)+'</b></td><td>'+r.intervalo+' dias</td></tr>';}).join('')+'</tbody></table></div>';
+  }
+  var agendamentoBtn=document.querySelector('.tab[data-tab="agendamento"]');
+  var configuracoesBtn=document.querySelector('.tab[data-tab="configuracoes"]');
+  var salvarAgendamentoBtn=document.getElementById('salvarAgendamento');
+  if(salvarAgendamentoBtn) salvarAgendamentoBtn.addEventListener('click',function(){agendamentoConfig.equipe=document.getElementById('agendamentoEquipe').value;agendamentoConfig.profissional=document.getElementById('agendamentoProfissional').value;agendamentoConfig.diaSemana=Number(document.getElementById('agendamentoDia').value);agendamentoConfig.intervaloDias=Math.max(1,Number(document.getElementById('agendamentoIntervalo').value)||30);salvarAgendamentoConfig();renderAgendamento();this.textContent='Configurações salvas';var b=this;setTimeout(function(){b.textContent='Salvar configurações';},1600);});
+
   // ---------- Tabs ----------
-  var FILTER_BAR_TABS = {geral:true, m1:true, m2:true, tendencia:true, profissionais:true};
+  var FILTER_BAR_TABS = {geral:true, m1:true, m2:true, tendencia:true, profissionais:true, analises:false, agendamento:false, configuracoes:false};
   document.querySelectorAll('.tab').forEach(function(btn){
     btn.addEventListener('click', function(){
       document.querySelectorAll('.tab').forEach(function(b){ b.classList.toggle('active', b===btn); });
@@ -4276,6 +4320,13 @@
       if(target === 'analises'){
         renderAnalises(analisesDataAtual);
       }
+      if(target === 'agendamento'){
+        renderAgendamentoConfig();
+        renderAgendamento();
+      }
+      if(target === 'configuracoes'){
+        renderAgendamentoConfig();
+      }
     });
   });
 
@@ -4287,6 +4338,8 @@
     // recalculada quando vem de aplicarMesReferencia (ver chamadas abaixo).
     renderPerformanceProfissionais(performanceProfissionais || []);
     renderAnalises(analisesData || null);
+    renderAgendamentoConfig();
+    renderAgendamento();
     document.getElementById('statusState').style.display = 'none';
     populateQuadSelect();
     document.getElementById('topEquipe').textContent = record.equipe || '—';
