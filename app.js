@@ -3562,9 +3562,9 @@
       +   '<div class="ov-evo-fill" style="width:'+(fracAtual*100).toFixed(1)+'%;background:'+fillColor+';"></div>'
       +   '<div class="ov-evo-mark" style="left:'+(fracAnterior*100).toFixed(1)+'%;"></div>'
       + '</div>'
-      + pctHTML
       + '<div class="ov-evo-labels"><span>Anterior<br><b>'+fmtDec(anterior,decimals)+suffix+'</b></span>'
-      +   '<span style="text-align:right;">Atual<br><b>'+fmtDec(atual,decimals)+suffix+'</b></span></div>';
+      +   '<span style="text-align:right;">Atual<br><b>'+fmtDec(atual,decimals)+suffix+'</b></span></div>'
+      + pctHTML;
   }
   // Bloco "Evolução - Quadrimestre": compara o valor atual com o do
   // quadrimestre anterior (calcularQuadrimestreAnterior). Sem dado
