@@ -1702,35 +1702,42 @@
     var hoje = new Date();
     var risco = [];
     var equipeLabelUnica = currentEquipes.length === 1 ? currentEquipes[0].label : null;
-    if(medianaBase){
-      pacientes.forEach(function(p){
-        if(p.datas.length < 2) return;
-        var ultima = p.datas[p.datas.length-1];
-        var diasDesde = diffDias(ultima, hoje);
-        if(diasDesde > medianaBase && diasDesde <= medianaBase*3){
-          var todosProfs = Object.keys(p.profissionais).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); });
-          var ultimosProfsSet = p.ultimaProfissionais || {};
-          // Com 2+ profissionais no histórico do paciente, destaca em
-          // negrito quem de fato fez a ÚLTIMA consulta (profissionalHtml,
-          // usado na tela). O PDF continua em texto puro (profissional).
-          var profissionalHtml = todosProfs.map(function(nomeProf){
-            var escapado = escapeHtml(nomeProf);
-            return (todosProfs.length >= 2 && ultimosProfsSet[nomeProf]) ? '<b>'+escapado+'</b>' : escapado;
-          }).join(', ');
-          var profissionalTxt = todosProfs.join(', ');
-          var ultimoProfissionaisArr = Object.keys(ultimosProfsSet).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); });
-          var equipeTxt = equipeLabelUnica || Object.keys(p.equipes||{}).sort().join(' + ');
-          risco.push({
-            nome:p.nome, diasDesde:diasDesde, ultima:ultima, totalConsultas:p.datas.length,
-            profissional: profissionalTxt || '—',
-            profissionalHtml: profissionalHtml || '—',
-            ultimoProfissionais: ultimoProfissionaisArr,
-            equipe: equipeTxt || '—'
-          });
-        }
+    // Classificação completa de quem já teve 2+ consultas (base de
+    // comparação pra "Pacientes em risco de abandono" não ser lida contra
+    // o total geral de pacientes, que inclui quem nunca voltou nem uma vez
+    // — esses já aparecem em "Consulta única", no Perfil de frequência):
+    // em dia (ainda dentro da mediana) / em risco (na janela) / abandono
+    // consumado (já passou de 3x a mediana sem voltar).
+    var comRetorno = 0, emDiaCount = 0, abandonoConsumadoCount = 0;
+    pacientes.forEach(function(p){
+      if(p.datas.length < 2) return;
+      comRetorno++;
+      var ultima = p.datas[p.datas.length-1];
+      var diasDesde = diffDias(ultima, hoje);
+      if(!medianaBase) return;
+      if(diasDesde <= medianaBase){ emDiaCount++; return; }
+      if(diasDesde > medianaBase*3){ abandonoConsumadoCount++; return; }
+      var todosProfs = Object.keys(p.profissionais).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); });
+      var ultimosProfsSet = p.ultimaProfissionais || {};
+      // Com 2+ profissionais no histórico do paciente, destaca em
+      // negrito quem de fato fez a ÚLTIMA consulta (profissionalHtml,
+      // usado na tela). O PDF continua em texto puro (profissional).
+      var profissionalHtml = todosProfs.map(function(nomeProf){
+        var escapado = escapeHtml(nomeProf);
+        return (todosProfs.length >= 2 && ultimosProfsSet[nomeProf]) ? '<b>'+escapado+'</b>' : escapado;
+      }).join(', ');
+      var profissionalTxt = todosProfs.join(', ');
+      var ultimoProfissionaisArr = Object.keys(ultimosProfsSet).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); });
+      var equipeTxt = equipeLabelUnica || Object.keys(p.equipes||{}).sort().join(' + ');
+      risco.push({
+        nome:p.nome, diasDesde:diasDesde, ultima:ultima, totalConsultas:p.datas.length,
+        profissional: profissionalTxt || '—',
+        profissionalHtml: profissionalHtml || '—',
+        ultimoProfissionais: ultimoProfissionaisArr,
+        equipe: equipeTxt || '—'
       });
-      risco.sort(function(a,b){ return b.diasDesde - a.diasDesde; });
-    }
+    });
+    risco.sort(function(a,b){ return b.diasDesde - a.diasDesde; });
 
     return {
       totalPacientes: pacientes.length,
@@ -1742,6 +1749,9 @@
       comparativoProf: comparativoProf,
       comparativoProf23: comparativoProf23,
       medianaBase: medianaBase,
+      comRetorno: comRetorno,
+      emDiaCount: emDiaCount,
+      abandonoConsumadoCount: abandonoConsumadoCount,
       risco: risco
     };
   }
@@ -1949,6 +1959,7 @@
     var elIntervalos = document.getElementById('analisesIntervalos');
     var elFunil = document.getElementById('analisesFunil');
     var elRisco = document.getElementById('analisesRisco');
+    var elRiscoResumo = document.getElementById('analisesRiscoResumo');
     var elTotal = document.getElementById('analisesTotalPacientes');
     if(!elIntervalos && !elFunil) return; // painel ainda não injetado no DOM
 
@@ -1956,6 +1967,7 @@
       if(elTotal) elTotal.textContent = '—';
       if(elIntervalos) elIntervalos.innerHTML = '<p class="footnote">Ainda não há dados suficientes pra esta equipe/período.</p>';
       if(elFunil) elFunil.innerHTML = '';
+      if(elRiscoResumo) elRiscoResumo.innerHTML = '';
       if(elRisco) elRisco.innerHTML = '';
       return;
     }
@@ -1963,6 +1975,26 @@
     if(elTotal) elTotal.textContent = fmtInt(data.totalPacientes);
     if(elIntervalos) elIntervalos.innerHTML = boxplotDiasSvg(data.intervalos);
     if(elFunil) elFunil.innerHTML = funnelHtml(data.funil);
+    if(elRiscoResumo){
+      if(!data.medianaBase){
+        elRiscoResumo.innerHTML = '<p class="footnote" style="margin:0;">Ainda não há mediana histórica suficiente (1ª→2ª consulta) pra classificar quem está em dia, em risco ou em abandono consumado.</p>';
+      } else {
+        var comRetorno = data.comRetorno || 0;
+        function pctRetorno(n){ return comRetorno ? Math.round(n/comRetorno*100) : 0; }
+        // Importante: "Em risco" só faz sentido comparado com quem TEM
+        // 2+ consultas (comRetorno) — não com o total geral de pacientes,
+        // que inclui quem nunca voltou nem uma vez (Consulta única, no
+        // Perfil de frequência) e por isso nem entra nessa conta.
+        elRiscoResumo.innerHTML = ''
+          + '<div class="kpi-container">'
+          +   '<div class="kpi-item"><label>Total no histórico</label><span>'+fmtInt(data.totalPacientes)+'</span></div>'
+          +   '<div class="kpi-item"><label>Com 2+ consultas</label><span>'+fmtInt(comRetorno)+'</span></div>'
+          +   '<div class="kpi-item"><label>Em dia</label><span>'+fmtInt(data.emDiaCount)+' ('+pctRetorno(data.emDiaCount)+'%)</span></div>'
+          +   '<div class="kpi-item"><label>Em risco</label><span>'+fmtInt(data.risco.length)+' ('+pctRetorno(data.risco.length)+'%)</span></div>'
+          +   '<div class="kpi-item"><label>Abandono consumado</label><span>'+fmtInt(data.abandonoConsumadoCount)+' ('+pctRetorno(data.abandonoConsumadoCount)+'%)</span></div>'
+          + '</div>';
+      }
+    }
     if(elRisco){
       elRisco.innerHTML = riscoTableHtml(data.risco);
       var btnRiscoPdf = document.getElementById('btnRiscoPdf');
@@ -2168,6 +2200,7 @@
       + '<div class="card">'
       +   '<h4 style="margin-top:0;">Pacientes em risco de abandono</h4>'
       +   '<p class="footnote" style="margin-top:0;line-height:1.5;">Pacientes com 2+ consultas cuja última visita já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível. Quando o paciente tem 2 ou mais profissionais no histórico, o nome em <b>negrito</b> na coluna "Profissional" é de quem realizou a última consulta.</p>'
+      +   '<div id="analisesRiscoResumo" style="margin-bottom:14px;"></div>'
       +   '<div id="analisesRisco"></div>'
       + '</div>';
     panelRef.parentElement.appendChild(panel);
