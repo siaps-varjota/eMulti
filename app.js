@@ -1649,14 +1649,20 @@
       {label:'4ª+ consulta', n: pacientes.filter(function(p){return p.datas.length>=4;}).length}
     ];
 
-    // Perfil de frequência: única / ocasional (2-3) / consolidado (4+).
-    var perfilFreq = {unica:0, ocasional:0, consolidado:0};
+    // Perfil de frequência: única / ocasional (2-3) / consolidado (4+) —
+    // e a média de consultas por paciente (total de consultas do
+    // histórico ÷ nº de pacientes), pra dar uma leitura rápida do volume
+    // médio de retorno ao lado da distribuição por faixa.
+    var perfilFreq = {unica:0, ocasional:0, consolidado:0, mediaConsultas:0};
+    var totalConsultasFreq = 0;
     pacientes.forEach(function(p){
       var n = p.datas.length;
+      totalConsultasFreq += n;
       if(n===1) perfilFreq.unica++;
       else if(n===2||n===3) perfilFreq.ocasional++;
       else perfilFreq.consolidado++;
     });
+    perfilFreq.mediaConsultas = pacientes.length ? (totalConsultasFreq/pacientes.length) : 0;
 
     // Sazonalidade: nº de atendimentos por dia da semana (todas as datas,
     // não só a 1ª consulta).
@@ -1971,7 +1977,8 @@
       freqEl.innerHTML = ''
         + '<div class="kpi-item"><label>Consulta única</label><span>'+fmtInt(f.unica)+' ('+pct(f.unica)+'%)</span></div>'
         + '<div class="kpi-item"><label>Retorno ocasional (2-3)</label><span>'+fmtInt(f.ocasional)+' ('+pct(f.ocasional)+'%)</span></div>'
-        + '<div class="kpi-item"><label>Vínculo consolidado (4+)</label><span>'+fmtInt(f.consolidado)+' ('+pct(f.consolidado)+'%)</span></div>';
+        + '<div class="kpi-item"><label>Vínculo consolidado (4+)</label><span>'+fmtInt(f.consolidado)+' ('+pct(f.consolidado)+'%)</span></div>'
+        + '<div class="kpi-item"><label>Média de consultas por paciente</label><span>'+fmtDec(f.mediaConsultas,1)+'</span></div>';
     }
 
     if(typeof Chart === 'undefined') return;
