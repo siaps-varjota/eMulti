@@ -4258,7 +4258,7 @@
   }
 
   // ---------- Agendamento ----------
-  var agendamentoConfig = {equipe:'todas', profissional:'', diasSemana:[1], intervaloDias:30};
+  var agendamentoConfig = {equipe:'todas', profissional:'', diasSemana:[1], intervaloDias:30, consultasPorDia:8};
   // Compatibilidade com configurações antigas que guardavam apenas um dia.
   try {
     var configAntiga = JSON.parse(localStorage.getItem('painelAgendamentoConfig') || 'null');
@@ -4285,6 +4285,7 @@
     if(!Array.isArray(agendamentoConfig.diasSemana)){
       agendamentoConfig.diasSemana = agendamentoConfig.diaSemana !== undefined ? [Number(agendamentoConfig.diaSemana)] : [1];
     }
+    agendamentoConfig.consultasPorDia = Math.max(1, Math.min(100, parseInt(agendamentoConfig.consultasPorDia, 10) || 8));
   } catch(e){}
   var DIAS_SEMANA_AGENDAMENTO = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
   function salvarAgendamentoConfig(){ try{ localStorage.setItem('painelAgendamentoConfig', JSON.stringify(agendamentoConfig)); }catch(e){} }
@@ -4308,12 +4309,24 @@
       var k=nome.toUpperCase(); if(!mapa[k]||d>mapa[k].ultima) mapa[k]={nome:nome,ultima:d,profissional:prof};
     });
     var intervalo=Math.max(1,Math.min(365,parseInt(agendamentoConfig.intervaloDias,10)||30));
+    var limiteDia=Math.max(1,Math.min(100,parseInt(agendamentoConfig.consultasPorDia,10)||8));
     var diasSelecionados = diasAgendamentoSelecionados();
+    var hoje=new Date(); hoje.setHours(0,0,0,0);
+    var ocupacao={};
+    function proximaDataPermitida(base){
+      var prev=new Date(base.getTime()); prev.setHours(0,0,0,0);
+      while(prev <= hoje || diasSelecionados.indexOf(prev.getDay()) < 0 || (ocupacao[prev.getTime()]||0) >= limiteDia){
+        prev.setDate(prev.getDate()+1);
+      }
+      ocupacao[prev.getTime()] = (ocupacao[prev.getTime()]||0) + 1;
+      return prev;
+    }
     return Object.keys(mapa).map(function(k){
-      var p=mapa[k], prev=new Date(p.ultima.getTime());
-      prev.setDate(prev.getDate()+intervalo);
-      while(diasSelecionados.indexOf(prev.getDay()) < 0) prev.setDate(prev.getDate()+1);
-      return {nome:p.nome,profissional:p.profissional||agendamentoConfig.profissional||'—',ultima:p.ultima,prevista:prev,intervalo:intervalo};
+      var p=mapa[k], base=new Date(p.ultima.getTime());
+      base.setDate(base.getDate()+intervalo);
+      var prev=proximaDataPermitida(base);
+      var diasSemConsulta=Math.max(0,Math.floor((hoje-p.ultima)/(24*60*60*1000)));
+      return {nome:p.nome,profissional:p.profissional||agendamentoConfig.profissional||'—',ultima:p.ultima,diasSemConsulta:diasSemConsulta,prevista:prev,intervalo:intervalo};
     }).sort(function(a,b){return a.prevista-b.prevista||a.nome.localeCompare(b.nome,'pt-BR');});
   }
   function renderAgendamentoConfig(){
@@ -4324,14 +4337,15 @@
     pf.value=agendamentoConfig.profissional;
     sincronizarPillsDias();
     document.getElementById('agendamentoIntervalo').value=agendamentoConfig.intervaloDias;
+    document.getElementById('agendamentoConsultasDia').value=agendamentoConfig.consultasPorDia || 8;
   }
   function renderAgendamento(){
     var el=document.getElementById('agendamentoTabela'), resumo=document.getElementById('agendamentoResumo'); if(!el||!resumo) return;
     var rows=dadosAgendamento();
     var nomesDias = diasAgendamentoSelecionados().map(function(d){ return DIAS_SEMANA_AGENDAMENTO[d]; }).join(', ');
-    resumo.textContent=rows.length+' paciente'+(rows.length===1?'':'s')+' na agenda · '+nomesDias+' · intervalo de '+agendamentoConfig.intervaloDias+' dia'+(Number(agendamentoConfig.intervaloDias)===1?'':'s');
+    resumo.textContent=rows.length+' paciente'+(rows.length===1?'':'s')+' na agenda · '+nomesDias+' · intervalo de '+agendamentoConfig.intervaloDias+' dia'+(Number(agendamentoConfig.intervaloDias)===1?'':'s')+' · máximo de '+(agendamentoConfig.consultasPorDia||8)+' por dia';
     if(!rows.length){el.innerHTML='<div class="list-placeholder">Nenhum paciente encontrado para os filtros atuais.</div>';return;}
-    el.innerHTML='<div class="table-wrap"><table class="data-table agendamento-table"><thead><tr><th>Paciente</th><th>Profissional</th><th>Última consulta</th><th>Próximo agendamento</th><th>Intervalo</th></tr></thead><tbody>'+rows.map(function(r){return '<tr><td>'+escapeHtml(r.nome)+'</td><td>'+escapeHtml(r.profissional)+'</td><td>'+fmtBRDate(r.ultima)+'</td><td><b>'+fmtBRDate(r.prevista)+'</b></td><td>'+r.intervalo+' dias</td></tr>';}).join('')+'</tbody></table></div>';
+    el.innerHTML='<div class="table-wrap"><table class="data-table agendamento-table"><thead><tr><th>Paciente</th><th>Profissional</th><th>Dias sem consulta</th><th>Última consulta</th><th>Próximo agendamento</th><th>Intervalo</th></tr></thead><tbody>'+rows.map(function(r){return '<tr><td>'+escapeHtml(r.nome)+'</td><td>'+escapeHtml(r.profissional)+'</td><td>'+r.diasSemConsulta+' dias</td><td>'+fmtBRDate(r.ultima)+'</td><td><b>'+fmtBRDate(r.prevista)+'</b></td><td>'+r.intervalo+' dias</td></tr>';}).join('')+'</tbody></table></div>';
   }
   var agendamentoBtn=document.querySelector('.tab[data-tab="agendamento"]');
   var configuracoesBtn=document.querySelector('.tab[data-tab="configuracoes"]');
@@ -4353,7 +4367,8 @@
     agendamentoConfig.equipe=document.getElementById('agendamentoEquipe').value;
     agendamentoConfig.profissional=document.getElementById('agendamentoProfissional').value;
     agendamentoConfig.diasSemana=diasAgendamentoSelecionados();
-    agendamentoConfig.intervaloDias=Math.max(1,Number(document.getElementById('agendamentoIntervalo').value)||30);
+    agendamentoConfig.intervaloDias=Math.max(1,Math.min(365,Number(document.getElementById('agendamentoIntervalo').value)||30));
+    agendamentoConfig.consultasPorDia=Math.max(1,Math.min(100,Number(document.getElementById('agendamentoConsultasDia').value)||8));
     salvarAgendamentoConfig();renderAgendamento();this.textContent='Configurações salvas';var b=this;setTimeout(function(){b.textContent='Salvar configurações';},1600);
   });
 
