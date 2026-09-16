@@ -634,6 +634,30 @@
   function normalizeText(s){
     return String(s||"").toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   }
+  // Profissionais que de fato são da eMulti — usado só pra filtrar o
+  // gráfico "Comparativo por profissional" (a aba de atendimentos traz
+  // profissionais de fora da equipe também, ex. de outros programas que
+  // atenderam o mesmo paciente, e esses não devem entrar nesse
+  // comparativo). Comparação ignora acento/maiúscula (normalizeText).
+  var PROFISSIONAIS_COMPARATIVO_EMULTI = [
+    "FRANCISCA TEREZINHA ARAUJO",
+    "ANNA ALLYNE ALVES CARVALHO",
+    "ECLENE PAULO DOS SANTOS",
+    "KELLE ROSSANNE LINHARES PAULO",
+    "MARIA EVELINE PONTES MONTE",
+    "CLECIANE NOBRE XIMENES",
+    "KAROLINY MELO DE CASTRO",
+    "IWDMILLY DE SOUSA LINHARES",
+    "JOSE LUCAS CAETANO OLIVEIRA",
+    "ALINE DE SOUSA ROSA",
+    "MARCILENE ALVES DA SILVA",
+    "HANNA LUIZA OLIVEIRA GOMES",
+    "KARISE SANTOS VASCONCELOS",
+    "ANNA MAEVILLY LIRA LOPES MARTINS"
+  ].map(normalizeText);
+  function ehProfissionalComparativoEmulti(nome){
+    return PROFISSIONAIS_COMPARATIVO_EMULTI.indexOf(normalizeText(nome)) >= 0;
+  }
   function equipeColIndex(headerRow){
     for(var i=0;i<headerRow.length;i++){
       var h = normalizeText(headerRow[i]).replace(/\s+/g,'_');
@@ -1571,14 +1595,15 @@
     var pacientes = construirHistoricosPacientes(wb);
     if(!pacientes.length) return {totalPacientes:0, pacientes:[]};
 
-    // Intervalo (em dias) entre 1ª→2ª, 2ª→3ª, 3ª→4ª consulta de cada
-    // paciente que já teve consultas suficientes pra cada transição.
-    var brutos = {t12:[], t23:[], t34:[]};
+    // Intervalo (em dias) entre 1ª→2ª, 2ª→3ª, 3ª→4ª, 4ª→5ª consulta de
+    // cada paciente que já teve consultas suficientes pra cada transição.
+    var brutos = {t12:[], t23:[], t34:[], t45:[]};
     pacientes.forEach(function(p){
       var d = p.datas;
       if(d.length>=2) brutos.t12.push(diffDias(d[0], d[1]));
       if(d.length>=3) brutos.t23.push(diffDias(d[1], d[2]));
       if(d.length>=4) brutos.t34.push(diffDias(d[2], d[3]));
+      if(d.length>=5) brutos.t45.push(diffDias(d[3], d[4]));
     });
     function resumo(arr){
       if(!arr.length) return null;
@@ -1587,7 +1612,8 @@
     var intervalos = [
       {chave:'t12', label:'1ª → 2ª consulta', stats: resumo(brutos.t12)},
       {chave:'t23', label:'2ª → 3ª consulta', stats: resumo(brutos.t23)},
-      {chave:'t34', label:'3ª → 4ª consulta', stats: resumo(brutos.t34)}
+      {chave:'t34', label:'3ª → 4ª consulta', stats: resumo(brutos.t34)},
+      {chave:'t45', label:'4ª → 5ª consulta', stats: resumo(brutos.t45)}
     ];
 
     // Funil de abandono: quantos pacientes chegam a cada "degrau".
@@ -1621,6 +1647,7 @@
       if(p.datas.length < 2) return;
       var dias = diffDias(p.datas[0], p.datas[1]);
       Object.keys(p.profissionais).forEach(function(prof){
+        if(!ehProfissionalComparativoEmulti(prof)) return;
         if(!porProf[prof]) porProf[prof] = [];
         porProf[prof].push(dias);
       });
@@ -1662,34 +1689,43 @@
     };
   }
 
-  // "Boxplot" simplificado em SVG (min/p25/mediana/p75/max) pros 3
-  // intervalos — sem depender de nenhuma lib de gráfico nova.
+  // "Boxplot" simplificado em SVG (min/p25/mediana/p75/max) pros
+  // intervalos — sem depender de nenhuma lib de gráfico nova. Layout em
+  // grade (2 colunas) pra caber os 4 intervalos (1ª→2ª, 2ª→3ª, 3ª→4ª,
+  // 4ª→5ª) em 4 quadrantes, em vez de 4 linhas empilhadas ocupando altura
+  // desnecessária.
   function boxplotDiasSvg(intervalos){
     var comDados = intervalos.filter(function(it){ return it.stats; });
-    var W = 640, rowH = 56, padTop = 16, padLeft = 128, padRight = 60;
-    var H = padTop*2 + rowH*intervalos.length;
+    var W = 640, cols = 2;
+    var rows = Math.ceil(intervalos.length/cols);
+    var outerPad = 16, gapX = 28, gapY = 22, cellH = 100;
+    var cellW = (W - outerPad*2 - gapX*(cols-1)) / cols;
+    var H = outerPad*2 + cellH*rows + gapY*(rows-1);
     var maxVal = comDados.length ? Math.max.apply(null, comDados.map(function(it){ return it.stats.max; })) : 1;
     if(maxVal <= 0) maxVal = 1;
-    var plotW = W - padLeft - padRight;
-    function x(v){ return padLeft + (v/maxVal)*plotW; }
-    var rows = intervalos.map(function(it,i){
-      var cy = padTop + rowH*i + rowH/2;
-      var label = '<text x="6" y="'+cy+'" font-size="11.5" font-weight="600" fill="var(--ink)" dominant-baseline="middle">'+escapeHtml(it.label)+'</text>';
+    var barPad = 4, plotW = cellW - barPad*2;
+    function x(cellX, v){ return cellX + barPad + (v/maxVal)*plotW; }
+    var cells = intervalos.map(function(it,i){
+      var col = i % cols, row = Math.floor(i/cols);
+      var cellX = outerPad + col*(cellW+gapX);
+      var cellY = outerPad + row*(cellH+gapY);
+      var labelY = cellY + 14;
+      var label = '<text x="'+cellX+'" y="'+labelY+'" font-size="12" font-weight="700" fill="var(--ink)">'+escapeHtml(it.label)+'</text>';
       if(!it.stats){
-        return '<g>'+label+'<text x="'+padLeft+'" y="'+cy+'" font-size="10.5" fill="var(--ink-soft)" dominant-baseline="middle">Sem pacientes suficientes ainda</text></g>';
+        return '<g>'+label+'<text x="'+cellX+'" y="'+(cellY+cellH/2)+'" font-size="10.5" fill="var(--ink-soft)">Sem pacientes suficientes ainda</text></g>';
       }
-      var s = it.stats, boxH = 18;
-      var whisker = '<line x1="'+x(s.min)+'" y1="'+cy+'" x2="'+x(s.max)+'" y2="'+cy+'" stroke="var(--ink-soft)" stroke-width="1.4"/>'
-        + '<line x1="'+x(s.min)+'" y1="'+(cy-6)+'" x2="'+x(s.min)+'" y2="'+(cy+6)+'" stroke="var(--ink-soft)" stroke-width="1.4"/>'
-        + '<line x1="'+x(s.max)+'" y1="'+(cy-6)+'" x2="'+x(s.max)+'" y2="'+(cy+6)+'" stroke="var(--ink-soft)" stroke-width="1.4"/>';
-      var boxX = x(s.p25), boxW = Math.max(2, x(s.p75)-x(s.p25));
+      var s = it.stats, boxH = 18, cy = cellY + 64;
+      var valTxt = '<text x="'+(cellX+cellW)+'" y="'+labelY+'" font-size="12" font-weight="700" fill="var(--ink)" text-anchor="end">'+fmtInt(Math.round(s.mediana))+' dias</text>'
+        + '<text x="'+(cellX+cellW)+'" y="'+(labelY+13)+'" font-size="9" fill="var(--ink-soft)" text-anchor="end">mediana · n='+s.n+'</text>';
+      var whisker = '<line x1="'+x(cellX,s.min)+'" y1="'+cy+'" x2="'+x(cellX,s.max)+'" y2="'+cy+'" stroke="var(--ink-soft)" stroke-width="1.4"/>'
+        + '<line x1="'+x(cellX,s.min)+'" y1="'+(cy-6)+'" x2="'+x(cellX,s.min)+'" y2="'+(cy+6)+'" stroke="var(--ink-soft)" stroke-width="1.4"/>'
+        + '<line x1="'+x(cellX,s.max)+'" y1="'+(cy-6)+'" x2="'+x(cellX,s.max)+'" y2="'+(cy+6)+'" stroke="var(--ink-soft)" stroke-width="1.4"/>';
+      var boxX = x(cellX,s.p25), boxW = Math.max(2, x(cellX,s.p75)-x(cellX,s.p25));
       var box = '<rect x="'+boxX+'" y="'+(cy-boxH/2)+'" width="'+boxW+'" height="'+boxH+'" fill="#2F6F5E" opacity="0.25" stroke="#2F6F5E" stroke-width="1.2"/>';
-      var medLine = '<line x1="'+x(s.mediana)+'" y1="'+(cy-boxH/2)+'" x2="'+x(s.mediana)+'" y2="'+(cy+boxH/2)+'" stroke="#2F6F5E" stroke-width="2.6"/>';
-      var valTxt = '<text x="'+(W-padRight+8)+'" y="'+(cy-3)+'" font-size="11" font-weight="700" fill="var(--ink)">'+fmtInt(Math.round(s.mediana))+' dias</text>'
-        + '<text x="'+(W-padRight+8)+'" y="'+(cy+11)+'" font-size="8.5" fill="var(--ink-soft)">mediana · n='+s.n+'</text>';
-      return '<g>'+label+whisker+box+medLine+valTxt+'</g>';
+      var medLine = '<line x1="'+x(cellX,s.mediana)+'" y1="'+(cy-boxH/2)+'" x2="'+x(cellX,s.mediana)+'" y2="'+(cy+boxH/2)+'" stroke="#2F6F5E" stroke-width="2.6"/>';
+      return '<g>'+label+valTxt+whisker+box+medLine+'</g>';
     }).join('');
-    return '<svg class="spark-svg" viewBox="0 0 '+W+' '+H+'">'+rows+'</svg>';
+    return '<svg class="spark-svg" viewBox="0 0 '+W+' '+H+'">'+cells+'</svg>';
   }
 
   // Funil de abandono: barras horizontais de largura proporcional ao 1º
