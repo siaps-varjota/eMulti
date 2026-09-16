@@ -1,695 +1,4312 @@
-:root{
-    --paper:#F1F4EE;
-    --surface:#FFFFFF;
-    --ink:#13241F;
-    --ink-soft:#51605A;
-    --line:#DCE4D6;
-    --header-bg:#1C6D53;
-    --header-bg-2:#0D3329;
-    --header-ink:#EEF3EA;
-    --header-soft:#9FC0AE;
-    --pill-regular:#B5474B;
-    --pill-suficiente:#C68A3D;
-    --pill-bom:#6B8F71;
-    --pill-otimo:#2F6F5E;
-    --arc-regular:#DC4C4C;
-    --arc-suficiente:#F2A93B;
-    --arc-bom:#4CAF6D;
-    --arc-otimo:#3B7DDD;
-    --radius:10px;
-  }
-  *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;}
-  body{
-    font-family:'Inter',sans-serif;
-    background:var(--paper);
-    color:var(--ink);
-    font-variant-numeric:tabular-nums;
-    line-height:1.5;
-  }
-  h1,h2,h3,.serif{font-family:'Fraunces',serif;}
+(function(){
+  "use strict";
 
-  /* ---------- Header + Tabbar (grudados, rolam e "grudam" juntos) ---------- */
-  /* O sticky fica no WRAPPER, não só no .topbar — assim o menu de abas
-     nunca passa por baixo do cabeçalho: os dois formam um bloco único que
-     gruda no topo ao rolar a página. */
-  .header-group{
-    position:sticky;top:0;z-index:5;
+  // ID real da planilha (do link "Compartilhar", não do "Publicar na web").
+  // O link antigo de "Publicar na web" só expunha 1 aba mesmo pedindo xlsx
+  // (o Google ignorava o parâmetro), o que quebrava o fetch no navegador.
+  // Agora buscamos cada aba separadamente via endpoint gviz/tq (CSV com
+  // suporte a CORS de verdade), que funciona para qualquer aba por nome.
+  var SPREADSHEET_ID = "1ujHEI_pERAcKmxQRuF9AmgU0bN22w0A9nnpakCVjY18";
+  // Janela móvel usada SÓ pela aba "Tendência" (mês a mês): cada ponto do
+  // gráfico é o M1/M2 calculado com uma janela de JANELA_MESES meses
+  // terminando naquele mês. Mude só este número se quiser 3, 4 ou 6 meses
+  // de janela.
+  var JANELA_MESES = 4;
+  // ---- Override com dados OFICIAIS (aba "Q2-26" da mesma planilha) ----
+  // Pra mai/jun/jul de 2026, a Secretaria já tem o resultado oficial do
+  // SIAPS/Ministério da Saúde (M1 e M2, por equipe e por mês), publicado
+  // numa aba separada da mesma planilha. Sempre que esses dados oficiais
+  // existirem pra um mês/equipe/indicador, eles SUBSTITUEM o valor
+  // calculado pelo painel a partir dos dados brutos (ver
+  // aplicarOverrideOficial, mais abaixo) — o cálculo próprio continua
+  // valendo só pros meses/indicadores sem dado oficial disponível.
+  var OFFICIAL_SHEET_NAME = "Q2-26";
+  // chave "centro|2026-05|M1" -> {numerador, denominador}
+  var officialOverrides = {};
+  // Quantos pontos (meses) mostrar nos gráficos de tendência — cada ponto
+  // é o M1/M2 daquele mês, já calculado com sua própria janela de
+  // JANELA_MESES meses terminando naquele mês.
+  var TREND_MESES = 16;
+  // ---- Filtro principal da Visão geral: Quadrimestre + Mês (opcional) ----
+  // Quadrimestres fixos do ano civil: Q1 Jan–Abr, Q2 Mai–Ago, Q3 Set–Dez.
+  var QUAD_LABELS = ['Jan–Abr (Q1)', 'Mai–Ago (Q2)', 'Set–Dez (Q3)'];
+  // Quadrimestre selecionado (ano + índice 0/1/2). Começa no quadrimestre
+  // que contém o mês atual; muda quando o usuário mexe no filtro de Quadrimestre.
+  var quadSelecionado = quadrimestreDoMes(new Date());
+  // Data(s) escolhida(s) no filtro de Mês. Array vazio = padrão => usa a
+  // MÉDIA dos 4 meses do quadrimestre selecionado. Um ou mais meses
+  // marcados: cada mês entra com o SEU PRÓPRIO resultado (já calculado
+  // com a janela móvel de JANELA_MESES meses terminando nele — ver
+  // calcularJanelaPeriodo) e, havendo mais de um, os resultados são
+  // combinados pela média (mesma lógica já usada pra média do
+  // quadrimestre, ver mediaDeMeses).
+  var refMonthDates = [];
+  function quadrimestreDoMes(d){
+    return {ano: d.getFullYear(), qIndex: Math.floor(d.getMonth()/4)};
   }
-  .topbar{
-    background:linear-gradient(135deg,#2B622D 0%,#28569B 100%);
-    color:var(--header-ink);
-    padding:9px 40px;
-    display:flex;justify-content:space-between;align-items:center;gap:24px;flex-wrap:wrap;
+  // Chave/rótulo do quadrimestre de um mês, usados pra agrupar os pontos
+  // do gráfico de Tendência e desenhar a linha de média de cada
+  // quadrimestre (ver sparkline).
+  function quadKeyOfDate(d){
+    var q = quadrimestreDoMes(d);
+    return q.ano + '-' + q.qIndex;
   }
-  .topbar-left .kicker{
-    font-size:11px;letter-spacing:1.4px;text-transform:uppercase;
-    color:var(--header-soft);margin:0 0 2px;font-weight:600;
+  function quadShortLabel(d){
+    var q = quadrimestreDoMes(d);
+    var base = QUAD_LABELS[q.qIndex].replace(/\s*\(Q\d\)/, '');
+    return base + '/' + String(q.ano).slice(2);
   }
-  .topbar-left h1{font-size:27px;font-weight:600;margin:0 0 2px;}
-  .topbar-left .tagline{margin:0;font-size:12px;color:var(--header-soft);max-width:46ch;}
-  .topbar-right{display:flex;align-items:center;gap:18px;flex-wrap:wrap;}
-  .topbar-meta{text-align:right;}
-  .topbar-meta .eq{font-size:15px;font-weight:600;}
-  .topbar-meta .periodo{font-size:12px;color:var(--header-soft);margin-top:2px;}
-  .topbar-meta .dt{font-size:12px;color:var(--header-soft);margin-top:2px;}
-  .refresh-pill{
-    display:flex;align-items:center;gap:7px;
-    background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.22);
-    color:var(--header-ink);border-radius:999px;padding:7px 15px;font-size:12.5px;
-    font-family:'Inter',sans-serif;font-weight:500;cursor:pointer;white-space:nowrap;
-    transition:background .15s ease;
+  // Código curto (Q1/Q2/Q3) usado só dentro do gráfico de tendência, onde
+  // o espaço é pequeno — o rótulo completo (quadShortLabel) fica só como
+  // referência textual fora do SVG.
+  function quadCode(d){
+    return 'Q' + (quadrimestreDoMes(d).qIndex + 1);
   }
-  .refresh-pill:hover{background:rgba(255,255,255,.16);}
-  .refresh-pill:disabled{opacity:.7;cursor:default;}
-  .refresh-pill svg{width:15px;height:15px;}
-  .refresh-pill.loading svg{animation:spin 900ms linear infinite;}
-  @keyframes spin{to{transform:rotate(360deg);}}
+  // Os 4 meses (dia 1 de cada) que compõem um quadrimestre.
+  function mesesDoQuadrimestre(ano, qIndex){
+    var meses = [];
+    for(var i=0; i<4; i++){ meses.push(new Date(ano, qIndex*4+i, 1)); }
+    return meses;
+  }
+  // Só os meses do quadrimestre que já terminaram (mês cheio, fim do mês
+  // <= hoje) — usado pra "Meta do quadrimestre" e pra Visão geral não
+  // diluir a média do quadrimestre com meses futuros que ainda não têm
+  // nenhum atendimento/atividade real (o que puxaria o resultado pra
+  // baixo artificialmente). O ritmo médio desses meses já decorridos é
+  // usado como PROJEÇÃO pros meses que faltam (ver mediaDeMeses e
+  // aplicarMesReferencia): matematicamente, preencher os meses futuros
+  // com a própria média dos meses decorridos dá o mesmo resultado que
+  // simplesmente tirar a média só dos meses decorridos — por isso o
+  // cálculo abaixo não recalcula nada pros meses futuros, só os exclui.
+  // Se o quadrimestre acabou de começar (nenhum mês ainda fechou), usa
+  // ao menos o 1º mês (mesmo em andamento) pra não ficar sem nenhum
+  // dado.
+  function mesesElapsedDoQuadrimestre(ano, qIndex){
+    var meses = mesesDoQuadrimestre(ano, qIndex);
+    var hoje = new Date();
+    var elapsed = meses.filter(function(m){
+      var fimMes = new Date(m.getFullYear(), m.getMonth()+1, 0, 23,59,59,999);
+      return fimMes <= hoje;
+    });
+    return elapsed.length ? elapsed : meses.slice(0,1);
+  }
+  // Período de um único mês (do dia 1 ao último dia do mesmo mês).
+  function periodoMesUnico(d){
+    var inicio = new Date(d.getFullYear(), d.getMonth(), 1, 0,0,0,0);
+    var fim = new Date(d.getFullYear(), d.getMonth()+1, 0, 23,59,59,999);
+    return {inicio: inicio, fim: fim};
+  }
+  // Um mês é "futuro" (ainda não fechou) quando seu último dia ainda não
+  // chegou — usado pra marcar, no gráfico de Tendência, os pontos que na
+  // verdade são projeção (o mês âncora pode ir até o fim do quadrimestre
+  // selecionado, mesmo que ele ainda não tenha terminado — ver
+  // anchorMonthDate logo abaixo).
+  function isMesFuturo(d){
+    var fimMes = new Date(d.getFullYear(), d.getMonth()+1, 0, 23,59,59,999);
+    return fimMes > new Date();
+  }
+  // Mês "âncora" usado pela aba Tendência: o mais recente dos meses
+  // escolhidos, se houver algum, ou o último mês do quadrimestre
+  // selecionado.
+  function anchorMonthDate(){
+    if(refMonthDates.length) return refMonthDates[refMonthDates.length-1];
+    return new Date(quadSelecionado.ano, quadSelecionado.qIndex*4+3, 1);
+  }
+  // Só as abas de dados BRUTOS — o painel calcula M1/M2 sozinho a partir
+  // delas (não lê mais nenhum valor pronto da aba "Indicadores M1 e M2").
+  // IMPORTANTE: não existem abas separadas por equipe na planilha — os
+  // nomes abaixo são os nomes REAIS das abas (conferidos direto no rodapé
+  // do Google Sheets). O filtro por equipe acontece linha a linha, pela
+  // coluna "equipe_unidade" de cada aba (ver filtrarLinhasPorEquipe).
+  var BASE_SHEET_NAMES = [
+    "Atendimentos",
+    "Participantes Ativ. Coletiva",
+    "Resumo Atividade Coletiva",
+    "Resumo Reuniões"
+  ];
+  // matchKeyword: trecho (sem acento, maiúsculo) que precisa aparecer no
+  // valor da coluna "equipe_unidade" pra a linha pertencer a esta equipe.
+  // Ex.: "EMULTI CROATA DOS MARTINS - Croata" e "EMULTI CROATA DOS
+  // MARTINS" (formatos variam entre abas) casam com "CROATA".
+  var EQUIPES = [
+    {key:"centro", label:"EMULTI Centro", suffix:"Centro", matchKeyword:"CENTRO"},
+    {key:"croata", label:"EMULTI Croatá", suffix:"Croatá", matchKeyword:"CROATA"}
+  ];
+  // Agora suporta seleção múltipla: quando mais de uma equipe está
+  // marcada, as linhas de AMBAS entram no cálculo (resultado combinado/
+  // somado das equipes selecionadas). Sempre fica pelo menos 1 marcada.
+  var currentEquipes = [EQUIPES[0]];
 
-  /* ---------- Tabs (abaixo do header, sobre o fundo claro da página) ---------- */
-  .tabbar{
-    display:flex;align-items:center;justify-content:center;gap:28px;flex-wrap:wrap;
-    padding:0 40px;background:var(--paper);border-bottom:1px solid var(--line);
+  function suffixedName(baseName){
+    return baseName + " — " + currentEquipes.map(function(e){ return e.suffix; }).join('+');
   }
-  .tab{
-    background:none;border:none;border-bottom:2.5px solid transparent;border-radius:0;
-    padding:11px 0;font-size:14.5px;font-weight:600;color:var(--ink-soft);
-    cursor:pointer;font-family:'Inter',sans-serif;
-    transition:color .15s ease,border-color .15s ease;
+  function displayListName(name){
+    // remove o sufixo " — Centro"/" — Croatá" só pra exibição (o título da
+    // equipe já aparece no topo da página). Esse sufixo agora é só uma
+    // CHAVE INTERNA de cache (ver wb.Sheets) — não é mais o nome real da
+    // aba buscada no Google.
+    return name.replace(/ — .+$/, '');
   }
-  .tab:hover{background:none;color:var(--ink);}
-  .tab.active{background:none;border-color:var(--header-bg);color:var(--ink);}
-  .tab.active:hover{background:none;}
-  .tab:focus{outline:none;}
-  .tab:focus-visible{outline:2px solid var(--header-bg);outline-offset:2px;border-radius:4px;}
-
-  .filter-bar-outer{max-width:1400px;margin:20px auto 0;padding:0 40px;}
-  .ref-month-row{
-    display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;width:100%;
-    background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
-    padding:14px 18px;
+  function requiredSheetNames(){
+    // Nomes REAIS das abas — sem sufixo de equipe (ver comentário acima
+    // de BASE_SHEET_NAMES).
+    return BASE_SHEET_NAMES.slice();
   }
-  .ref-month-row.hidden{display:none;}
-  .ref-window-label{font-size:12.5px;color:var(--ink-soft);white-space:normal;word-break:break-word;line-height:1.4;}
-  .ref-window-label b{color:var(--ink);font-weight:600;}
-
-  /* ---------- Multi-select arredondado (Equipe / Quadrimestre / Mês) ---------- */
-  .ms-field{display:flex;flex-direction:column;gap:5px;flex:1 1 170px;}
-  .ms-field .ms-wrap{width:100%;}
-  .ms-field.ms-field-window{flex:1 1 180px;min-width:180px;max-width:260px;}
-  .ms-field > label{font-size:13px;font-weight:600;color:var(--ink-soft);}
-  .ms-field > label.ms-hidden-label{visibility:hidden;}
-  .ms-wrap{position:relative;min-width:170px;}
-  .ms-btn{
-    width:100%;min-height:38px;padding:8px 12px;border:1px solid var(--line);border-radius:12px;
-    background:var(--paper);font-family:'Inter',sans-serif;font-size:13.5px;font-weight:500;color:var(--ink);
-    display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;text-align:left;
-    transition:border-color .15s ease,background .15s ease;
+  function startOfMonth(d){ return new Date(d.getFullYear(), d.getMonth(), 1); }
+  function addMonths(d, n){ return new Date(d.getFullYear(), d.getMonth()+n, 1); }
+  function monthOptionValue(d){ return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,'0'); }
+  function monthOptionLabel(d){
+    var s = d.toLocaleDateString('pt-BR', {month:'long', year:'numeric'});
+    return s.charAt(0).toUpperCase() + s.slice(1);
   }
-  .ms-btn:hover{background:var(--surface);}
-  .ms-wrap.ms-has-value .ms-btn{border-color:var(--header-bg);}
-  .ms-btn-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  .ms-wrap:not(.ms-has-value) .ms-btn-text{color:var(--ink-soft);}
-  .ms-chevron{width:15px;height:15px;flex:0 0 auto;transition:transform .15s ease;color:var(--ink-soft);}
-  .ms-btn.ms-open .ms-chevron{transform:rotate(180deg);}
-  .ms-panel{
-    position:absolute;z-index:60;top:calc(100% + 4px);left:0;min-width:100%;width:max-content;max-width:280px;
-    background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(21,63,53,.14);
-    overflow:hidden;
+  // refMonthDates vazio: usuário está vendo a MÉDIA do quadrimestre
+  // (nenhum mês específico marcado). Com 1+ meses marcados, mostra o(s)
+  // mês(es) escolhido(s) — este helper monta o rótulo certo pros dois
+  // casos (usado nos lugares que exibem "Mês de referência (...)").
+  function refMonthLabel(){
+    if(!refMonthDates.length) return 'Média do quadrimestre';
+    if(refMonthDates.length === 1) return monthOptionLabel(refMonthDates[0]);
+    return refMonthDates.map(monthShortLabel).join(' + ');
   }
-  .ms-search-wrap{padding:8px;border-bottom:1px solid var(--line);}
-  .ms-search{
-    width:100%;padding:7px 10px;border:1px solid var(--line);border-radius:9px;box-sizing:border-box;
-    font-family:'Inter',sans-serif;font-size:13px;background:var(--paper);color:var(--ink);
+  function monthShortLabel(d){
+    var s = d.toLocaleDateString('pt-BR', {month:'short'}).replace('.', '');
+    return s.charAt(0).toUpperCase() + s.slice(1) + '/' + String(d.getFullYear()).slice(2);
   }
-  .ms-search:focus{outline:none;border-color:var(--header-bg);}
-  .ms-action{
-    display:block;width:100%;padding:9px 14px;border:none;background:none;border-bottom:1px solid var(--line);
-    font-family:'Inter',sans-serif;font-size:12.5px;font-weight:600;color:var(--header-bg);text-align:left;cursor:pointer;
+  // Janela móvel de 4 meses (JANELA_MESES) TERMINANDO no mês de referência
+  // informado (ex.: referência = maio → janela = fev a maio, incluindo os
+  // dois extremos). "refMonth" é sempre o dia 1 do mês.
+  function calcularJanelaPeriodo(refMonth){
+    var fim = new Date(refMonth.getFullYear(), refMonth.getMonth()+1, 0, 23,59,59,999); // último dia do mês de referência
+    var inicioMes = addMonths(refMonth, -(JANELA_MESES-1));
+    var inicio = new Date(inicioMes.getFullYear(), inicioMes.getMonth(), 1, 0,0,0,0);
+    return {inicio: inicio, fim: fim};
   }
-  .ms-action:hover{background:var(--paper);}
-  .ms-list{max-height:220px;overflow:auto;}
-  .ms-option{
-    display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:9px 14px;
-    border:none;background:none;font-family:'Inter',sans-serif;font-size:13px;color:var(--ink);text-align:left;cursor:pointer;
-  }
-  .ms-option:hover{background:var(--paper);}
-  .ms-option-checked{background:rgba(21,63,53,.07);font-weight:600;}
-  .ms-option-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  .ms-check{width:15px;height:15px;flex:0 0 auto;color:var(--header-bg);}
-  .ms-empty{padding:12px 14px;font-size:12.5px;color:var(--ink-soft);}
-  .ms-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;}
-  .ms-tag{
-    display:inline-flex;align-items:center;gap:5px;padding:3px 8px 3px 10px;border-radius:999px;
-    background:rgba(21,63,53,.08);color:var(--header-bg);font-size:11.5px;font-weight:600;
-  }
-  .ms-tag button{
-    border:none;background:none;padding:2px;border-radius:999px;cursor:pointer;color:var(--header-bg);
-    display:flex;align-items:center;
-  }
-  .ms-tag button:hover{background:rgba(21,63,53,.15);}
-
-  .main{padding:24px 40px 60px;max-width:1400px;margin:0 auto;}
-  .tab-panel{display:none;}
-  .tab-panel.active{display:block;}
-
-  .status-state{max-width:520px;margin:60px auto;text-align:center;}
-  .status-state h2{font-size:24px;font-weight:500;margin:0 0 8px;}
-  .status-state p{color:var(--ink-soft);font-size:14px;}
-  .status-state .ficha{
-    margin-top:22px;border:1px solid var(--line);border-radius:var(--radius);
-    background:var(--surface);padding:16px 18px;font-size:13px;color:var(--ink-soft);text-align:left;
-  }
-  .spinner-ring{
-    width:32px;height:32px;border-radius:50%;margin:0 auto 16px;
-    border:3px solid var(--line);border-top-color:var(--header-bg);
-    animation:spin 800ms linear infinite;
-  }
-  .retry-btn{
-    margin-top:14px;background:var(--pill-regular);color:#fff;border:none;border-radius:6px;
-    padding:8px 16px;font-size:13px;cursor:pointer;font-family:'Inter',sans-serif;
-  }
-
-  .card{
-    background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
-    padding:22px 24px;
-    transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;
-  }
-  .card:hover{
-    transform:translateY(-3px);
-    box-shadow:0 12px 26px rgba(21,63,53,.10);
-    border-color:#C7D3C0;
-  }
-  .gauge-row{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:20px;}
-  .gauge-card{flex:1;min-width:280px;display:flex;flex-direction:column;}
-  .gi-row{display:flex;flex-direction:column;gap:22px;align-items:stretch;}
-  .gi-left{flex:1.3 1 240px;min-width:220px;display:flex;flex-direction:column;align-items:center;text-align:center;}
-  .gi-header{display:flex;align-items:center;gap:12px;width:100%;margin-bottom:4px;text-align:left;}
-  .gi-icon{flex:0 0 auto;width:42px;height:42px;border-radius:50%;background:var(--header-bg);color:#fff;display:flex;align-items:center;justify-content:center;}
-  .gi-icon svg{width:22px;height:22px;}
-  .gi-header-text{min-width:0;}
-  .gauge-top-title{margin:0;font-size:17px;font-weight:700;color:var(--ink);}
-  .gi-subtitle{margin:2px 0 0;font-size:12.5px;color:var(--ink-soft);line-height:1.35;}
-  .gi-right{flex:1 1 210px;min-width:210px;background:#EAF6EF;border-radius:14px;padding:20px 22px;display:flex;flex-direction:column;}
-  .gi-interp-header{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
-  .gi-interp-icon{flex:0 0 auto;width:28px;height:28px;border-radius:50%;background:#fff;color:var(--header-bg);display:flex;align-items:center;justify-content:center;}
-  .gi-interp-icon svg{width:15px;height:15px;}
-  .gi-right h4{margin:0;font-size:14.5px;font-weight:700;color:var(--ink);}
-  .gi-interp-text{margin:0;font-size:13px;line-height:1.6;color:var(--ink);}
-  .gi-divider{border:none;border-top:1px solid rgba(21,63,53,.15);margin:16px 0 12px;}
-  .gi-meta-row{display:flex;align-items:center;gap:10px;}
-  .gi-meta-icon{font-size:16px;line-height:1;}
-  .gi-meta-label{font-size:12px;font-weight:600;color:var(--ink-soft);}
-  .gi-meta-value{font-size:18px;font-weight:700;color:var(--header-bg);}
-  .gauge-card h3{font-size:15px;font-weight:500;margin:0 0 2px;}
-  .gauge-card .formula{font-size:12px;color:var(--ink-soft);margin:0 0 6px;line-height:1.4;}
-  /* Reserva uma altura fixa pro bloco título+fórmula: sem isso, um card
-     com fórmula de 2 linhas empurra o gauge mais pra baixo que os outros,
-     desalinhando os arcos entre os cartões da Visão geral. */
-  .gauge-header{width:100%;min-height:60px;display:flex;flex-direction:column;justify-content:flex-start;}
-  .gauge-svg{width:100%;max-width:230px;height:auto;}
-  .gauge-card .gauge-svg{max-width:161px;}
-  .gauge-needle{transform:rotate(var(--target-angle,0deg));animation:gaugeSweep 900ms cubic-bezier(.2,.8,.2,1) both;}
-  @keyframes gaugeSweep{from{transform:rotate(0deg);}to{transform:rotate(var(--target-angle,0deg));}}
-  .gauge-value{font-size:36px;font-weight:600;margin:-10px 0 4px;}
-  .gauge-value .unit{font-size:19px;font-weight:500;color:var(--ink-soft);}
-  .gauge-note{font-size:12px;color:var(--ink-soft);margin-top:6px;}
-
-  .pill{
-    display:inline-flex;align-items:center;gap:7px;
-    padding:6px 13px;border-radius:999px;font-size:12.5px;font-weight:600;
-    color:#fff;white-space:nowrap;
-  }
-
-  /* ---------- Horizontal pill layout for sheets/tabs ---------- */
-  .sheets-pills-container{
-    display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center;
-  }
-  .sheet-pill{
-    display:inline-flex;align-items:center;gap:6px;
-    padding:7px 14px;border-radius:999px;font-size:12.5px;font-weight:600;
-    background:var(--surface);border:1px solid var(--line);color:var(--ink);
-    cursor:pointer;white-space:nowrap;
-    transition:all .15s ease;
-  }
-  .sheet-pill:hover{border-color:var(--header-bg);background:var(--paper);}
-  .sheet-pill.active{background:var(--header-bg);color:#fff;border-color:var(--header-bg);}
-  .sheet-pill.active:hover{background:var(--header-bg-2);}
-
-  .gauge-legend{
-    margin-top:10px;display:flex;flex-wrap:wrap;justify-content:center;
-    gap:4px 14px;font-size:11px;color:var(--ink-soft);
-  }
-  .gauge-legend span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;}
-  .gauge-legend i{width:8px;height:8px;border-radius:50%;flex:0 0 auto;display:inline-block;}
-
-  /* ---------- Cards da Visão geral (ícone + anel + evolução) ---------- */
-  .ov-card{flex:1;min-width:300px;display:flex;flex-direction:column;}
-  .ov-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px;min-height:40px;}
-  .ov-head-left{display:flex;align-items:center;gap:10px;}
-  .ov-icon{width:34px;height:34px;border-radius:9px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;}
-  .ov-icon svg{width:18px;height:18px;}
-  .ov-title{
-    margin:0;font-family:'Inter',sans-serif;font-size:14.5px;font-weight:700;color:var(--ink);line-height:1.3;
-    height:37.7px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
-  }
-  .ov-badge{
-    display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;white-space:nowrap;
-    font-size:14px;font-weight:600;padding:5px 12px;border-radius:999px;
-  }
-  /* Bloco arco + número: coluna centralizada (não mais lado a lado). O
-     número fica logo abaixo do arco e é puxado pra cima (margin-top
-     negativo) até ficar coladinho na ponta do ponteiro, formando um único
-     elemento visual coeso em vez de duas peças soltas com espaço em
-     branco nas laterais.
-     Desde que o arco da Visão geral passou a ser de 240° (em vez de meia
-     lua/180°), a área abaixo do pivô do ponteiro ficou bem mais alta —
-     as pontas do arco descem pras laterais, mas o centro (onde o número
-     entra) segue livre. Por isso o margin-top ficou bem mais negativo
-     (-24px -> -61px) do que na versão de 180°, senão o número sobrava
-     longe do ponteiro. Se cy/h do SVG (ver ovRingSVG em app.js) mudarem
-     de novo, esse valor precisa ser recalculado. */
-  .ov-main{display:flex;flex-direction:column;align-items:center;gap:0;margin-bottom:0;}
-  .ov-ring-wrap{display:flex;justify-content:center;width:100%;flex:0 0 auto;}
-  .ov-ring-svg{max-width:154px;}
-  .ov-value{
-    font-family:'Inter',sans-serif;font-weight:800;font-size:27px;line-height:1;
-    margin-top:-61px;text-align:center;
-  }
-  .ov-value-cap{font-size:11px;color:var(--ink-soft);line-height:1.3;}
-  /* Gauges da Visão geral 30% maiores (84px -> 109px), acompanhando o
-     SVG do anel (ver ovRingSVG em app.js). */
-  .ov-ring-wrap{display:flex;flex-direction:column;align-items:center;flex:0 0 auto;}
-
-  /* Fórmula em linha única (ex.: "2.168 atendimentos ÷ 899 pessoas"),
-     como barra divisória entre o bloco valor+anel e a Evolução do
-     quadrimestre logo abaixo — mesmo padrão das abas M1/M2. Fonte 10%
-     maior (11px -> 12px) pra ficar mais legível ao lado do arco/número
-     menores. */
-  .ov-formula-divider{
-    margin:14px 0;padding:7px 12px;
-    text-align:center;font-size:12px;font-weight:600;letter-spacing:.1px;
-    color:var(--ink-soft);white-space:nowrap;overflow-x:auto;
-    border-top:1px solid var(--line);border-bottom:1px solid var(--line);
-  }
-  .ov-ring-center{
-    margin-top:2px;display:flex;flex-direction:column;
-    align-items:center;justify-content:center;
-  }
-  .ov-ring-value{font-size:21px;font-weight:700;color:var(--ink);}
-  .ov-ring-scale{font-size:12px;color:var(--ink-soft);margin-top:1px;text-align:center;}
-  .ov-evo{background:var(--paper);border-radius:10px;padding:12px 14px;margin-bottom:14px;}
-  .ov-evo-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;}
-  .ov-evo-title{margin:0;font-size:10.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--ink-soft);}
-  .ov-evo-delta{font-size:12px;font-weight:700;white-space:nowrap;}
-  .ov-evo-empty{margin:0;font-size:11.5px;color:var(--ink-soft);line-height:1.4;}
-  .ov-evo-track{position:relative;height:10px;border-radius:999px;background:var(--line);margin:8px 0 6px;overflow:visible;}
-  .ov-evo-band{position:absolute;inset:0;border-radius:999px;opacity:.5;}
-  .ov-evo-fill{position:absolute;left:0;top:0;bottom:0;border-radius:999px;transition:width .3s ease;}
-  .ov-evo-mark{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);opacity:.5;border-radius:1px;}
-  .ov-evo-labels{display:flex;justify-content:space-between;font-size:11px;color:var(--ink-soft);line-height:1.4;}
-  .ov-evo-labels b{color:var(--ink);font-weight:600;}
-  /* Bloco de Evolução maior dentro do card de gauge das abas M1/M2 (ele
-     ocupa o lugar do badge de status que existia ali antes, então tem
-     mais espaço sobrando e fica melhor num tamanho maior que o das
-     mini-versões usadas em outros lugares). */
-  .gauge-card .ov-evo{width:100%;padding:10px 20px;margin-top:16px;}
-  .gauge-card .ov-evo-title{font-size:13px;}
-  .gauge-card .ov-evo-delta{font-size:16px;}
-  .gauge-card .ov-evo-track{height:8px;margin:8px 0 8px;}
-  .gauge-card .ov-evo-labels{font-size:13.5px;}
-  .gauge-card .ov-evo-labels b{font-size:16px;}
-  .ov-legend{margin-top:auto;padding-top:12px;display:grid;grid-template-columns:repeat(4,1fr);row-gap:8px;column-gap:6px;}
-  .ov-legend-item{display:flex;flex-direction:column;align-items:center;text-align:center;gap:4px;min-width:0;}
-  .ov-legend-swatch{width:9px;height:9px;border-radius:2px;flex:0 0 auto;}
-  .ov-legend-text{font-size:10px;line-height:1.3;color:var(--ink-soft);}
-  .ov-legend-text b{color:var(--ink);font-weight:700;}
-
-  /* ---------- Meta do quadrimestre ---------- */
-  .meta-quad-row{display:flex;flex-direction:column;gap:16px;margin-bottom:20px;}
-  .meta-quad-wrap{
-    background:linear-gradient(180deg,#FBFAFF,var(--surface));
-    border:1px solid #E6E1F5;border-radius:var(--radius);padding:20px 24px;
-  }
-  .meta-quad-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;}
-  .meta-icon{
-    width:30px;height:30px;border-radius:50%;background:#EFEAFB;color:#7C5CBF;
-    display:flex;align-items:center;justify-content:center;flex:0 0 auto;
-  }
-  .meta-icon svg{width:16px;height:16px;}
-  .meta-quad-titles{flex:1 1 auto;min-width:180px;}
-  .meta-quad-titles h3{margin:0;font-size:15.5px;font-weight:600;color:#6E4FB0;}
-  .meta-quad-titles p{margin:2px 0 0;font-size:12.5px;color:var(--ink-soft);}
-  .meta-quad-titles p b{color:var(--ink);font-weight:600;}
-  .pill-preliminar{
-    display:inline-flex;align-items:center;gap:6px;
-    background:#FDF0DE;color:#B4791F;border-radius:999px;
-    padding:5px 12px;font-size:11.5px;font-weight:600;white-space:nowrap;
-  }
-  .pill-preliminar i{width:6px;height:6px;border-radius:50%;background:#E0982D;display:inline-block;}
-  .meta-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:24px;}
-  .meta-card h4{margin:0 0 8px;font-size:13.5px;font-weight:600;}
-  .meta-card-value{font-size:28px;font-weight:700;margin:0 0 8px;}
-  .meta-card-value span{font-size:15px;font-weight:500;}
-  .meta-card-sub{margin:0 0 2px;font-size:12.5px;color:var(--ink-soft);}
-  .meta-card-faltam{margin:10px 0 2px;font-size:13px;font-weight:600;color:var(--pill-regular);}
-  .meta-card-done{margin:10px 0 2px;font-size:13px;font-weight:600;color:var(--arc-bom);}
-
-  .section-title{font-size:13px;color:var(--ink-soft);margin:26px 0 10px;font-weight:600;}
-  .comp-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px;}
-  .comp-card{min-width:0;}
-  .comp-card h4{font-size:14.5px;font-weight:500;margin:0;}
-  .comp-card-head{display:flex;align-items:center;gap:10px;margin-bottom:12px;}
-  .comp-card-icon{
-    width:30px;height:30px;border-radius:50%;background:#EAF6EF;color:var(--header-bg);
-    display:flex;align-items:center;justify-content:center;flex:0 0 auto;
-  }
-  .comp-card-icon svg{width:16px;height:16px;}
-  .comp-card-head h4{flex:1 1 auto;min-width:0;}
-  .comp-card-total{
-    flex:0 0 auto;background:#EAF6EF;color:var(--header-bg);font-weight:700;font-size:13px;
-    padding:5px 12px;border-radius:8px;
-  }
-  .meta-mini-head{display:flex;align-items:center;gap:9px;margin-bottom:12px;}
-  .meta-mini-head h4{margin:0;}
-  .meta-mini-head-icon{
-    width:26px;height:26px;border-radius:50%;background:#EAF6EF;color:var(--header-bg);
-    display:flex;align-items:center;justify-content:center;flex:0 0 auto;
-  }
-  .meta-mini-head-icon svg{width:14px;height:14px;}
-
-  /* ---------- Cabeçalho das abas M1/M2 (ícone + "M1"/"M2" + título) ---------- */
-  .ip-header{display:flex;align-items:center;gap:14px;margin-bottom:18px;}
-  .ip-header-icon{
-    width:44px;height:44px;border-radius:12px;background:var(--header-bg);color:#fff;
-    display:flex;align-items:center;justify-content:center;flex:0 0 auto;
-  }
-  .ip-header-icon svg{width:23px;height:23px;}
-  .ip-header-text h2{margin:0;font-size:18px;font-weight:600;color:var(--ink);}
-  .ip-header-text p{margin:2px 0 0;font-size:12.5px;color:var(--ink-soft);}
-  .ip-m-tag{color:var(--header-bg);font-weight:800;margin-right:9px;}
-
-  /* ---------- Layout de 3 colunas das abas M1/M2 ---------- */
-  /* Coluna 1: gauge + resultado; coluna 2: composição (numerador +
-     denominador) empilhada; coluna 3: evolução + meta do quadrimestre
-     empilhada — modelo das imagens de referência. */
-  .ip-layout{display:grid;grid-template-columns:1.2fr 1.05fr .95fr;gap:18px;align-items:stretch;margin-bottom:16px;}
-  .ip-comp-col{display:flex;flex-direction:column;gap:18px;}
-  .ip-comp-col .comp-card{flex:1;display:flex;flex-direction:column;justify-content:center;}
-  .ip-side-col{display:flex;flex-direction:column;gap:18px;}
-  .ip-side-col .meta-mini-card{flex:1;display:flex;flex-direction:column;justify-content:center;}
-  @media (max-width:980px){
-    .ip-layout{grid-template-columns:1fr;}
-  }
-
-  /* Card do gauge (coluna 1): arco à esquerda, valor/badge/legenda à direita,
-     lado a lado dentro do mesmo cartão; a Evolução do quadrimestre fica
-     embutida logo abaixo, dentro do mesmo cartão (ver .ip-evo-embed). */
-  .ip-gauge-card{display:flex;flex-direction:column;justify-content:center;height:100%;}
-  /* flex-start (em vez do antigo flex-end): agora o número mora dentro
-     do ip-gauge-visual (logo abaixo do ponteiro), então o ip-result-block
-     ficou bem mais curto (só rótulo + badge) e alinha melhor pelo topo. */
-  .ip-gauge-row{display:flex;align-items:flex-start;gap:18px;flex-wrap:wrap;}
-  .ip-gauge-visual{flex:1 1 190px;min-width:170px;max-width:230px;display:flex;flex-direction:column;align-items:center;}
-  .ip-gauge-visual .gauge-svg{width:100%;height:auto;}
-  /* Número puxado pra cima (margin-top negativo) até ficar logo abaixo do
-     ponteiro, "dentro" da área vazia que sobra no centro do arco de 240°
-     (as pontas do arco descem pras laterais, mas o centro, embaixo do
-     pivô, continua livre) — mesma técnica do .ov-value na Visão geral.
-     Calculado pro SVG renderizando no seu max-width (230px, escala 1:1
-     com o viewBox de 230x154, pivô em cy=100): se o max-width mudar, este
-     valor precisa ser recalculado. */
-  .ip-gauge-visual .ip-result-value{margin-top:-48px;text-align:center;}
-  .ip-result-block{flex:1 1 140px;min-width:130px;}
-  /* Rótulo + badge de classificação agora empilhados e centralizados
-     (era lado a lado com justify-content:space-between) — "Bom" fica
-     centralizado logo abaixo de "Resultado do indicador". */
-  .ip-result-head{display:flex;flex-direction:column;align-items:center;gap:8px;margin-bottom:6px;}
-  /* Mesma tipografia de "Composição do numerador" (ver .comp-card h4 no
-     CSS): 14.5px/peso 500, cor --ink (era 12.5px, cor --ink-soft). */
-  .ip-result-label{margin:0;font-size:14.5px;font-weight:500;color:var(--ink);}
-  .ip-result-value{font-family:'Inter',sans-serif;font-size:40px;font-weight:800;margin:0;line-height:1;color:var(--ink);}
-  .ip-result-value .unit{font-size:21px;font-weight:500;color:var(--ink-soft);}
-  .ip-result-cap{margin:10px 0 0;font-size:11.5px;color:var(--ink-soft);line-height:1.4;}
-
-  /* Fórmula em linha única (ex.: "2.168 atendimentos ÷ 899 pessoas"),
-     estilizada como uma barra divisória entre o card do indicador e o
-     bloco de Evolução do quadrimestre logo abaixo. */
-  .ip-formula-divider{
-    margin:16px 0 0;padding:9px 16px;
-    text-align:center;font-size:12.5px;font-weight:600;letter-spacing:.1px;
-    color:var(--ink-soft);white-space:nowrap;overflow-x:auto;
-    border-top:1px solid var(--line);border-bottom:1px solid var(--line);
-  }
-  .ip-evo-embed{width:100%;margin-top:20px;padding-top:18px;border-top:1px solid var(--line);}
-  /* Quando a barra da fórmula já existe logo acima, ela mesma faz o
-     papel de divisória — evita uma segunda linha duplicada rente à
-     primeira. */
-  .ip-formula-divider + .ip-evo-embed{border-top:none;padding-top:16px;margin-top:0;}
-
-  /* Card de Evolução (coluna 3) */
-  .ip-evo-card{display:flex;flex-direction:column;}
-  .ip-evo-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:16px;}
-  .ip-evo-head-left{display:flex;align-items:center;gap:9px;}
-  .ip-evo-head-left svg{width:16px;height:16px;color:var(--header-bg);flex:0 0 auto;}
-  .ip-evo-head-left h4{margin:0;font-size:13.5px;font-weight:700;color:var(--ink);}
-  .ip-evo-delta{font-size:13px;font-weight:700;white-space:nowrap;}
-  /* A trilha em si (fundo esmaecido + barra + traço) é a mesma usada na
-     Visão geral (.ov-evo-track etc., ver evoTrackHTML) — aqui só
-     ampliamos a tipografia dos rótulos "Anterior"/"Atual" pra combinar
-     com o restante do cartão de M1/M2. */
-  .ip-evo-embed .ov-evo-labels{font-size:11.5px;}
-  .ip-evo-embed .ov-evo-labels b{font-size:16px;}
-
-  /* Card de "Leitura" (abaixo das 3 colunas) */
-  .ip-reading{display:flex;gap:12px;align-items:flex-start;background:#EAF6EF;border-color:#D8ECDD;margin-bottom:24px;}
-  .ip-reading-icon{flex:0 0 auto;font-size:16px;line-height:1.55;}
-  .ip-reading-text{font-size:12.5px;color:var(--ink);line-height:1.65;}
-  .ip-reading-text b{color:var(--header-bg);}
-
-  /* Nas abas M1/M2, cada item do Numerador/Denominador vira uma linha
-     cheia (rótulo + traço à esquerda, contagem + percentual em negrito
-     à direita), em vez dos chips que quebram linha do modelo padrão
-     (Visão geral). */
-  .ip-comp-col .legend{flex-direction:column;flex-wrap:nowrap;gap:10px;margin-top:14px;}
-  .ip-comp-col .legend-item{width:100%;justify-content:space-between;font-size:12.5px;}
-  .ip-comp-col .legend-item i{border-radius:50%;}
-  .ip-comp-col .legend-label{color:var(--ink);}
-  .ip-comp-col .legend-count{font-weight:700;color:var(--ink);}
-  .legend-pct{font-weight:500;color:var(--ink-soft);margin-left:3px;}
-
-  /* ---------- Mini card de Meta do quadrimestre (dentro do mm-comp-col) ---------- */
-  .meta-mini-rows{display:flex;flex-direction:column;gap:10px;}
-  .meta-mini-row{
-    display:flex;align-items:center;justify-content:space-between;gap:12px;
-    background:var(--paper);border:1px solid var(--line);border-radius:10px;
-    padding:12px 14px;flex-wrap:wrap;
-  }
-  .meta-mini-row-left{display:flex;align-items:flex-start;gap:9px;min-width:0;flex:1 1 200px;}
-  .meta-mini-dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto;margin-top:5px;}
-  .meta-mini-label{margin:0;font-size:12.5px;font-weight:700;}
-  .meta-mini-sub{margin:2px 0 0;font-size:12px;color:var(--ink-soft);}
-  .meta-mini-basenote{margin:1px 0 0;font-size:10.5px;color:var(--ink-soft);opacity:.8;}
-  .meta-mini-status{
-    flex:0 1 auto;white-space:normal;font-weight:700;font-size:11.5px;
-    padding:6px 12px;border-radius:8px;text-align:right;max-width:100%;
-    background:#FEF2F2;color:#DC2626;border:1px solid #FECACA;
-  }
-  .meta-mini-status-ok{background:#F0FDF4;color:#16A34A;border-color:#BBF7D0;display:inline-flex;align-items:center;gap:5px;}
-  .meta-mini-check{width:14px;height:14px;flex:0 0 auto;}
-  .meta-mini-alert{
-    display:flex;align-items:flex-start;gap:8px;width:100%;margin-top:8px;
-    background:#FEF2F2;border:1px solid #FECACA;border-radius:9px;
-    padding:9px 12px;font-size:11.5px;font-weight:600;color:#B91C1C;line-height:1.45;
-  }
-  .meta-mini-alert svg{width:15px;height:15px;flex:0 0 auto;margin-top:1px;}
-  .meta-mini-foot{margin:10px 0 0;font-size:11.5px;color:var(--ink-soft);}
-  .pill-preliminar-mini{
-    display:inline-block;background:#FDF0DE;color:#B4791F;border-radius:999px;
-    padding:2px 8px;font-size:10.5px;font-weight:600;vertical-align:middle;margin-left:6px;
-  }
-  .stackbar{display:flex;width:100%;height:16px;border-radius:5px;overflow:hidden;background:var(--paper);border:1px solid var(--line);}
-  .stackbar .seg{height:100%;}
-  .legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;font-size:12.5px;color:var(--ink-soft);}
-  .legend-item{display:flex;align-items:center;gap:6px;}
-  .legend-item i{width:9px;height:9px;border-radius:2px;display:inline-block;}
-  .footnote{font-size:12px;color:var(--ink-soft);margin:10px 0 0;}
-
-  .trend-row{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:24px;}
-  .trend-row .section-title{flex:1 1 100%;margin:4px 0 -6px;}
-  .trend-card-combo{flex:1 1 100%;width:100%;position:relative;}
-  .trend-sub + .trend-sub{margin-top:4px;}
-  .trend-sub h4{font-size:14.5px;font-weight:500;margin:0 0 4px;}
-  .trend-sub .cur{font-size:12px;color:var(--ink-soft);margin:0 0 10px;}
-  .trend-card-combo > .footnote{margin-top:14px;}
-  /* Pill "Preliminar" no canto superior direito do card de tendência —
-     clicável, alterna a linha de tendência preliminar (reta de regressão)
-     nos dois gráficos SVG abaixo (ver setupPreliminarToggle em app.js). */
-  .trend-preliminar-toggle{
-    position:absolute;top:14px;right:16px;
-    display:inline-flex;align-items:center;gap:6px;
-    background:#FDF0DE;color:#B4791F;border:1px solid transparent;border-radius:999px;
-    padding:5px 12px;font-size:11.5px;font-weight:600;white-space:nowrap;
-    cursor:pointer;font-family:inherit;line-height:1;
-    transition:background .15s,color .15s,border-color .15s;
-  }
-  .trend-preliminar-toggle i{width:6px;height:6px;border-radius:50%;background:#E0982D;display:inline-block;transition:background .15s;}
-  .trend-preliminar-toggle:hover{background:#FBE6C6;}
-  .trend-preliminar-toggle.active{background:#B4791F;color:#fff;}
-  .trend-preliminar-toggle.active i{background:#fff;}
-  /* Linha de tendência (reta de regressão) desenhada dentro do SVG, fica
-     invisível até o pill acima ser ativado. */
-  .tp-trendline{opacity:0;transition:opacity .2s ease;pointer-events:none;}
-  .trend-card-combo.show-preliminar .tp-trendline{opacity:1;}
-  .spark-svg{width:100%;height:auto;}
-  .tp-point{cursor:pointer;}
-  .tp-point .tp-val,.tp-point .tp-dot,.tp-point .tp-axis{transition:opacity .12s ease;}
-  .trend-interactive.tp-hover-active .tp-point .tp-val{opacity:0;}
-  .trend-interactive.tp-hover-active .tp-point .tp-dot{opacity:0.28;}
-  .trend-interactive.tp-hover-active .tp-point .tp-axis{opacity:0.4;}
-  .trend-interactive.tp-hover-active .tp-point.tp-active .tp-val{opacity:1;}
-  .trend-interactive.tp-hover-active .tp-point.tp-active .tp-dot{opacity:1;r:4.2;}
-  .trend-interactive.tp-hover-active .tp-point.tp-active .tp-axis{opacity:1;font-weight:700;fill:var(--ink);}
-
-  .history-head{display:flex;justify-content:space-between;align-items:center;margin:8px 0 12px;}
-  .history-head .clear-history{background:none;border:none;color:var(--pill-regular);font-size:12.5px;text-decoration:underline;cursor:pointer;padding:0;}
-  .history-list{display:flex;flex-direction:column;gap:6px;}
-  .history-item{
-    display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:8px;cursor:pointer;
-    background:var(--surface);border:1px solid var(--line);
-  }
-  .history-item:hover{border-color:var(--header-bg);}
-  .history-item.active{background:var(--header-bg);border-color:var(--header-bg);color:#fff;}
-  .history-item.active .dt{color:var(--header-soft);}
-  .history-dot{width:9px;height:9px;border-radius:50%;flex:none;}
-  .history-text{flex:1;min-width:0;}
-  .history-text .eq{font-size:13.5px;font-weight:500;}
-  .history-text .dt{font-size:11.5px;color:var(--ink-soft);}
-  .history-del{background:none;border:none;color:inherit;opacity:.6;cursor:pointer;font-size:16px;line-height:1;padding:2px 5px;}
-  .history-del:hover{opacity:1;}
-  .history-empty{font-size:13px;color:var(--ink-soft);}
-  .fetch-status{font-size:12.5px;color:var(--ink-soft);margin-top:10px;}
-  .fetch-status.err{color:var(--pill-regular);}
-
-  .notes-list{margin:0;padding-left:20px;font-size:13px;color:var(--ink-soft);}
-  .notes-list li{margin-bottom:12px;}
-  .notes-list a{color:var(--header-bg);text-decoration:none;font-weight:600;}
-  .notes-list a:hover{text-decoration:underline;}
-
-  .indicator-tab-head{margin-bottom:20px;display:flex;align-items:baseline;flex-wrap:wrap;gap:10px 14px;}
-  .indicator-tab-head h2{font-size:24px;font-weight:500;margin:0;}
-  .indicator-tab-head p{margin:0;font-size:13px;color:var(--ink-soft);}
-  .lists-section{margin-top:8px;}
-  .list-card{margin-bottom:18px;}
-  .list-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap;}
-  .list-card-head h4{margin:0;}
-  .pdf-btn{
-    display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:999px;
-    border:1px solid var(--header-bg);background:var(--header-bg);color:#fff;
-    font-family:'Inter',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer;
-    transition:background .15s ease,opacity .15s ease;white-space:nowrap;
-  }
-  .pdf-btn:hover{background:var(--header-bg-2);}
-  .pdf-btn:disabled{opacity:.55;cursor:not-allowed;}
-  .pdf-btn svg{width:14px;height:14px;flex:0 0 auto;}
-  .list-card h4{font-size:14.5px;font-weight:500;margin:0;}
-  .list-search{
-    width:100%;max-width:320px;padding:8px 12px;margin-bottom:10px;
-    border:1px solid var(--line);border-radius:6px;font-family:'Inter',sans-serif;
-    font-size:13px;background:var(--surface);color:var(--ink);
-  }
-  .list-search:focus{outline:none;border-color:var(--header-bg);}
-  .list-filters{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px;align-items:center;justify-content:center;}
-  .filter-pair{display:flex;gap:6px;}
-  .filter-val-ms{min-width:170px;max-width:230px;}
-  .filter-val-ms.ms-disabled .ms-btn{opacity:.55;cursor:not-allowed;pointer-events:none;}
-  .list-filters select{
-    padding:8px 12px;border:1px solid var(--line);border-radius:6px;
-    font-family:'Inter',sans-serif;font-size:13px;background:var(--surface);color:var(--ink);
-    max-width:260px;
-  }
-  .list-filters select:focus{outline:none;border-color:var(--header-bg);}
-  .list-filters select:disabled{color:var(--ink-soft);cursor:not-allowed;}
-  .table-wrap{border:1px solid var(--line);border-radius:8px;overflow:auto;max-height:420px;}
-  .data-table{border-collapse:collapse;width:100%;font-size:12.5px;white-space:nowrap;}
-  .data-table thead th{
-    position:sticky;top:0;background:var(--paper);color:var(--ink-soft);
-    text-align:left;font-weight:600;padding:8px 12px;border-bottom:1px solid var(--line);z-index:1;
-    white-space:normal;line-height:1.25;
-  }
-  .data-table tbody td{padding:7px 12px;border-bottom:1px solid var(--line);}
-  .data-table tbody tr:hover{background:var(--paper);}
-  .list-meta{font-size:12px;color:var(--ink-soft);margin:0 0 8px;}
-  .list-month-filter{display:flex;align-items:center;gap:8px;margin-bottom:0;}
-  .list-month-filter-label{font-size:12.5px;font-weight:600;color:var(--ink-soft);white-space:nowrap;}
-  .list-month-filter .ms-wrap{min-width:170px;max-width:220px;}
-  .list-month-filter .ms-panel{max-width:260px;}
-  .list-placeholder{
-    border:1px dashed var(--line);border-radius:8px;padding:16px 18px;
-    font-size:12.5px;color:var(--ink-soft);
-  }
-  .list-placeholder code{background:var(--paper);border-radius:4px;padding:1px 5px;font-size:11.5px;}
-
-  /* ---------- Aba Desempenho Profissional (baseada no protótipo
-     Profissionais.html, adaptada às variáveis de cor do painel) ---------- */
-  .card-header{
-    display:flex;justify-content:space-between;align-items:center;
-    margin-bottom:16px;flex-wrap:wrap;gap:12px;
-  }
-  .card-title{font-size:15.5px;font-weight:600;color:var(--ink);}
-  .pill-group{display:flex;gap:8px;align-items:center;}
-  .pill-btn{
-    border:1px solid var(--line);background:var(--surface);color:var(--ink-soft);
-    padding:6px 16px;border-radius:999px;font-size:12.5px;font-weight:600;
-    cursor:pointer;font-family:'Inter',sans-serif;transition:all .15s ease;outline:none;
-  }
-  .pill-btn:hover{background:var(--paper);border-color:#C7D3C0;}
-  .pill-btn.active{background:var(--header-bg);color:#fff;border-color:var(--header-bg);}
-  .pill-btn.active:hover{background:var(--header-bg-2);}
-
-  .grid-professionals{
-    display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px;
-  }
-  .prof-header{display:flex;align-items:center;gap:12px;margin-bottom:16px;}
-  .prof-avatar{
-    width:44px;height:44px;border-radius:50%;background:var(--header-bg);color:#fff;
-    display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex:0 0 auto;
-  }
-  .prof-info h3{margin:0;font-size:15.5px;font-weight:600;color:var(--ink);}
-  .prof-info span{font-size:11.5px;color:var(--ink-soft);}
-
-  .kpi-container{
-    display:flex;justify-content:space-between;background:var(--paper);
-    padding:10px 14px;border-radius:8px;margin-bottom:16px;text-align:center;
-  }
-  .kpi-item{flex:1;}
-  .kpi-item label{display:block;font-size:10.5px;color:var(--ink-soft);margin-bottom:2px;}
-  .kpi-item span{font-size:15px;font-weight:700;color:var(--ink);}
-
-  .card-charts-layout{
-    display:flex;align-items:center;justify-content:space-around;gap:10px;height:150px;
-  }
-  .chart-box{position:relative;width:50%;height:100%;}
-  /* Gráfico sozinho no card (sem par lado a lado dentro de
-     .card-charts-layout) — precisa ocupar 100% da largura, não os 50%
-     pensados pro layout donut+legenda/donut+barra. */
-  .chart-box-full{position:relative;width:100%;height:100%;}
-  .donut-center-text{
-    position:absolute;top:55%;left:50%;transform:translate(-50%,-50%);
-    text-align:center;pointer-events:none;
-  }
-  .donut-center-text .val{font-size:16px;font-weight:700;display:block;line-height:1;color:var(--ink);}
-  .donut-center-text .lbl{font-size:9px;color:var(--ink-soft);}
-
-  @media (max-width:880px){
-    .topbar{padding:14px 20px;}
-    .topbar-right{width:100%;justify-content:flex-end;}
-    .topbar-meta{display:none;}
-    .tabbar{
-      padding:0 20px;flex-wrap:nowrap;justify-content:flex-start;gap:22px;
-      overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;
+  // Série pra tendência: um ponto por mês (os últimos TREND_MESES meses,
+  // terminando no mês de referência selecionado), cada um com sua PRÓPRIA
+  // janela móvel de JANELA_MESES meses (não é o mesmo período repetido).
+  function calcularSerieTendencia(wb, refMonth, n){
+    var pontos = [];
+    for(var i=n-1; i>=0; i--){
+      var mes = addMonths(refMonth, -i);
+      var janela = calcularJanelaPeriodo(mes);
+      var res = calcularJanelaComOverride(wb, mes);
+      pontos.push({
+        mes:mes, m1:res.data.m1, m2:res.data.m2,
+        numeradorM1: res.data.numeradorM1, denominadorM1: res.data.denominadorM1,
+        numeradorM2: res.data.numeradorM2, denominadorM2: res.data.denominadorM2,
+        notaFinal: res.data.notaFinal,
+        // Campos usados só pelo relatório de divergência oficial: valor
+        // que o painel calcularia sem o override, e se este ponto teve
+        // (ou não) override oficial aplicado — ver aplicarOverrideOficial.
+        m1Oficial: !!res.data.m1Oficial, m2Oficial: !!res.data.m2Oficial,
+        numeradorM1Calculado: res.data.numeradorM1Calculado, denominadorM1Calculado: res.data.denominadorM1Calculado, m1Calculado: res.data.m1Calculado,
+        numeradorM2Calculado: res.data.numeradorM2Calculado, denominadorM2Calculado: res.data.denominadorM2Calculado, m2Calculado: res.data.m2Calculado,
+        janela:janela
+      });
     }
-    .tabbar::-webkit-scrollbar{display:none;}
-    .tab{flex:0 0 auto;white-space:nowrap;}
-    .main{padding:20px 20px 50px;}
+    return pontos;
   }
+  // Popula o #quadMs com quadrimestres do ano atual e dos 2 anteriores
+  // (mais recente primeiro), e o #mesMs com os 4 meses do quadrimestre
+  // atualmente selecionado + uma opção vazia ("média"). Os dois são
+  // widgets de valor único (multi:false) com o mesmo visual arredondado
+  // do seletor de Equipe.
+  var quadMs = null, mesMs = null;
+  function populateQuadSelect(){
+    var container = document.getElementById('quadMs');
+    if(!container || quadMs) return; // já populado (não recria a cada render)
+    quadMs = createMultiSelect(container, {
+      placeholder: 'Selecione', multi: false, search: false,
+      onChange: function(keys){
+        var parts = keys[0].split('-');
+        quadSelecionado = {ano: +parts[0], qIndex: +parts[1]};
+        refMonthDates = []; // volta a mostrar a média do quadrimestre escolhido
+        populateMonthSelectForQuad();
+        aplicarMesReferencia(false);
+      }
+    });
+    var anoAtual = new Date().getFullYear();
+    var opts = [];
+    for(var ano=anoAtual; ano>=anoAtual-2; ano--){
+      for(var q=2; q>=0; q--){
+        if(ano===anoAtual && q > quadSelecionado.qIndex) continue; // não mostra quadrimestre futuro do ano atual
+        opts.push({value: ano+'-'+q, label: QUAD_LABELS[q]+'/'+ano});
+      }
+    }
+    quadMs.setOptions(opts);
+    quadMs.setSelected([quadSelecionado.ano+'-'+quadSelecionado.qIndex]);
+    populateMonthSelectForQuad();
+  }
+  // Preenche #mesMs com os 4 meses do quadrimestre selecionado — agora em
+  // multisseleção: marcar 1+ meses troca o resultado pro(s) mês(es)
+  // escolhido(s) (cada um com sua janela móvel própria, combinados pela
+  // média quando há mais de um); nenhum marcado = média do quadrimestre
+  // inteiro. As opções são refeitas toda vez que o quadrimestre muda; o
+  // widget em si (mesMs) é criado uma única vez.
+  function populateMonthSelectForQuad(){
+    var container = document.getElementById('mesMs');
+    if(!container) return;
+    if(!mesMs){
+      mesMs = createMultiSelect(container, {
+        placeholder: 'Média do quadrimestre', multi: true, search: false, showTags: true,
+        onChange: function(keys){
+          refMonthDates = keys.map(function(v){
+            var parts = v.split('-');
+            return new Date(+parts[0], +parts[1]-1, 1);
+          }).sort(function(a,b){ return a-b; });
+          aplicarMesReferencia(false);
+        }
+      });
+    }
+    var meses = mesesDoQuadrimestre(quadSelecionado.ano, quadSelecionado.qIndex);
+    var mesesValidos = meses.map(monthOptionValue);
+    var opts = meses.map(function(d){
+      return {value: monthOptionValue(d), label: monthOptionLabel(d)};
+    });
+    // Ao trocar de quadrimestre, mantém só a seleção que ainda faz parte
+    // do novo quadrimestre (evita "mês fantasma" de outro período).
+    refMonthDates = refMonthDates.filter(function(d){ return mesesValidos.indexOf(monthOptionValue(d)) >= 0; });
+    mesMs.setOptions(opts);
+    mesMs.setSelected(refMonthDates.map(monthOptionValue));
+  }
+  // Combina os indicadores de vários meses fazendo a MÉDIA de M1 e M2 —
+  // é assim que o quadrimestre vira "a média dos meses do quadrimestre".
+  // IMPORTANTE: o M1/M2 de CADA mês que entra nessa média já é o valor
+  // "oficial" daquele mês/competência, ou seja, calculado com a janela
+  // móvel de JANELA_MESES meses terminando naquele mês (ex.: M1 de maio =
+  // fev+mar+abr+maio) — é por isso que a função recebe DOIS conjuntos de
+  // resultados: `resultadosJanela` (M1/M2 de cada mês já com a janela
+  // móvel, usados para a média) e `resultadosMensais` (dados BRUTOS só
+  // daquele mês isolado, sem janela, usados apenas pra somar contagens de
+  // contexto — atendimentos, participações etc. — e montar a lista de
+  // "Pessoas atendidas" sem contar o mesmo atendimento mais de uma vez).
+  function mediaDeMeses(resultadosMensais, resultadosJanela, mesesProjecaoLabel){
+    function media(campo){
+      var vals = resultadosJanela.map(function(r){ return r.data[campo]; }).filter(function(v){ return v!=null; });
+      if(!vals.length) return null;
+      return vals.reduce(function(a,b){ return a+b; }, 0) / vals.length;
+    }
+    // Soma "crua": usada só pra contexto que não tem relação direta com
+    // M1/M2 (nenhum campo hoje) — mantida por clareza/possível uso futuro.
+    function soma(campo){
+      return resultadosMensais.reduce(function(a,r){ return a + (r.data[campo]||0); }, 0);
+    }
+    // Os números de contexto do M1/M2 (numerador, denominador, atendimentos,
+    // atividades, reuniões) precisam vir da MESMA base que o m1/m2 exibido
+    // no gauge — ou seja, das janelas móveis oficiais (resultadosJanela),
+    // não dos meses isolados. Usamos MÉDIA das 4 janelas (não soma): como
+    // cada janela já cobre JANELA_MESES meses, somar as 4 janelas do
+    // quadrimestre contaria o mesmo dado várias vezes (elas se sobrepõem).
+    // A média das janelas fica na mesma ordem de grandeza do quadrimestre
+    // e é consistente com como m1/m2 acima já são calculados.
+    function mediaJanela(campo){
+      var vals = resultadosJanela.map(function(r){ return r.data[campo]; }).filter(function(v){ return v!=null; });
+      if(!vals.length) return null;
+      var media = vals.reduce(function(a,b){ return a+b; }, 0) / vals.length;
+      return Math.round(media);
+    }
+    var m1 = media('m1');
+    var m2 = media('m2');
+    var classificacaoM1 = classificarM1(m1);
+    var classificacaoM2 = classificarM2(m2);
+    var pontosM1 = PONTOS_POR_CLASSE[classificacaoM1];
+    var pontosM2 = PONTOS_POR_CLASSE[classificacaoM2];
+    var pontosM1Pesados = pontosM1!==undefined ? pontosM1*6 : null;
+    var pontosM2Pesados = pontosM2!==undefined ? pontosM2*4 : null;
+    var notaFinal = (pontosM1Pesados!=null && pontosM2Pesados!=null) ? (pontosM1Pesados+pontosM2Pesados) : null;
+    var desempenho = classificarDesempenho(notaFinal);
+
+    // "Pessoas atendidas": une as listas dos 4 meses, somando atendimentos
+    // e participações de quem aparece em mais de um mês.
+    var pessoasMap = {};
+    resultadosMensais.forEach(function(r){
+      r.pessoasAtendidas.rows.forEach(function(row){
+        var chave = String(row[0]).trim().toUpperCase();
+        if(!pessoasMap[chave]) pessoasMap[chave] = {nome:row[0], at:0, part:0};
+        pessoasMap[chave].at += row[1];
+        pessoasMap[chave].part += row[2];
+      });
+    });
+    var pessoasLista = Object.keys(pessoasMap).map(function(k){ return pessoasMap[k]; })
+      .sort(function(a,b){ return a.nome.localeCompare(b.nome,'pt-BR'); });
+    var pessoasAtendidasRows = pessoasLista.map(function(p){ return [p.nome, p.at, p.part, p.at+p.part]; });
+
+    return {
+      equipe: currentEquipes.map(function(e){ return e.label; }).join(' + '),
+      data: {
+        atendimentosIndividuais: soma('atendimentosIndividuais'),
+        participacoesColetivas: soma('participacoesColetivas'),
+        numeradorM1: soma('numeradorM1'),
+        denominadorM1: pessoasLista.length,
+        // Versões "janela": média das 4 janelas móveis que compõem o
+        // m1/m2 acima — usadas nos cards de Composição, na legenda do
+        // gauge e na Meta do quadrimestre, pra tudo bater com o valor
+        // do ponteiro (mesma base do m1/m2 exibido, não os totais
+        // reais do quadrimestre acima).
+        atendimentosIndividuaisJanela: mediaJanela('atendimentosIndividuais'),
+        participacoesColetivasJanela: mediaJanela('participacoesColetivas'),
+        numeradorM1Janela: mediaJanela('numeradorM1'),
+        denominadorM1Janela: mediaJanela('denominadorM1'),
+        m1: m1,
+        classificacaoM1: classificacaoM1,
+        atividadesTotais: soma('atividadesTotais'),
+        atividadesCompartilhadas: soma('atividadesCompartilhadas'),
+        reunioesTotais: soma('reunioesTotais'),
+        reunioesCompartilhadas: soma('reunioesCompartilhadas'),
+        denominadorM2: soma('denominadorM2'),
+        numeradorM2: soma('numeradorM2'),
+        atividadesCompartilhadasJanela: mediaJanela('atividadesCompartilhadas'),
+        reunioesCompartilhadasJanela: mediaJanela('reunioesCompartilhadas'),
+        numeradorM2Janela: mediaJanela('numeradorM2'),
+        denominadorM2Janela: mediaJanela('denominadorM2'),
+        m2: m2,
+        classificacaoM2: classificacaoM2,
+        pontosM1: pontosM1Pesados,
+        pontosM2: pontosM2Pesados,
+        notaFinal: notaFinal,
+        desempenho: desempenho,
+        // Preenchido só quando a média sai do quadrimestre inteiro (não
+        // de uma seleção manual de meses) E nem todos os 4 meses do
+        // quadrimestre já terminaram — sinaliza que os meses que faltam
+        // estão sendo projetados pelo ritmo médio dos meses já
+        // decorridos (ver mesesElapsedDoQuadrimestre e
+        // aplicarMesReferencia). null = média "fechada" normal, sem
+        // projeção (seleção manual de meses, ou quadrimestre já
+        // encerrado).
+        mesesProjecaoLabel: mesesProjecaoLabel || null
+      },
+      notes: NOTAS_METODOLOGICAS,
+      pessoasAtendidas: {headers: ["Nome","Atendimentos","Participantes Ativ. Coletiva","Total"], rows: pessoasAtendidasRows}
+    };
+  }
+  function sheetCsvUrl(sheetName){
+    return "https://docs.google.com/spreadsheets/d/" + SPREADSHEET_ID
+      + "/gviz/tq?tqx=out:csv&sheet=" + encodeURIComponent(sheetName);
+  }
+  function fetchAllSheets(){
+    return Promise.all(requiredSheetNames().map(function(name){
+      return fetch(sheetCsvUrl(name), {cache:'no-store'})
+        .then(function(res){
+          if(!res.ok) throw new Error('HTTP ' + res.status);
+          return res.text();
+        })
+        .then(function(csvText){ return {name:name, csvText:csvText, ok:true}; })
+        .catch(function(err){ return {name:name, error:err, ok:false}; });
+    }));
+  }
+
+  var CLASS_PILL_HEX = {"Ótimo":"#2F6F5E","Bom":"#6B8F71","Suficiente":"#C68A3D","Regular":"#B5474B"};
+  var CLASS_ARC_HEX = {"Regular":"#E63737","Suficiente":"#F4A734","Bom":"#2BB659","Ótimo":"#2775E7"};
+  // Versão só um pouco mais intensa/saturada, usada apenas nos anéis da
+  // Visão geral (ovRingSVG) — não afeta os gauges grandes das abas M1/M2,
+  // que continuam usando CLASS_ARC_HEX normalmente.
+  var CLASS_ARC_HEX_OV = {"Regular":"#BF2929","Suficiente":"#CF7E09","Bom":"#2A894A","Ótimo":"#1B59B5"};
+
+  // ---------- Listas complementares ----------
+  function m1ListNames(){ return ["Atendimentos", "Participantes Ativ. Coletiva", "Pessoas atendidas", "Busca-Ativa"].map(suffixedName); }
+  function m2ListNames(){ return ["Atendimentos", "Resumo Reuniões", "Resumo Atividade Coletiva"].map(suffixedName); }
+  var latestSheets = {}; // nome da aba -> {headers, rows} | {error}
+  // Filtro de mês (multisseleção) das listas das abas M1/M2: por lista
+  // (chave = nome sufixado da aba), guarda o índice da coluna de data
+  // encontrada e os meses atualmente marcados (["" ] vazio = todos os
+  // meses). Persistem entre re-renders pra não perder a seleção do
+  // usuário a cada atualização dos dados.
+  var listDateColIdx = {};
+  var listMonthFilters = {};
+  // Acha a coluna de data de uma lista bruta, testando os nomes usados
+  // nas abas de origem ("data" na maioria, "data_hora" em Atendimentos).
+  function dateColIndexForList(headers){
+    var idx = colIndex(headers, "data_hora");
+    if(idx >= 0) return idx;
+    return colIndex(headers, "data");
+  }
+  // Monta as opções de mês (mais recente primeiro) a partir dos valores
+  // de data realmente presentes nas linhas da lista.
+  function monthOptionsForList(cached, dateColIdx){
+    var seen = {}, months = [];
+    cached.rows.forEach(function(r){
+      var d = parseBRDate(r[dateColIdx]);
+      if(!d) return;
+      var v = monthOptionValue(d);
+      if(!seen[v]){ seen[v] = true; months.push(new Date(d.getFullYear(), d.getMonth(), 1)); }
+    });
+    months.sort(function(a,b){ return b-a; });
+    return months.map(function(d){ return {value: monthOptionValue(d), label: monthOptionLabel(d)}; });
+  }
+
+  var STORAGE_KEY = "uploads";
+  var currentRecordId = null;
+  var STORAGE_AVAILABLE = !!(window.storage && typeof window.storage.get === 'function'
+    && typeof window.storage.set === 'function');
+  var memoryHistory = [];
+
+  // ---------- Helpers ----------
+  function fmtInt(v){
+    if(v===null||v===undefined||isNaN(v)) return "—";
+    return Number(v).toLocaleString('pt-BR');
+  }
+  function fmtDec(v,d){
+    if(v===null||v===undefined||isNaN(v)) return "—";
+    return Number(v).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});
+  }
+  function fmtDate(ts){
+    var d = new Date(ts);
+    return d.toLocaleDateString('pt-BR') + " às " + d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  }
+  function shortDate(ts){
+    var d = new Date(ts);
+    return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+  }
+  function escapeHtml(s){
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  function pillHex(c){ return CLASS_PILL_HEX[c] || "#9AA69E"; }
+  function arcHex(c){ return CLASS_ARC_HEX[c] || "#9AA69E"; }
+  function arcHexOv(c){ return CLASS_ARC_HEX_OV[c] || "#9AA69E"; }
+  // Texto descritivo da caixa "Interpretação" do card de gauge das abas
+  // M1/M2, de acordo com a classificação atual do indicador.
+  var GAUGE_INTERPRETATION = {
+    'Regular':    'indicando necessidade de atenção nas ações do programa.',
+    'Suficiente': 'mostrando um desempenho satisfatório das ações do programa.',
+    'Bom':        'mostrando um desempenho positivo das ações do programa.',
+    'Ótimo':      'mostrando um desempenho excelente das ações do programa.'
+  };
+  function gaugeInterpretationHTML(classLabel){
+    var txt = GAUGE_INTERPRETATION[classLabel] || 'refletindo o desempenho atual das ações do programa.';
+    return 'O indicador está em nível <b>'+(classLabel||'—')+'</b>, '+txt;
+  }
+  // Cabeçalho dos cards de Numerador/Denominador: ícone de pessoas +
+  // título + badge com o valor total, no modelo das imagens de referência.
+  function compCardHeaderHTML(title, totalValue){
+    return '<div class="comp-card-head">'
+      + '<div class="comp-card-icon"><svg viewBox="0 0 24 24">'+OV_ICONS.users+'</svg></div>'
+      + '<h4>'+title+'</h4>'
+      + '<span class="comp-card-total">'+fmtInt(totalValue)+'</span>'
+      + '</div>';
+  }
+
+  // ---------- Multi-select arredondado (Equipe / Quadrimestre / Mês) ----------
+  // Componente genérico: em modo multi:true permite marcar vários valores
+  // (com "Selecionar tudo"/"Limpar" e tags abaixo do botão); em modo
+  // multi:false funciona como um "select" de valor único, mas com o
+  // mesmo visual arredondado — clicar numa opção troca a seleção e fecha.
+  function createMultiSelect(container, cfg){
+    cfg = cfg || {};
+    var state = {options: [], selected: [], isOpen: false, searchTerm: ''};
+    container.innerHTML =
+        '<button type="button" class="ms-btn">'
+      +   '<span class="ms-btn-text"></span>'
+      +   '<svg class="ms-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>'
+      + '</button>'
+      + '<div class="ms-panel" style="display:none;"></div>'
+      + (cfg.showTags ? '<div class="ms-tags"></div>' : '');
+    var btn = container.querySelector('.ms-btn');
+    var btnText = container.querySelector('.ms-btn-text');
+    var panel = container.querySelector('.ms-panel');
+    var tagsBox = container.querySelector('.ms-tags');
+
+    function labelFor(value){
+      var found = state.options.filter(function(o){ return o.value===value; })[0];
+      return found ? found.label : value;
+    }
+
+    function renderTags(){
+      if(!tagsBox) return;
+      if(!cfg.multi || state.selected.length<2){ tagsBox.innerHTML=''; return; }
+      tagsBox.innerHTML = state.selected.map(function(v){
+        return '<span class="ms-tag" data-value="'+escapeHtml(v)+'">'+escapeHtml(labelFor(v))
+          + '<button type="button" data-remove="'+escapeHtml(v)+'">'
+          +   '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>'
+          + '</button></span>';
+      }).join('');
+      tagsBox.querySelectorAll('[data-remove]').forEach(function(b){
+        b.addEventListener('click', function(e){
+          e.stopPropagation();
+          setSelected(state.selected.filter(function(v){ return v!==b.getAttribute('data-remove'); }));
+        });
+      });
+    }
+
+    function render(){
+      var selLabels = state.selected.map(labelFor);
+      btnText.textContent = selLabels.length===0 ? (cfg.placeholder || 'Todos')
+        : (cfg.multi && selLabels.length>1 ? selLabels.length+' selecionados' : selLabels.join(', '));
+      container.classList.toggle('ms-has-value', selLabels.length>0);
+      btn.classList.toggle('ms-open', state.isOpen);
+      renderTags();
+
+      if(!state.isOpen){ panel.style.display='none'; panel.innerHTML=''; return; }
+      panel.style.display='block';
+
+      var term = state.searchTerm.toLowerCase();
+      var filtered = !term ? state.options : state.options.filter(function(o){
+        return o.label.toLowerCase().indexOf(term) >= 0;
+      });
+
+      var html = '';
+      if(cfg.search){
+        html += '<div class="ms-search-wrap"><input type="text" class="ms-search" placeholder="Buscar…" value="'+escapeHtml(state.searchTerm)+'"></div>';
+      }
+      if(cfg.multi){
+        html += state.selected.length>0
+          ? '<button type="button" class="ms-action" data-action="clear">Limpar seleção</button>'
+          : '<button type="button" class="ms-action" data-action="all">Selecionar tudo</button>';
+      }
+      html += '<div class="ms-list">';
+      html += filtered.length===0
+        ? '<div class="ms-empty">Nenhum resultado encontrado</div>'
+        : filtered.map(function(o){
+            var checked = state.selected.indexOf(o.value)>=0;
+            return '<button type="button" class="ms-option'+(checked?' ms-option-checked':'')+'" data-value="'+escapeHtml(o.value)+'">'
+              + '<span class="ms-option-label">'+escapeHtml(o.label)+'</span>'
+              + (checked ? '<svg class="ms-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>' : '')
+              + '</button>';
+          }).join('');
+      html += '</div>';
+      panel.innerHTML = html;
+
+      var searchInput = panel.querySelector('.ms-search');
+      if(searchInput){
+        searchInput.focus();
+        var pos = state.searchTerm.length;
+        searchInput.setSelectionRange(pos,pos);
+        searchInput.addEventListener('input', function(){ state.searchTerm = searchInput.value; render(); });
+      }
+      var actionBtn = panel.querySelector('.ms-action');
+      if(actionBtn){
+        actionBtn.addEventListener('click', function(){
+          if(actionBtn.getAttribute('data-action')==='clear') setSelected([]);
+          else setSelected(filtered.map(function(o){ return o.value; }));
+        });
+      }
+      panel.querySelectorAll('.ms-option').forEach(function(elOpt){
+        elOpt.addEventListener('click', function(){
+          var v = elOpt.getAttribute('data-value');
+          if(cfg.multi){
+            var next = state.selected.indexOf(v)>=0
+              ? state.selected.filter(function(x){ return x!==v; })
+              : state.selected.concat([v]);
+            setSelected(next);
+          } else {
+            state.isOpen = false;
+            setSelected([v]);
+          }
+        });
+      });
+    }
+
+    function setSelected(values, silent){
+      state.selected = values;
+      render();
+      if(!silent && cfg.onChange) cfg.onChange(state.selected.slice());
+    }
+
+    btn.addEventListener('click', function(){
+      state.isOpen = !state.isOpen;
+      state.searchTerm = '';
+      render();
+    });
+    document.addEventListener('mousedown', function(e){
+      if(state.isOpen && !container.contains(e.target)){
+        state.isOpen = false;
+        state.searchTerm = '';
+        render();
+      }
+    });
+
+    return {
+      setOptions: function(opts){ state.options = opts; render(); },
+      setSelected: function(values){ setSelected(values, true); },
+      getSelected: function(){ return state.selected.slice(); }
+    };
+  }
+
+  // ---------- Parsing ----------
+  function sheetToRows(ws){
+    if(Array.isArray(ws)) return ws; // já é uma matriz de linhas (vindo do parseCsv)
+    return XLSX.utils.sheet_to_json(ws, {header:1, defval:""});
+  }
+
+  // ---------- Filtro por equipe (linha a linha) ----------
+  // Não existem abas separadas por equipe — cada linha da aba tem uma
+  // coluna "equipe_unidade" (ou similar) que identifica a equipe. Aqui a
+  // gente acha essa coluna e mantém só as linhas da equipe selecionada.
+  function normalizeText(s){
+    return String(s||"").toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  }
+  function equipeColIndex(headerRow){
+    for(var i=0;i<headerRow.length;i++){
+      var h = normalizeText(headerRow[i]).replace(/\s+/g,'_');
+      if(h === "EQUIPE_UNIDADE") return i;
+    }
+    for(var j=0;j<headerRow.length;j++){
+      if(normalizeText(headerRow[j]).indexOf("EQUIPE") !== -1) return j;
+    }
+    return -1;
+  }
+  // ---------- Dados oficiais (aba Q2-26) ----------
+  // A aba Q2-26 tem duas tabelas empilhadas (uma pro M1, outra pro M2),
+  // cada linha de dado com: NOME DA EQUIPE | SIGLA | numerador | denominador
+  // | pontuação (não usada — recalculamos pra garantir a mesma fórmula do
+  // painel) | MÊS ("mai./26") | INDICADOR ("M1"/"M2"). Não há coluna
+  // separada por aba/equipe — filtramos e agrupamos aqui mesmo.
+  var MESES_PT_ABREV = {jan:0,fev:1,mar:2,abr:3,mai:4,jun:5,jul:6,ago:7,set:8,out:9,nov:10,dez:11};
+  function parseMesAbrevPt(raw){
+    var s = String(raw||"").trim().toLowerCase().replace(/\./g,'');
+    var m = s.match(/^([a-z]{3})\/(\d{2,4})$/);
+    if(m && MESES_PT_ABREV[m[1]]!==undefined){
+      var anoStr = m[2];
+      var ano = anoStr.length===2 ? (2000+ +anoStr) : +anoStr;
+      return {ano:ano, mesIdx:MESES_PT_ABREV[m[1]]};
+    }
+    // Reforço: se a célula "MÊS" for uma data de verdade (não texto), o
+    // gviz/CSV pode devolver algo como "31/5/2026" ou "2026-05-31" em vez
+    // de "mai./26" — tenta os dois formatos antes de desistir.
+    var d = parseBRDate(raw);
+    if(d) return {ano: d.getFullYear(), mesIdx: d.getMonth()};
+    return null;
+  }
+  // Acha a equipe (EQUIPES) cujo matchKeyword aparece no "NOME DA EQUIPE"
+  // da aba oficial — mesma lógica/keywords usadas pra filtrar as abas
+  // brutas por equipe (ver EQUIPES e filtrarLinhasPorEquipe).
+  function equipeKeyFromNomeOficial(nome){
+    var norm = normalizeText(nome);
+    var achou = EQUIPES.filter(function(eq){ return norm.indexOf(normalizeText(eq.matchKeyword)) !== -1; });
+    return achou.length ? achou[0].key : null;
+  }
+  function officialOverrideKey(equipeKey, ano, mesIdx, indicador){
+    return equipeKey + '|' + ano + '-' + String(mesIdx+1).padStart(2,'0') + '|' + indicador;
+  }
+  // Faz o parse do CSV bruto da aba Q2-26 pro mapa de overrides. Linhas
+  // que não tiverem "M1"/"M2" na coluna G (cabeçalhos, linhas em branco
+  // entre as duas tabelas) são ignoradas — não depende de saber onde cada
+  // tabela começa/termina.
+  function parseOfficialSheetCsv(csvText){
+    var rows = parseCsv(csvText);
+    var map = {};
+    rows.forEach(function(r){
+      var indicador = String(r[6]||"").trim().toUpperCase();
+      if(indicador !== 'M1' && indicador !== 'M2') return;
+      var equipeKey = equipeKeyFromNomeOficial(r[0]);
+      if(!equipeKey) return;
+      var mes = parseMesAbrevPt(r[5]);
+      if(!mes) return;
+      map[officialOverrideKey(equipeKey, mes.ano, mes.mesIdx, indicador)] = {
+        numerador: toInt(r[2]),
+        denominador: toInt(r[3])
+      };
+    });
+    return map;
+  }
+  // Busca a aba oficial à parte (não é uma aba "bruta" filtrada por
+  // equipe, ver requiredSheetNames). Nunca rejeita a promise — se a aba
+  // não existir ou a busca falhar, simplesmente mantém os overrides já
+  // carregados antes (ou vazio, na primeira vez), sem travar o resto do
+  // carregamento do painel.
+  function fetchOfficialOverridesSafe(){
+    return fetch(sheetCsvUrl(OFFICIAL_SHEET_NAME), {cache:'no-store'})
+      .then(function(res){ if(!res.ok) throw new Error('HTTP ' + res.status); return res.text(); })
+      .then(function(csvText){ officialOverrides = parseOfficialSheetCsv(csvText); })
+      .catch(function(){ /* mantém officialOverrides como estava */ });
+  }
+
+  // ---------- Cadastro de Profissionais (aba "PROFISSIONAIS") ----------
+  // Fonte de verdade de QUEM deve aparecer na aba Desempenho Profissional:
+  // cada linha desta aba (na mesma planilha de origem) traz o nome do
+  // profissional, a equipe a que pertence e a categoria profissional
+  // (CBO/função). Diferente das abas de dados brutos (BASE_SHEET_NAMES),
+  // esta é uma aba de CADASTRO, sem data/período — é buscada à parte,
+  // igual à aba oficial (ver fetchOfficialOverridesSafe acima), e nunca
+  // trava o carregamento do painel se estiver ausente, vazia ou com
+  // colunas de nome diferente (ver profRosterColIndex).
+  var PROFISSIONAIS_SHEET_NAME = "PROFISSIONAIS";
+  // lista de {nome, equipeKey, categoria} — uma entrada por
+  // profissional+equipe cadastrados na aba (um profissional que atua em
+  // 2 equipes gera 2 entradas, uma pra cada).
+  var profissionaisRoster = [];
+  // Acha a coluna certa tentando primeiro nomes exatos e, não achando,
+  // cai pra uma busca por palavra-chave no cabeçalho — protege contra a
+  // aba PROFISSIONAIS usar um nome de coluna um pouco diferente do
+  // esperado.
+  function profRosterColIndex(header, candidatos, fallbackKeyword){
+    for(var i=0;i<candidatos.length;i++){
+      var idx = colIndex(header, candidatos[i]);
+      if(idx >= 0) return idx;
+    }
+    if(fallbackKeyword){
+      for(var j=0;j<header.length;j++){
+        if(normalizeText(header[j]).indexOf(fallbackKeyword) !== -1) return j;
+      }
+    }
+    return -1;
+  }
+  // Layout real da aba (ver print do usuário): "Nome do Profissional" |
+  // "CATEGORIA PROFISSIONAL" | "Equipe 1" | "Equipe 2" (podendo ter mais
+  // colunas "Equipe N" à direita) — cada profissional pode ter 1 ou 2
+  // equipes preenchidas (2 quando atua nas duas). Por isso, ao contrário
+  // das outras colunas, TODAS as colunas cujo cabeçalho contenha
+  // "EQUIPE" são lidas, e cada uma preenchida na linha vira uma entrada
+  // separada no roster (mesmo profissional, equipes diferentes).
+  function parseProfissionaisCsv(csvText){
+    var rows = parseCsv(csvText);
+    if(!rows.length) return [];
+    var header = rows[0];
+    var iNome = profRosterColIndex(header, ["Nome do Profissional","profissional","nome_profissional","nome"], "PROFISSIONAL");
+    var iCategoria = profRosterColIndex(header, ["CATEGORIA PROFISSIONAL","categoria_profissional","categoria_prof","categoria","cbo"], "CATEGORIA");
+    var equipeCols = [];
+    header.forEach(function(h, idx){
+      if(normalizeText(h).indexOf("EQUIPE") !== -1) equipeCols.push(idx);
+    });
+    if(iNome < 0) return [];
+    var lista = [];
+    rows.slice(1).forEach(function(r){
+      var nome = String(r[iNome]||"").trim();
+      if(!nome) return;
+      var categoria = iCategoria>=0 ? String(r[iCategoria]||"").trim() : "";
+      equipeCols.forEach(function(iEquipe){
+        var valorEquipe = normalizeText(r[iEquipe]);
+        if(!valorEquipe) return; // "Equipe 2" costuma vir vazia pra quem só atua em 1 equipe
+        var equipeMatch = EQUIPES.filter(function(eq){ return valorEquipe.indexOf(normalizeText(eq.matchKeyword)) !== -1; })[0];
+        if(!equipeMatch) return;
+        lista.push({nome: nome, equipeKey: equipeMatch.key, categoria: categoria});
+      });
+    });
+    return lista;
+  }
+  // Nunca rejeita a promise — sem a aba PROFISSIONAIS (ou com erro na
+  // busca), profissionaisRoster fica como estava (ou vazio, na primeira
+  // vez) e calcularPerformanceProfissionais cai no comportamento antigo
+  // (lista derivada da aba Atendimentos — ver mais abaixo).
+  function fetchProfissionaisSafe(){
+    return fetch(sheetCsvUrl(PROFISSIONAIS_SHEET_NAME), {cache:'no-store'})
+      .then(function(res){ if(!res.ok) throw new Error('HTTP ' + res.status); return res.text(); })
+      .then(function(csvText){ profissionaisRoster = parseProfissionaisCsv(csvText); })
+      .catch(function(){ /* mantém profissionaisRoster como estava */ });
+  }
+
+  // Aplica (in-place) o override oficial em `data` (o objeto retornado por
+  // calcularIndicadoresDoPeriodo) pro mês/ano informados, considerando as
+  // equipes atualmente selecionadas (currentEquipes). Só substitui M1 (ou
+  // M2) quando TODAS as equipes selecionadas têm dado oficial pra aquele
+  // indicador/mês — com 2 equipes marcadas, soma numerador e denominador
+  // de ambas e recalcula a pontuação (mesma fórmula do painel: M1 =
+  // numerador/denominador; M2 = numerador/denominador×100). Sem dado
+  // oficial completo, o valor calculado pelo painel é mantido como está.
+  function aplicarOverrideOficial(data, ano, mesIdx){
+    // Guarda o valor CALCULADO pelo painel antes de qualquer substituição
+    // — usado só pelo relatório de divergência (ver gerarPdfDivergenciaOficial),
+    // pra poder comparar lado a lado com o valor oficial mesmo depois que
+    // `data` já foi sobrescrito abaixo.
+    data.numeradorM1Calculado = data.numeradorM1;
+    data.denominadorM1Calculado = data.denominadorM1;
+    data.m1Calculado = data.m1;
+    data.numeradorM2Calculado = data.numeradorM2;
+    data.denominadorM2Calculado = data.denominadorM2;
+    data.m2Calculado = data.m2;
+    ['M1','M2'].forEach(function(indicador){
+      var entradas = currentEquipes.map(function(eq){
+        return officialOverrides[officialOverrideKey(eq.key, ano, mesIdx, indicador)];
+      });
+      if(!entradas.length || entradas.some(function(e){ return !e; })) return;
+      var numerador = entradas.reduce(function(a,e){ return a+e.numerador; }, 0);
+      var denominador = entradas.reduce(function(a,e){ return a+e.denominador; }, 0);
+      if(indicador === 'M1'){
+        var m1 = denominador ? (numerador/denominador) : null;
+        data.numeradorM1 = numerador;
+        data.denominadorM1 = denominador;
+        data.m1 = m1;
+        data.classificacaoM1 = classificarM1(m1);
+        data.m1Oficial = true;
+      } else {
+        var m2 = denominador ? (numerador/denominador*100) : null;
+        data.numeradorM2 = numerador;
+        data.denominadorM2 = denominador;
+        data.m2 = m2;
+        data.classificacaoM2 = classificarM2(m2);
+        data.m2Oficial = true;
+      }
+    });
+    // Recalcula a síntese (pontos/nota/desempenho) com as classificações
+    // já atualizadas acima — idêntico ao cálculo original quando não há
+    // override (não altera nada nesse caso, só reexecuta a mesma fórmula).
+    var pontosM1 = PONTOS_POR_CLASSE[data.classificacaoM1];
+    var pontosM2 = PONTOS_POR_CLASSE[data.classificacaoM2];
+    var pontosM1Pesados = pontosM1!==undefined ? pontosM1*6 : null;
+    var pontosM2Pesados = pontosM2!==undefined ? pontosM2*4 : null;
+    data.pontosM1 = pontosM1Pesados;
+    data.pontosM2 = pontosM2Pesados;
+    data.notaFinal = (pontosM1Pesados!=null && pontosM2Pesados!=null) ? (pontosM1Pesados+pontosM2Pesados) : null;
+    data.desempenho = classificarDesempenho(data.notaFinal);
+    return data;
+  }
+  // Wrapper usado em todo lugar que hoje calcula o resultado "com janela
+  // móvel" de um mês de referência (calcularIndicadoresDoPeriodo +
+  // calcularJanelaPeriodo) — aplica o override oficial (quando existir)
+  // logo em seguida, então o restante do painel (gauge, cards, médias,
+  // gráfico de Tendência) nem precisa saber se o valor veio calculado ou
+  // da aba oficial.
+  function calcularJanelaComOverride(wb, refMonth){
+    var res = calcularIndicadoresDoPeriodo(wb, calcularJanelaPeriodo(refMonth));
+    aplicarOverrideOficial(res.data, refMonth.getFullYear(), refMonth.getMonth());
+    return res;
+  }
+
+  function filtrarLinhasPorEquipe(matrix, equipes){
+    if(!matrix || !matrix.length) return matrix || [];
+    var header = matrix[0];
+    var idx = equipeColIndex(header);
+    if(idx < 0) return matrix; // aba sem coluna de equipe: não filtra
+    var keywords = equipes.map(function(eq){ return normalizeText(eq.matchKeyword || eq.suffix); });
+    var linhas = matrix.slice(1).filter(function(r){
+      var valor = normalizeText(r[idx]);
+      return keywords.some(function(kw){ return valor.indexOf(kw) !== -1; });
+    });
+    return [header].concat(linhas);
+  }
+
+  // Parser de CSV manual (RFC4180: respeita campos entre aspas, vírgulas e
+  // quebras de linha dentro de campos). Usado em vez do XLSX.read(string)
+  // porque a leitura automática de string do SheetJS não separava as
+  // linhas corretamente para o CSV retornado pelo endpoint gviz.
+  function parseCsv(text){
+    var rows = [];
+    var row = [];
+    var field = '';
+    var inQuotes = false;
+    for(var i=0; i<text.length; i++){
+      var c = text[i];
+      if(inQuotes){
+        if(c === '"'){
+          if(text[i+1] === '"'){ field += '"'; i++; }
+          else { inQuotes = false; }
+        } else {
+          field += c;
+        }
+      } else {
+        if(c === '"'){ inQuotes = true; }
+        else if(c === ','){ row.push(field); field=''; }
+        else if(c === '\r'){ /* ignora, quebra tratada no \n */ }
+        else if(c === '\n'){ row.push(field); field=''; rows.push(row); row=[]; }
+        else { field += c; }
+      }
+    }
+    if(field.length || row.length){ row.push(field); rows.push(row); }
+    return rows;
+  }
+
+  // Datas nas abas brutas vêm como texto dd/mm/aaaa (é assim que o script
+  // de extração grava). Também aceita aaaa-mm-dd como reforço, caso a
+  // célula tenha sido digitada nesse formato.
+  function parseBRDate(raw){
+    var s = String(raw||"").trim();
+    if(!s) return null;
+    var m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if(m) return new Date(+m[3], +m[2]-1, +m[1]);
+    m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if(m) return new Date(+m[1], +m[2]-1, +m[3]);
+    return null;
+  }
+  function fmtBRDate(d){
+    if(!d) return "—";
+    return String(d.getDate()).padStart(2,'0') + "/" + String(d.getMonth()+1).padStart(2,'0') + "/" + d.getFullYear();
+  }
+  function withinPeriod(dateVal, inicio, fim){
+    return dateVal && dateVal >= inicio && dateVal <= fim;
+  }
+  function colIndex(headerRow, name){
+    for(var i=0;i<headerRow.length;i++){
+      if(String(headerRow[i]||"").trim() === name) return i;
+    }
+    return -1;
+  }
+  function toInt(v){
+    var n = parseInt(String(v===undefined||v===null?"":v).trim(), 10);
+    return isNaN(n) ? 0 : n;
+  }
+  // Normaliza texto pra comparar tipo_atividade sem depender de acento,
+  // maiúscula/minúscula ou espaço/barra diferente ("Avaliação/Procedimento
+  // coletivo" vs "Avaliação / Procedimento Coletivo" etc.).
+  function normalizarTexto(v){
+    return String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+      .toLowerCase().replace(/\s+/g," ").replace(/\s*\/\s*/g,"/").trim();
+  }
+
+  var PONTOS_POR_CLASSE = {"Regular":0.25, "Suficiente":0.5, "Bom":0.75, "Ótimo":1};
+  // Mesmas cores dos "pills" de classificação (ver :root), usadas pra
+  // colorir a linha/rótulo de média de cada quadrimestre no gráfico de
+  // Tendência conforme a faixa em que a média cai.
+  var CLASS_COLOR = {"Regular":"#B5474B", "Suficiente":"#C68A3D", "Bom":"#6B8F71", "Ótimo":"#2F6F5E"};
+
+  function classificarM1(v){
+    if(v===null) return "—";
+    if(v>3) return "Ótimo";
+    if(v>2) return "Bom";
+    if(v>1) return "Suficiente";
+    return "Regular";
+  }
+  function classificarM2(v){
+    if(v===null) return "—";
+    if(v>5) return "Ótimo";
+    if(v>2.5) return "Bom";
+    if(v>1) return "Suficiente";
+    return "Regular";
+  }
+  function classificarDesempenho(nota){
+    if(nota===null) return "—";
+    if(nota>7.5) return "Ótimo";
+    if(nota>=5) return "Bom";
+    if(nota>=2.6) return "Suficiente";
+    return "Regular";
+  }
+
+  var NOTAS_METODOLOGICAS = [
+    "Cálculo feito pelo próprio painel, direto dos dados brutos extraídos do e-SUS PEC (Atendimentos + Registro Tardio + Atividade Coletiva + Reuniões) para esta equipe/EMULTI, seguindo as fórmulas das Notas Metodológicas M1 (NT 43/2026-CGIAD/DEAPS/SAPS/MS) e M2 (NT 44/2026-CGIAD/DEAPS/SAPS/MS), na janela dos últimos 4 meses (ver 'Período' no topo da página) — não um quadrimestre fixo do calendário.",
+    "M1 usa NOME da pessoa (a nota oficial usa CPF/CNS) — pessoas diferentes com o mesmo nome seriam contadas como se fossem uma só.",
+    "M2 oficial soma 3 componentes: atendimentos individuais compartilhados, atividades coletivas compartilhadas e compartilhamento de cuidado (PEC). Esta extração só consegue aproximar as parcelas de 'atividades coletivas' e 'reuniões', usando 'nº de profissionais envolvidos ≥ 2' como indício de ação compartilhada — não há como checar CBO/CNS de cada profissional (principal/secundário) pra aplicar a regra oficial à risca.",
+    "Atendimentos individuais compartilhados e compartilhamento de cuidado (PEC) NÃO entram no numerador do M2 aqui (a Lista de Atendimentos do e-SUS não indica se um atendimento individual teve mais de um profissional) — por isso o M2 calculado aqui tende a ficar ABAIXO do valor oficial do indicador.",
+    "Atividade Coletiva só conta como 'compartilhada' aqui quando o tipo_atividade é Educação em saúde, Atendimento em grupo, Avaliação/Procedimento coletivo ou Mobilização social (códigos 04-07) E tem 2+ profissionais envolvidos — sem CBO/CNS de cada um, não dá pra confirmar que um deles é de fato cadastrado em eMulti, então ainda é uma aproximação.",
+    "Reuniões (Resumo Reuniões) só contam oficialmente pra M2 quando são dos tipos 'Reunião de equipe', 'Reunião com outras equipes de saúde' ou 'Reunião intersetorial' (códigos 01-03) E registradas com o tema 'Discussão de Caso/Projeto Terapêutico Singular' — como a aba de reuniões não tem uma coluna de tema, esta extração conta qualquer reunião com 2+ profissionais, o que pode puxar o M2 um pouco PRA CIMA nesse componente específico.",
+    "'Desempenho quadrimestral' NÃO é uma fórmula oficial do Ministério da Saúde — é uma síntese própria: Nota final = pontos M1 × 6 + pontos M2 × 4 (pontos por classificação: Regular=0,25, Suficiente=0,5, Bom=0,75, Ótimo=1), classificada como Regular < 2,6, Suficiente 2,6 a 4,9, Bom 5 a 7,5, Ótimo > 7,5 — pra dar uma visão geral rápida; os indicadores oficiais continuam sendo M1 e M2 separados."
+  ];
+
+  // Motor de cálculo: recebe o "workbook" (abas já em formato de matriz de
+  // linhas) e o período {inicio, fim} (objetos Date) e calcula M1, M2 e o
+  // Desempenho quadrimestral direto dos dados brutos — replica a lógica do
+  // extrair_esus_unificado.py (_calcular_indicadores_m1_m2), mas já
+  // filtrando pela janela móvel de 4 meses.
+  function calcularIndicadoresDoPeriodo(wb, periodo){
+    function rowsOf(baseName){
+      var ws = wb.Sheets[suffixedName(baseName)];
+      return ws ? sheetToRows(ws) : [];
+    }
+
+    // ---------- Atendimentos ----------
+    var atRows = rowsOf("Atendimentos");
+    var atHeader = atRows[0] || [];
+    var iData = colIndex(atHeader, "data_hora");
+    var iNome = colIndex(atHeader, "nome");
+    var atFiltradas = atRows.slice(1).filter(function(r){
+      var nome = String(r[iNome]||"").trim();
+      return nome && withinPeriod(parseBRDate(r[iData]), periodo.inicio, periodo.fim);
+    });
+    var atendimentosIndividuais = atFiltradas.length;
+
+    // ---------- Participantes Ativ. Coletiva ----------
+    var partRows = rowsOf("Participantes Ativ. Coletiva");
+    var partHeader = partRows[0] || [];
+    var iPData = colIndex(partHeader, "data");
+    var iPNome = colIndex(partHeader, "participante");
+    var partFiltradas = partRows.slice(1).filter(function(r){
+      var nome = String(r[iPNome]||"").trim();
+      return nome && nome.indexOf("(sem lista nominal") !== 0
+        && withinPeriod(parseBRDate(r[iPData]), periodo.inicio, periodo.fim);
+    });
+    var participacoesColetivas = partFiltradas.length;
+
+    // ---------- M1: numerador/denominador ----------
+    var numeradorM1 = atendimentosIndividuais + participacoesColetivas;
+    var pessoasSet = {}; // nome em maiúsculas -> {at, part}
+    atFiltradas.forEach(function(r){
+      var chave = String(r[iNome]).trim().toUpperCase();
+      if(!pessoasSet[chave]) pessoasSet[chave] = {nome:String(r[iNome]).trim(), at:0, part:0};
+      pessoasSet[chave].at++;
+    });
+    partFiltradas.forEach(function(r){
+      var chave = String(r[iPNome]).trim().toUpperCase();
+      if(!pessoasSet[chave]) pessoasSet[chave] = {nome:String(r[iPNome]).trim(), at:0, part:0};
+      pessoasSet[chave].part++;
+    });
+    var pessoasLista = Object.keys(pessoasSet).map(function(k){ return pessoasSet[k]; })
+      .sort(function(a,b){ return a.nome.localeCompare(b.nome,'pt-BR'); });
+    var denominadorM1 = pessoasLista.length;
+    var m1 = denominadorM1 ? (numeradorM1/denominadorM1) : null;
+    var classificacaoM1 = classificarM1(m1);
+
+    // ---------- Resumo Atividade Coletiva ----------
+    var racRows = rowsOf("Resumo Atividade Coletiva");
+    var racHeader = racRows[0] || [];
+    var iRacData = colIndex(racHeader, "data");
+    var iRacTipo = colIndex(racHeader, "tipo_atividade");
+    var iRacTotalProf = colIndex(racHeader, "qtd_total_profissionais");
+    var iRacProfEnv = colIndex(racHeader, "qtd_profissionais_envolvidos");
+    // Só estes 4 tipos (códigos 04-07 da Atividade Coletiva) contam como
+    // "Atividade Coletiva Compartilhada" pra M2 — reuniões (códigos 01-03)
+    // vêm de outra aba (Resumo Reuniões) e têm regra própria.
+    var TIPOS_ATIV_COLETIVA_COMPARTILHADA = [
+      "educacao em saude", "atendimento em grupo",
+      "avaliacao/procedimento coletivo", "mobilizacao social"
+    ];
+    var racFiltradas = racRows.slice(1).filter(function(r){
+      return withinPeriod(parseBRDate(r[iRacData]), periodo.inicio, periodo.fim);
+    });
+    var atividadesTotais = racFiltradas.length;
+    var atividadesCompartilhadas = racFiltradas.filter(function(r){
+      var totalProf = iRacTotalProf>=0 && r[iRacTotalProf]!=="" ? toInt(r[iRacTotalProf]) : 1+toInt(r[iRacProfEnv]);
+      var tipoOk = iRacTipo<0 || TIPOS_ATIV_COLETIVA_COMPARTILHADA.indexOf(normalizarTexto(r[iRacTipo])) >= 0;
+      return totalProf >= 2 && tipoOk;
+    }).length;
+
+    // ---------- Resumo Reuniões ----------
+    var rrRows = rowsOf("Resumo Reuniões");
+    var rrHeader = rrRows[0] || [];
+    var iRrData = colIndex(rrHeader, "data");
+    var iRrQtd = colIndex(rrHeader, "qtd_participantes");
+    var rrFiltradas = rrRows.slice(1).filter(function(r){
+      return withinPeriod(parseBRDate(r[iRrData]), periodo.inicio, periodo.fim);
+    });
+    var reunioesTotais = rrFiltradas.length;
+    var reunioesCompartilhadas = rrFiltradas.filter(function(r){ return toInt(r[iRrQtd]) >= 2; }).length;
+
+    // ---------- M2 ----------
+    var numeradorM2 = atividadesCompartilhadas + reunioesCompartilhadas;
+    var denominadorM2 = atendimentosIndividuais + numeradorM2;
+    var m2 = denominadorM2 ? (numeradorM2/denominadorM2*100) : null;
+    var classificacaoM2 = classificarM2(m2);
+
+    // ---------- Desempenho quadrimestral (síntese própria) ----------
+    var pontosM1 = PONTOS_POR_CLASSE[classificacaoM1];
+    var pontosM2 = PONTOS_POR_CLASSE[classificacaoM2];
+    var pontosM1Pesados = pontosM1!==undefined ? pontosM1*6 : null;
+    var pontosM2Pesados = pontosM2!==undefined ? pontosM2*4 : null;
+    var notaFinal = (pontosM1Pesados!==null && pontosM2Pesados!==null) ? (pontosM1Pesados+pontosM2Pesados) : null;
+    var desempenho = classificarDesempenho(notaFinal);
+
+    // ---------- "Pessoas atendidas" (lista dinâmica, só do período) ----------
+    var pessoasAtendidasHeaders = ["Nome","Atendimentos","Participantes Ativ. Coletiva","Total"];
+    var pessoasAtendidasRows = pessoasLista.map(function(p){
+      return [p.nome, p.at, p.part, p.at+p.part];
+    });
+
+    return {
+      equipe: currentEquipes.map(function(e){ return e.label; }).join(' + '),
+      data: {
+        atendimentosIndividuais: atendimentosIndividuais,
+        participacoesColetivas: participacoesColetivas,
+        numeradorM1: numeradorM1,
+        denominadorM1: denominadorM1,
+        m1: m1,
+        classificacaoM1: classificacaoM1,
+        atividadesTotais: atividadesTotais,
+        atividadesCompartilhadas: atividadesCompartilhadas,
+        reunioesTotais: reunioesTotais,
+        reunioesCompartilhadas: reunioesCompartilhadas,
+        denominadorM2: denominadorM2,
+        numeradorM2: numeradorM2,
+        m2: m2,
+        classificacaoM2: classificacaoM2,
+        pontosM1: pontosM1Pesados,
+        pontosM2: pontosM2Pesados,
+        notaFinal: notaFinal,
+        desempenho: desempenho
+      },
+      notes: NOTAS_METODOLOGICAS,
+      pessoasAtendidas: {headers: pessoasAtendidasHeaders, rows: pessoasAtendidasRows}
+    };
+  }
+
+  // ---------- Desempenho Profissional ----------
+  // Agrupa a Lista de Atendimentos (já filtrada por equipe no fetch) por
+  // "profissional" e, dentro de cada profissional, conta quantos
+  // atendimentos cada paciente (por nome) teve no período — igual à
+  // lógica do protótipo "Profissionais.html", mas com dados reais em vez
+  // de mock, renderizada com Chart.js igual ao protótipo original.
+  var PROF_LABELS = ['1 Consulta', '2 Consultas', '3 Consultas', '4+ Consultas'];
+  var profListaAtual = [];
+  var profViewMode = 'percent'; // 'percent' | 'absolute'
+  var profChartMain = null;
+  var profChartInstances = []; // donuts/barras individuais (recriados a cada render)
+
+  // Resolve as cores reais (hex) das variáveis CSS do painel — Chart.js
+  // desenha em <canvas>, que não entende "var(--x)" diretamente.
+  var PROF_COLORS_CACHE = null;
+  function getProfColors(){
+    if(!PROF_COLORS_CACHE){
+      var cs = getComputedStyle(document.documentElement);
+      PROF_COLORS_CACHE = [
+        cs.getPropertyValue('--pill-regular').trim() || '#B5474B',
+        cs.getPropertyValue('--pill-suficiente').trim() || '#C68A3D',
+        cs.getPropertyValue('--pill-bom').trim() || '#6B8F71',
+        cs.getPropertyValue('--pill-otimo').trim() || '#2F6F5E'
+      ];
+    }
+    return PROF_COLORS_CACHE;
+  }
+
+  function calcularPerformanceProfissionais(wb, periodo){
+    var ws = wb.Sheets[suffixedName("Atendimentos")];
+    var rows = ws ? sheetToRows(ws) : [];
+    var header = rows[0] || [];
+    var iData = colIndex(header, "data_hora");
+    var iNome = colIndex(header, "nome");
+    var iProf = colIndex(header, "profissional");
+    // Com 2+ equipes selecionadas ao mesmo tempo, um profissional que
+    // atende em ambas apareceria com os atendimentos das duas somados
+    // numa linha só (contagem de consultas por paciente ficaria errada,
+    // misturando pacientes de equipes diferentes). Só nesse caso,
+    // desambigua agrupando por profissional+equipe.
+    var precisaSepararPorEquipe = currentEquipes.length > 1;
+    var iEquipe = (iProf >= 0 && precisaSepararPorEquipe) ? equipeColIndex(header) : -1;
+
+    // Contagem de atendimentos por profissional (chave INTERNA — nome
+    // normalizado [+ equipe], nunca o rótulo exibido), cada uma com
+    // {pacienteMaiusculo: contagem}. displayNamePorChave guarda o nome
+    // "bonito" (como veio na aba Atendimentos) pra usar só no fallback
+    // (ver abaixo), já que o roster da aba PROFISSIONAIS tem sua própria
+    // grafia de nome, preferida quando disponível.
+    var porProfInterno = {};
+    var displayNamePorChaveInterna = {};
+    if(iProf >= 0){
+      rows.slice(1).forEach(function(r){
+        var nome = String(r[iNome]||"").trim();
+        var prof = String(r[iProf]||"").trim();
+        if(!nome || !prof) return;
+        if(!withinPeriod(parseBRDate(r[iData]), periodo.inicio, periodo.fim)) return;
+        var equipeDaLinha = null;
+        if(precisaSepararPorEquipe && iEquipe >= 0){
+          var valorEquipe = normalizeText(r[iEquipe]);
+          equipeDaLinha = EQUIPES.filter(function(eq){
+            return valorEquipe.indexOf(normalizeText(eq.matchKeyword)) !== -1;
+          })[0] || null;
+        }
+        var chaveInterna = normalizeText(prof) + (equipeDaLinha ? '|' + equipeDaLinha.key : '');
+        if(!porProfInterno[chaveInterna]) porProfInterno[chaveInterna] = {};
+        var chavePac = nome.toUpperCase();
+        porProfInterno[chaveInterna][chavePac] = (porProfInterno[chaveInterna][chavePac]||0) + 1;
+        if(!displayNamePorChaveInterna[chaveInterna]){
+          displayNamePorChaveInterna[chaveInterna] = equipeDaLinha ? (prof + ' (' + equipeDaLinha.suffix + ')') : prof;
+        }
+      });
+    }
+
+    // A aba "PROFISSIONAIS" é quem decide QUEM aparece: só entram os
+    // profissionais cadastrados em alguma das equipes selecionadas —
+    // mesmo os que não tiveram nenhum atendimento no período (aparecem
+    // com contagens zeradas, já que o objetivo aqui é mostrar o quadro
+    // completo de profissionais da equipe, não só quem atendeu).
+    var rosterFiltrado = profissionaisRoster.filter(function(p){
+      return p.equipeKey && currentEquipes.some(function(eq){ return eq.key === p.equipeKey; });
+    });
+
+    var listaBase;
+    if(rosterFiltrado.length){
+      listaBase = rosterFiltrado.map(function(p){
+        var equipeInfo = precisaSepararPorEquipe ? EQUIPES.filter(function(e){ return e.key === p.equipeKey; })[0] : null;
+        var nomeExibicao = equipeInfo ? (p.nome + ' (' + equipeInfo.suffix + ')') : p.nome;
+        var chaveInterna = normalizeText(p.nome) + (precisaSepararPorEquipe ? '|' + p.equipeKey : '');
+        return {
+          nome: nomeExibicao,
+          categoria: p.categoria,
+          pacientes: porProfInterno[chaveInterna] || {}
+        };
+      });
+    } else if(iProf >= 0){
+      // Fallback (aba PROFISSIONAIS ainda não carregou, está vazia ou
+      // nenhuma linha bate com a(s) equipe(s) selecionada(s)): mantém o
+      // comportamento antigo, derivando a lista direto de quem aparece
+      // em Atendimentos, sem categoria.
+      listaBase = Object.keys(porProfInterno).map(function(chaveInterna){
+        return {nome: displayNamePorChaveInterna[chaveInterna], categoria: '', pacientes: porProfInterno[chaveInterna]};
+      });
+    } else {
+      listaBase = [];
+    }
+
+    var comContagens = listaBase.map(function(item){
+      var pacientes = item.pacientes;
+      var c1=0, c2=0, c3=0, c4=0, totalAtend=0;
+      Object.keys(pacientes).forEach(function(k){
+        var n = pacientes[k];
+        totalAtend += n;
+        if(n===1) c1++; else if(n===2) c2++; else if(n===3) c3++; else c4++;
+      });
+      var totalPacientes = Object.keys(pacientes).length;
+      var recorrentes = c2+c3+c4;
+      return {
+        nome: item.nome, categoria: item.categoria, c1:c1, c2:c2, c3:c3, c4:c4,
+        totalPacientes: totalPacientes,
+        totalAtendimentos: totalAtend,
+        taxaRetorno: totalPacientes ? (recorrentes/totalPacientes*100) : null,
+        media: totalPacientes ? (totalAtend/totalPacientes) : null
+      };
+    });
+    // No fallback (sem roster), continua escondendo quem não teve
+    // nenhum atendimento — não faz sentido listar um "profissional"
+    // sem nenhuma linha em Atendimentos nesse caso. Com roster, todo
+    // mundo cadastrado na equipe aparece, mesmo com 0 atendimentos.
+    var listaFinal = rosterFiltrado.length ? comContagens : comContagens.filter(function(p){ return p.totalPacientes > 0; });
+    return listaFinal.sort(function(a,b){ return b.totalPacientes - a.totalPacientes; });
+  }
+
+  // Dados do gráfico comparativo principal, no modo 'percent' (cada barra
+  // soma 100%) ou 'absolute' (contagem real) — mesma lógica de
+  // getChartData() do protótipo original.
+  function profMainChartData(lista, mode){
+    return [0,1,2,3].map(function(i){
+      return lista.map(function(p){
+        var v = [p.c1,p.c2,p.c3,p.c4][i];
+        if(mode !== 'percent') return v;
+        var t = p.totalPacientes || 0;
+        return t ? Math.round(v/t*100) : 0;
+      });
+    });
+  }
+
+  // Plugin do Chart.js que desenha o TOTAL (soma dos segmentos) logo após
+  // o fim de cada barra empilhada, tanto no modo Valores Absolutos quanto
+  // no modo Percentual (nesse caso, mostra o total real de pacientes, não
+  // "100%", que seria sempre igual em toda barra).
+  var profTotalLabelPlugin = {
+    id: 'profTotalLabel',
+    afterDatasetsDraw: function(chart){
+      var cfg = chart.options.plugins && chart.options.plugins.profTotalLabel;
+      var totals = cfg && cfg.totals;
+      if(!totals || !chart.data.datasets.length) return;
+      var meta = chart.getDatasetMeta(chart.data.datasets.length - 1);
+      if(!meta || !meta.data) return;
+      var ctx = chart.ctx;
+      ctx.save();
+      ctx.font = "600 11px 'Inter', system-ui, -apple-system, sans-serif";
+      ctx.fillStyle = '#1B2E27';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      meta.data.forEach(function(el, idx){
+        var total = totals[idx];
+        if(total === null || total === undefined) return;
+        var pos = el.getProps ? el.getProps(['x','y'], true) : el;
+        ctx.fillText(fmtInt(total), pos.x + 6, pos.y);
+      });
+      ctx.restore();
+    }
+  };
+
+  function renderProfMainChart(lista){
+    var canvas = document.getElementById('profStackedChart');
+    if(!canvas || typeof Chart === 'undefined') return;
+    var colors = getProfColors();
+    var chartData = profMainChartData(lista, profViewMode);
+    // Total de pacientes por profissional (soma dos 4 segmentos) — exibido
+    // no fim da barra pelo profTotalLabelPlugin, independente do modo.
+    var totals = lista.map(function(p){
+      return p.totalPacientes != null ? p.totalPacientes : (p.c1+p.c2+p.c3+p.c4);
+    });
+    // Altura do canvas proporcional ao Nº de profissionais: sem isso, com
+    // container de altura fixa e muitas barras, o Chart.js ativa autoSkip
+    // no eixo Y e passa a esconder o nome de linhas alternadas (ou a cada
+    // 3ª, dependendo de quantas cabem) pra não sobrepor o texto — ver
+    // ticks.autoSkip:false abaixo, que só funciona de verdade se também
+    // houver altura de sobra pra encaixar uma linha por profissional.
+    var rowH = 42, minH = 220;
+    var neededH = Math.max(minH, lista.length * rowH + 60);
+    var wrap = canvas.parentElement;
+    if(wrap) wrap.style.height = neededH + 'px';
+    canvas.style.height = neededH + 'px';
+    if(profChartMain){ profChartMain.destroy(); profChartMain = null; }
+    profChartMain = new Chart(canvas.getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels: lista.map(function(p){ return p.nome; }),
+        datasets: PROF_LABELS.map(function(lbl,i){
+          return {label: lbl, data: chartData[i], backgroundColor: colors[i]};
+        })
+      },
+      plugins: [profTotalLabelPlugin],
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        // Espaço reservado à direita das barras pro rótulo do total não
+        // ficar cortado (principalmente no modo Percentual, onde toda
+        // barra vai até o fim da escala).
+        layout: { padding: { right: 42 } },
+        scales: {
+          x: {
+            stacked: true,
+            max: profViewMode==='percent' ? 100 : undefined,
+            ticks: { callback: function(v){ return profViewMode==='percent' ? v+'%' : v; } }
+          },
+          y: {
+            stacked: true,
+            // autoSkip:false força o Chart.js a desenhar o nome de TODOS
+            // os profissionais, mesmo que a fonte precise apertar um
+            // pouco — sem isso, ele escondia nomes alternados pra não
+            // sobrepor texto quando a altura do canvas era insuficiente.
+            ticks: { autoSkip: false }
+          }
+        },
+        plugins: {
+          profTotalLabel: { totals: totals },
+          tooltip: {
+            callbacks: {
+              label: function(ctx){
+                var unit = profViewMode==='percent' ? '%' : ' pacientes';
+                return ' '+ctx.dataset.label+': '+ctx.raw+unit;
+              },
+              footer: function(items){
+                var idx = items && items.length ? items[0].dataIndex : null;
+                if(idx === null || totals[idx] == null) return '';
+                return 'Total: '+fmtInt(totals[idx])+' pacientes';
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  function setProfViewMode(mode){
+    if(profViewMode === mode) return;
+    profViewMode = mode;
+    var pillPercent = document.getElementById('profPillPercent');
+    var pillAbsolute = document.getElementById('profPillAbsolute');
+    var title = document.getElementById('profMainChartTitle');
+    if(pillPercent) pillPercent.classList.toggle('active', mode==='percent');
+    if(pillAbsolute) pillAbsolute.classList.toggle('active', mode==='absolute');
+    if(title) title.innerText = mode==='percent'
+      ? 'Comparativo Geral de Distribuição de Consultas (%)'
+      : 'Comparativo Geral de Distribuição de Consultas (Valores Absolutos)';
+    renderProfMainChart(profListaAtual);
+  }
+  (function setupProfPills(){
+    var pillPercent = document.getElementById('profPillPercent');
+    var pillAbsolute = document.getElementById('profPillAbsolute');
+    if(pillPercent) pillPercent.addEventListener('click', function(){ setProfViewMode('percent'); });
+    if(pillAbsolute) pillAbsolute.addEventListener('click', function(){ setProfViewMode('absolute'); });
+  })();
+
+  function renderPerformanceProfissionais(lista){
+    profListaAtual = lista || [];
+
+    profChartInstances.forEach(function(c){ try{ c.destroy(); }catch(e){} });
+    profChartInstances = [];
+
+    renderProfMainChart(profListaAtual);
+
+    var gridEl = document.getElementById('profGrid');
+    if(!gridEl) return;
+    if(!profListaAtual.length){
+      gridEl.innerHTML = '<p class="footnote">Nenhum profissional cadastrado (aba "PROFISSIONAIS") para esta equipe, e nenhum atendimento com profissional identificado neste período.</p>';
+      return;
+    }
+
+    var colors = getProfColors();
+
+    // ---- Card "Panorama da Equipe" ----
+    // Consolida os números de todos os profissionais listados (mesma
+    // conta de cada card individual, só que somada), pra dar uma visão
+    // geral da equipe antes de descer pros cards por profissional. Não
+    // deduplica paciente que passou por mais de um profissional — é a
+    // soma direta dos totais já calculados por profissional.
+    var equipe = profListaAtual.reduce(function(acc, p){
+      acc.totalAtendimentos += p.totalAtendimentos || 0;
+      acc.totalPacientes += p.totalPacientes || 0;
+      acc.c1 += p.c1||0; acc.c2 += p.c2||0; acc.c3 += p.c3||0; acc.c4 += p.c4||0;
+      return acc;
+    }, {totalAtendimentos:0, totalPacientes:0, c1:0, c2:0, c3:0, c4:0});
+    var equipeRecorrentes = equipe.c2 + equipe.c3 + equipe.c4;
+    equipe.taxaRetorno = equipe.totalPacientes ? (equipeRecorrentes/equipe.totalPacientes*100) : null;
+    equipe.media = equipe.totalPacientes ? (equipe.totalAtendimentos/equipe.totalPacientes) : null;
+    var corRetornoEquipe = equipe.taxaRetorno==null ? 'var(--ink-soft)' : (equipe.taxaRetorno>=50 ? 'var(--pill-bom)' : 'var(--pill-regular)');
+    var qtdProfissionais = profListaAtual.length;
+
+    var cardEquipe = '<div class="card" style="margin-bottom:0;">'
+      + '<div class="prof-header">'
+      +   '<div class="prof-avatar">E</div>'
+      +   '<div class="prof-info"><h3>PANORAMA DA EQUIPE</h3><span>'+fmtInt(qtdProfissionais)+' profissional'+(qtdProfissionais===1?'':'is')+' · '+fmtInt(equipe.totalAtendimentos)+' atendimentos no período</span></div>'
+      + '</div>'
+      + '<div class="kpi-container">'
+      +   '<div class="kpi-item"><label>Pacientes Únicos</label><span>'+fmtInt(equipe.totalPacientes)+'</span></div>'
+      +   '<div class="kpi-item"><label>Taxa Retorno</label><span style="color:'+corRetornoEquipe+';">'+(equipe.taxaRetorno==null?'—':fmtDec(equipe.taxaRetorno,0)+'%')+'</span></div>'
+      +   '<div class="kpi-item"><label>Média Cons/Pac</label><span>'+(equipe.media==null?'—':fmtDec(equipe.media,1))+'</span></div>'
+      + '</div>'
+      + '<div class="card-charts-layout">'
+      +   '<div class="chart-box"><canvas id="prof-donut-equipe"></canvas>'
+      +     '<div class="donut-center-text"><span class="val">'+(equipe.taxaRetorno==null?'—':fmtDec(equipe.taxaRetorno,0)+'%')+'</span><span class="lbl">Retorno</span></div>'
+      +   '</div>'
+      +   '<div class="chart-box"><canvas id="prof-bar-equipe"></canvas></div>'
+      + '</div>'
+      + '</div>';
+
+    gridEl.innerHTML = cardEquipe + profListaAtual.map(function(p, idx){
+      var corRetorno = p.taxaRetorno==null ? 'var(--ink-soft)' : (p.taxaRetorno>=50 ? 'var(--pill-bom)' : 'var(--pill-regular)');
+      return '<div class="card" style="margin-bottom:0;">'
+        + '<div class="prof-header">'
+        +   '<div class="prof-avatar">'+escapeHtml((p.nome.trim().charAt(0)||'?').toUpperCase())+'</div>'
+        +   '<div class="prof-info"><h3>'+escapeHtml(p.nome)+'</h3><span>'+(p.categoria ? escapeHtml(p.categoria)+' · ' : '')+fmtInt(p.totalAtendimentos)+' atendimentos no período</span></div>'
+        + '</div>'
+        + '<div class="kpi-container">'
+        +   '<div class="kpi-item"><label>Pacientes Únicos</label><span>'+fmtInt(p.totalPacientes)+'</span></div>'
+        +   '<div class="kpi-item"><label>Taxa Retorno</label><span style="color:'+corRetorno+';">'+(p.taxaRetorno==null?'—':fmtDec(p.taxaRetorno,0)+'%')+'</span></div>'
+        +   '<div class="kpi-item"><label>Média Cons/Pac</label><span>'+(p.media==null?'—':fmtDec(p.media,1))+'</span></div>'
+        + '</div>'
+        + '<div class="card-charts-layout">'
+        +   '<div class="chart-box"><canvas id="prof-donut-'+idx+'"></canvas>'
+        +     '<div class="donut-center-text"><span class="val">'+(p.taxaRetorno==null?'—':fmtDec(p.taxaRetorno,0)+'%')+'</span><span class="lbl">Retorno</span></div>'
+        +   '</div>'
+        +   '<div class="chart-box"><canvas id="prof-bar-'+idx+'"></canvas></div>'
+        + '</div>'
+        + '</div>';
+    }).join('');
+
+    if(typeof Chart === 'undefined') return;
+    setTimeout(function(){
+      // Donut/barra do card "Panorama da Equipe" — mesmos moldes dos
+      // cards individuais, com ids fixos "-equipe" em vez de índice.
+      var donutEquipeEl = document.getElementById('prof-donut-equipe');
+      if(donutEquipeEl){
+        profChartInstances.push(new Chart(donutEquipeEl, {
+          type: 'doughnut',
+          data: {
+            labels: ['1 Consulta', 'Retornou (2+)'],
+            datasets: [{ data: [equipe.c1, equipeRecorrentes], backgroundColor: [colors[0], colors[3]], borderWidth: 0 }]
+          },
+          options: { cutout: '75%', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+        }));
+      }
+      var barEquipeEl = document.getElementById('prof-bar-equipe');
+      if(barEquipeEl){
+        profChartInstances.push(new Chart(barEquipeEl, {
+          type: 'bar',
+          data: {
+            labels: ['1', '2', '3', '4+'],
+            datasets: [{ data: [equipe.c1,equipe.c2,equipe.c3,equipe.c4], backgroundColor: colors, borderRadius: 4 }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { x: { grid: { display: false } }, y: { display: false } }
+          }
+        }));
+      }
+
+      profListaAtual.forEach(function(p, idx){
+        var recorrentes = p.c2+p.c3+p.c4;
+        var donutEl = document.getElementById('prof-donut-'+idx);
+        if(donutEl){
+          profChartInstances.push(new Chart(donutEl, {
+            type: 'doughnut',
+            data: {
+              labels: ['1 Consulta', 'Retornou (2+)'],
+              datasets: [{ data: [p.c1, recorrentes], backgroundColor: [colors[0], colors[3]], borderWidth: 0 }]
+            },
+            options: { cutout: '75%', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+          }));
+        }
+        var barEl = document.getElementById('prof-bar-'+idx);
+        if(barEl){
+          profChartInstances.push(new Chart(barEl, {
+            type: 'bar',
+            data: {
+              labels: ['1', '2', '3', '4+'],
+              datasets: [{ data: [p.c1,p.c2,p.c3,p.c4], backgroundColor: colors, borderRadius: 4 }]
+            },
+            options: {
+              responsive: true, maintainAspectRatio: false,
+              plugins: { legend: { display: false } },
+              scales: { x: { grid: { display: false } }, y: { display: false } }
+            }
+          }));
+        }
+      });
+    }, 50);
+  }
+
+  // ---------- Aba "Análises" (perfil de paciente / tempo entre consultas) ----------
+  // Diferente das outras abas, aqui NÃO se aplica o filtro de Quadrimestre/
+  // Mês do topo: intervalo entre consultas, funil de abandono etc. olham
+  // pro HISTÓRICO INTEIRO do paciente na equipe selecionada (wb.Sheets já
+  // vem filtrado por equipe — ver fetchAndLoad/filtrarLinhasPorEquipe —,
+  // só não filtramos mais por período aqui).
+  var DIA_MS = 24*60*60*1000;
+  function diffDias(a,b){ return Math.round((b-a)/DIA_MS); }
+  function mediana(arr){
+    if(!arr || !arr.length) return null;
+    var s = arr.slice().sort(function(a,b){ return a-b; });
+    var mid = Math.floor(s.length/2);
+    return s.length%2 ? s[mid] : (s[mid-1]+s[mid])/2;
+  }
+  function percentil(arr, p){
+    if(!arr || !arr.length) return null;
+    var s = arr.slice().sort(function(a,b){ return a-b; });
+    var idx = (s.length-1)*p;
+    var lo = Math.floor(idx), hi = Math.ceil(idx);
+    if(lo===hi) return s[lo];
+    return s[lo] + (s[hi]-s[lo])*(idx-lo);
+  }
+  var analisesChartInstances = [];
+  var analisesDataAtual = null;
+
+  // Monta, por paciente (nome em maiúsculas), a lista ORDENADA de datas de
+  // atendimento e o conjunto de profissionais que o atenderam — base pra
+  // todas as análises abaixo. Usa a aba Atendimentos inteira (sem filtro
+  // de período), já filtrada por equipe.
+  function construirHistoricosPacientes(wb){
+    var ws = wb && wb.Sheets ? wb.Sheets[suffixedName("Atendimentos")] : null;
+    var rows = ws ? sheetToRows(ws) : [];
+    var header = rows[0] || [];
+    var iData = colIndex(header, "data_hora");
+    var iNome = colIndex(header, "nome");
+    var iProf = colIndex(header, "profissional");
+    if(iData < 0 || iNome < 0) return [];
+    var porPaciente = {};
+    rows.slice(1).forEach(function(r){
+      var nome = String(r[iNome]||"").trim();
+      var d = parseBRDate(r[iData]);
+      if(!nome || !d) return;
+      var chave = nome.toUpperCase();
+      if(!porPaciente[chave]) porPaciente[chave] = {nome:nome, datas:[], profissionais:{}};
+      porPaciente[chave].datas.push(d);
+      if(iProf >= 0){
+        var prof = String(r[iProf]||"").trim();
+        if(prof) porPaciente[chave].profissionais[prof] = true;
+      }
+    });
+    return Object.keys(porPaciente).map(function(k){
+      var p = porPaciente[k];
+      p.datas.sort(function(a,b){ return a-b; });
+      return p;
+    });
+  }
+
+  function calcularAnalises(wb){
+    var pacientes = construirHistoricosPacientes(wb);
+    if(!pacientes.length) return {totalPacientes:0, pacientes:[]};
+
+    // Intervalo (em dias) entre 1ª→2ª, 2ª→3ª, 3ª→4ª consulta de cada
+    // paciente que já teve consultas suficientes pra cada transição.
+    var brutos = {t12:[], t23:[], t34:[]};
+    pacientes.forEach(function(p){
+      var d = p.datas;
+      if(d.length>=2) brutos.t12.push(diffDias(d[0], d[1]));
+      if(d.length>=3) brutos.t23.push(diffDias(d[1], d[2]));
+      if(d.length>=4) brutos.t34.push(diffDias(d[2], d[3]));
+    });
+    function resumo(arr){
+      if(!arr.length) return null;
+      return {n:arr.length, min:Math.min.apply(null,arr), p25:percentil(arr,0.25), mediana:mediana(arr), p75:percentil(arr,0.75), max:Math.max.apply(null,arr)};
+    }
+    var intervalos = [
+      {chave:'t12', label:'1ª → 2ª consulta', stats: resumo(brutos.t12)},
+      {chave:'t23', label:'2ª → 3ª consulta', stats: resumo(brutos.t23)},
+      {chave:'t34', label:'3ª → 4ª consulta', stats: resumo(brutos.t34)}
+    ];
+
+    // Funil de abandono: quantos pacientes chegam a cada "degrau".
+    var funil = [
+      {label:'1ª consulta', n: pacientes.length},
+      {label:'2ª consulta', n: pacientes.filter(function(p){return p.datas.length>=2;}).length},
+      {label:'3ª consulta', n: pacientes.filter(function(p){return p.datas.length>=3;}).length},
+      {label:'4ª+ consulta', n: pacientes.filter(function(p){return p.datas.length>=4;}).length}
+    ];
+
+    // Perfil de frequência: única / ocasional (2-3) / consolidado (4+).
+    var perfilFreq = {unica:0, ocasional:0, consolidado:0};
+    pacientes.forEach(function(p){
+      var n = p.datas.length;
+      if(n===1) perfilFreq.unica++;
+      else if(n===2||n===3) perfilFreq.ocasional++;
+      else perfilFreq.consolidado++;
+    });
+
+    // Sazonalidade: nº de atendimentos por dia da semana (todas as datas,
+    // não só a 1ª consulta).
+    var DIAS_SEMANA = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
+    var porDiaSemana = [0,0,0,0,0,0,0];
+    pacientes.forEach(function(p){ p.datas.forEach(function(d){ porDiaSemana[d.getDay()]++; }); });
+
+    // Comparativo por profissional: mediana de dias até a 2ª consulta,
+    // atribuída a cada profissional que atendeu o paciente (aproximação —
+    // a aba não diz qual profissional fez qual consulta específica).
+    var porProf = {};
+    pacientes.forEach(function(p){
+      if(p.datas.length < 2) return;
+      var dias = diffDias(p.datas[0], p.datas[1]);
+      Object.keys(p.profissionais).forEach(function(prof){
+        if(!porProf[prof]) porProf[prof] = [];
+        porProf[prof].push(dias);
+      });
+    });
+    var comparativoProf = Object.keys(porProf).map(function(prof){
+      return {profissional:prof, n:porProf[prof].length, medianaDias: mediana(porProf[prof])};
+    }).sort(function(a,b){ return a.medianaDias - b.medianaDias; });
+
+    // Pacientes em risco de abandono: já romperam o "silêncio" normal (mais
+    // tempo sem voltar do que a mediana histórica de 1ª→2ª consulta) mas
+    // ainda dentro de uma janela em que o retorno é plausível (até 3x essa
+    // mediana) — depois disso, tratamos como provável abandono já
+    // consumado, não mais "risco".
+    var medianaBase = intervalos[0].stats ? intervalos[0].stats.mediana : null;
+    var hoje = new Date();
+    var risco = [];
+    if(medianaBase){
+      pacientes.forEach(function(p){
+        if(p.datas.length < 2) return;
+        var ultima = p.datas[p.datas.length-1];
+        var diasDesde = diffDias(ultima, hoje);
+        if(diasDesde > medianaBase && diasDesde <= medianaBase*3){
+          risco.push({nome:p.nome, diasDesde:diasDesde, ultima:ultima, totalConsultas:p.datas.length});
+        }
+      });
+      risco.sort(function(a,b){ return b.diasDesde - a.diasDesde; });
+    }
+
+    return {
+      totalPacientes: pacientes.length,
+      intervalos: intervalos,
+      funil: funil,
+      perfilFreq: perfilFreq,
+      diasSemanaLabels: DIAS_SEMANA,
+      porDiaSemana: porDiaSemana,
+      comparativoProf: comparativoProf,
+      medianaBase: medianaBase,
+      risco: risco
+    };
+  }
+
+  // "Boxplot" simplificado em SVG (min/p25/mediana/p75/max) pros 3
+  // intervalos — sem depender de nenhuma lib de gráfico nova.
+  function boxplotDiasSvg(intervalos){
+    var comDados = intervalos.filter(function(it){ return it.stats; });
+    var W = 640, rowH = 56, padTop = 16, padLeft = 128, padRight = 60;
+    var H = padTop*2 + rowH*intervalos.length;
+    var maxVal = comDados.length ? Math.max.apply(null, comDados.map(function(it){ return it.stats.max; })) : 1;
+    if(maxVal <= 0) maxVal = 1;
+    var plotW = W - padLeft - padRight;
+    function x(v){ return padLeft + (v/maxVal)*plotW; }
+    var rows = intervalos.map(function(it,i){
+      var cy = padTop + rowH*i + rowH/2;
+      var label = '<text x="6" y="'+cy+'" font-size="11.5" font-weight="600" fill="var(--ink)" dominant-baseline="middle">'+escapeHtml(it.label)+'</text>';
+      if(!it.stats){
+        return '<g>'+label+'<text x="'+padLeft+'" y="'+cy+'" font-size="10.5" fill="var(--ink-soft)" dominant-baseline="middle">Sem pacientes suficientes ainda</text></g>';
+      }
+      var s = it.stats, boxH = 18;
+      var whisker = '<line x1="'+x(s.min)+'" y1="'+cy+'" x2="'+x(s.max)+'" y2="'+cy+'" stroke="var(--ink-soft)" stroke-width="1.4"/>'
+        + '<line x1="'+x(s.min)+'" y1="'+(cy-6)+'" x2="'+x(s.min)+'" y2="'+(cy+6)+'" stroke="var(--ink-soft)" stroke-width="1.4"/>'
+        + '<line x1="'+x(s.max)+'" y1="'+(cy-6)+'" x2="'+x(s.max)+'" y2="'+(cy+6)+'" stroke="var(--ink-soft)" stroke-width="1.4"/>';
+      var boxX = x(s.p25), boxW = Math.max(2, x(s.p75)-x(s.p25));
+      var box = '<rect x="'+boxX+'" y="'+(cy-boxH/2)+'" width="'+boxW+'" height="'+boxH+'" fill="#2F6F5E" opacity="0.25" stroke="#2F6F5E" stroke-width="1.2"/>';
+      var medLine = '<line x1="'+x(s.mediana)+'" y1="'+(cy-boxH/2)+'" x2="'+x(s.mediana)+'" y2="'+(cy+boxH/2)+'" stroke="#2F6F5E" stroke-width="2.6"/>';
+      var valTxt = '<text x="'+(W-padRight+8)+'" y="'+(cy-3)+'" font-size="11" font-weight="700" fill="var(--ink)">'+fmtInt(Math.round(s.mediana))+' dias</text>'
+        + '<text x="'+(W-padRight+8)+'" y="'+(cy+11)+'" font-size="8.5" fill="var(--ink-soft)">mediana · n='+s.n+'</text>';
+      return '<g>'+label+whisker+box+medLine+valTxt+'</g>';
+    }).join('');
+    return '<svg class="spark-svg" viewBox="0 0 '+W+' '+H+'">'+rows+'</svg>';
+  }
+
+  // Funil de abandono: barras horizontais de largura proporcional ao 1º
+  // degrau (1ª consulta = 100%).
+  function funnelHtml(funil){
+    var base = (funil[0] && funil[0].n) || 0;
+    var cores = ['#2F6F5E','#6B8F71','#C68A3D','#B5474B'];
+    return '<div>' + funil.map(function(f,i){
+      var pct = base ? Math.round(f.n/base*100) : 0;
+      return '<div style="margin-bottom:11px;">'
+        + '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">'
+        +   '<span>'+escapeHtml(f.label)+'</span><span><b>'+fmtInt(f.n)+'</b> pacientes · '+pct+'%</span>'
+        + '</div>'
+        + '<div style="background:#EAEAE3;border-radius:6px;height:14px;overflow:hidden;">'
+        +   '<div style="width:'+pct+'%;height:100%;background:'+(cores[i]||'#2F6F5E')+';"></div>'
+        + '</div>'
+        + '</div>';
+    }).join('') + '</div>';
+  }
+
+  function riscoTableHtml(risco){
+    if(!risco.length) return '<p class="footnote">Nenhum paciente na janela de risco no momento (ou ainda não há intervalo histórico suficiente pra calcular).</p>';
+    var linhas = risco.slice(0,40).map(function(r){
+      return '<tr><td>'+escapeHtml(r.nome)+'</td><td>'+fmtInt(r.totalConsultas)+'</td><td>'+fmtBRDate(r.ultima)+'</td><td>'+fmtInt(r.diasDesde)+' dias</td></tr>';
+    }).join('');
+    return '<div class="table-wrap"><table class="data-table"><thead><tr>'
+      + '<th>Paciente</th><th>Consultas</th><th>Última consulta</th><th>Dias sem voltar</th>'
+      + '</tr></thead><tbody>'+linhas+'</tbody></table></div>'
+      + (risco.length>40 ? '<p class="footnote">Mostrando os 40 pacientes há mais tempo sem voltar (de '+risco.length+' no total).</p>' : '');
+  }
+
+  function renderAnalises(data){
+    analisesDataAtual = data;
+    analisesChartInstances.forEach(function(c){ try{ c.destroy(); }catch(e){} });
+    analisesChartInstances = [];
+
+    var elIntervalos = document.getElementById('analisesIntervalos');
+    var elFunil = document.getElementById('analisesFunil');
+    var elRisco = document.getElementById('analisesRisco');
+    var elTotal = document.getElementById('analisesTotalPacientes');
+    if(!elIntervalos && !elFunil) return; // painel ainda não injetado no DOM
+
+    if(!data || !data.totalPacientes){
+      if(elTotal) elTotal.textContent = '—';
+      if(elIntervalos) elIntervalos.innerHTML = '<p class="footnote">Ainda não há dados suficientes pra esta equipe/período.</p>';
+      if(elFunil) elFunil.innerHTML = '';
+      if(elRisco) elRisco.innerHTML = '';
+      return;
+    }
+
+    if(elTotal) elTotal.textContent = fmtInt(data.totalPacientes);
+    if(elIntervalos) elIntervalos.innerHTML = boxplotDiasSvg(data.intervalos);
+    if(elFunil) elFunil.innerHTML = funnelHtml(data.funil);
+    if(elRisco) elRisco.innerHTML = riscoTableHtml(data.risco);
+
+    var freqEl = document.getElementById('analisesFreqLegenda');
+    if(freqEl){
+      var f = data.perfilFreq, tot = f.unica+f.ocasional+f.consolidado;
+      function pct(n){ return tot ? Math.round(n/tot*100) : 0; }
+      freqEl.innerHTML = ''
+        + '<div class="kpi-item"><label>Consulta única</label><span>'+fmtInt(f.unica)+' ('+pct(f.unica)+'%)</span></div>'
+        + '<div class="kpi-item"><label>Retorno ocasional (2-3)</label><span>'+fmtInt(f.ocasional)+' ('+pct(f.ocasional)+'%)</span></div>'
+        + '<div class="kpi-item"><label>Vínculo consolidado (4+)</label><span>'+fmtInt(f.consolidado)+' ('+pct(f.consolidado)+'%)</span></div>';
+    }
+
+    if(typeof Chart === 'undefined') return;
+    setTimeout(function(){
+      var freqCanvas = document.getElementById('analisesFreqDonut');
+      if(freqCanvas){
+        var f = data.perfilFreq;
+        var freqChart = new Chart(freqCanvas, {
+          type: 'doughnut',
+          data: {
+            labels: ['Consulta única','Retorno ocasional (2-3)','Vínculo consolidado (4+)'],
+            datasets: [{ data: [f.unica,f.ocasional,f.consolidado], backgroundColor: ['#B5474B','#C68A3D','#2F6F5E'], borderWidth: 0 }]
+          },
+          options: {
+            cutout: '65%', responsive: true, maintainAspectRatio: false,
+            plugins: {
+              legend: { position: 'bottom', labels:{boxWidth:12, font:{size:13}} },
+              tooltip: { bodyFont:{size:13}, titleFont:{size:13} }
+            }
+          }
+        });
+        analisesChartInstances.push(freqChart);
+        setTimeout(function(){ try{ freqChart.resize(); }catch(e){} }, 0);
+      }
+      var semanaCanvas = document.getElementById('analisesDiaSemana');
+      if(semanaCanvas){
+        var semanaChart = new Chart(semanaCanvas, {
+          type: 'bar',
+          data: {
+            labels: data.diasSemanaLabels,
+            datasets: [{ data: data.porDiaSemana, backgroundColor: '#2F6F5E', borderRadius: 4, categoryPercentage:0.7, barPercentage:0.9 }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false }, tooltip: { bodyFont:{size:13}, titleFont:{size:13} } },
+            scales: {
+              y: { beginAtZero: true, ticks: { font:{size:13} } },
+              x: { ticks: { font:{size:13} } }
+            }
+          }
+        });
+        analisesChartInstances.push(semanaChart);
+        // Mesmo ajuste do gráfico de comparativo por profissional logo
+        // abaixo: se o canvas é criado com o card ainda "recuado" (ex.: a
+        // aba Análises acabou de ficar visível e o layout do card vizinho
+        // ainda não assentou), o Chart.js às vezes trava com a largura
+        // antiga e as barras ficam espremidas do lado esquerdo, sobrando
+        // espaço vazio à direita. Forçar um resize() explícito no próximo
+        // tick corrige isso.
+        setTimeout(function(){ try{ semanaChart.resize(); }catch(e){} }, 0);
+      }
+      var compCanvas = document.getElementById('analisesCompProf');
+      if(compCanvas && data.comparativoProf.length){
+        var compChart = new Chart(compCanvas, {
+          type: 'bar',
+          data: {
+            labels: data.comparativoProf.map(function(p){ return p.profissional; }),
+            datasets: [{ label:'Mediana de dias até a 2ª consulta', data: data.comparativoProf.map(function(p){ return Math.round(p.medianaDias); }), backgroundColor:'#C68A3D', borderRadius:4, categoryPercentage:0.7, barPercentage:0.9 }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false }, tooltip: { bodyFont:{size:13}, titleFont:{size:13} } },
+            scales: {
+              x: { ticks: { autoSkip:false, font:{size:13}, maxRotation:40, minRotation:0 } },
+              y: { beginAtZero: true, ticks: { font:{size:13} } }
+            }
+          }
+        });
+        analisesChartInstances.push(compChart);
+        // Redimensiona explicitamente no próximo tick — em alguns
+        // navegadores o Chart.js não pega o tamanho certo do container se
+        // o gráfico foi criado no mesmo instante em que a aba ficou
+        // visível.
+        setTimeout(function(){ try{ compChart.resize(); }catch(e){} }, 0);
+      } else if(compCanvas){
+        var wrap2 = compCanvas.parentElement;
+        if(wrap2) wrap2.innerHTML = '<p class="footnote">Sem dados suficientes ainda.</p>';
+      }
+    }, 50);
+  }
+
+  // Injeta o botão da aba e o painel "Análises" no DOM (o HTML base do
+  // painel não precisa ser editado — a estrutura é montada aqui e
+  // aproveita as mesmas classes .tab/.tab-panel/.card já usadas nas
+  // outras abas, então herda o mesmo visual sem precisar de CSS extra).
+  function injetarAbaAnalises(){
+    var tabRef = document.querySelector('.tab');
+    var panelRef = document.querySelector('.tab-panel');
+    if(!tabRef || !panelRef || document.getElementById('tabAnalises')) return;
+
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'tab';
+    btn.setAttribute('data-tab', 'analises');
+    btn.textContent = 'Análises';
+    tabRef.parentElement.appendChild(btn);
+
+    var panel = document.createElement('div');
+    panel.className = 'tab-panel';
+    panel.id = 'tabAnalises';
+    panel.innerHTML =
+        '<div class="card" style="margin-bottom:16px;">'
+      +   '<h3 style="margin:0 0 4px;">Perfil de pacientes — '+'<span id="analisesTotalPacientes">—</span> pacientes no histórico</h3>'
+      +   '<p class="footnote" style="margin:0;">Estas análises olham pro histórico completo de atendimentos da equipe selecionada (não usam o filtro de Quadrimestre/Mês do topo).</p>'
+      + '</div>'
+      + '<div class="card" style="margin-bottom:16px;">'
+      +   '<h4 style="margin-top:0;">Tempo entre consultas</h4>'
+      +   '<div id="analisesIntervalos"></div>'
+      + '</div>'
+      + '<div class="card" style="margin-bottom:16px;">'
+      +   '<h4 style="margin-top:0;">Funil de abandono</h4>'
+      +   '<div id="analisesFunil"></div>'
+      + '</div>'
+      + '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;">'
+      +   '<div class="card" style="flex:1;min-width:280px;margin-bottom:0;">'
+      +     '<h4 style="margin-top:0;">Perfil de frequência</h4>'
+      +     '<div class="card-charts-layout">'
+      +       '<div class="chart-box"><canvas id="analisesFreqDonut"></canvas></div>'
+      +       '<div id="analisesFreqLegenda" class="kpi-container" style="flex-direction:column;align-items:stretch;gap:8px;"></div>'
+      +     '</div>'
+      +   '</div>'
+      +   '<div class="card" style="flex:1;min-width:280px;margin-bottom:0;">'
+      +     '<h4 style="margin-top:0;">Atendimentos por dia da semana</h4>'
+      +     '<div class="chart-box-full" style="height:220px;"><canvas id="analisesDiaSemana"></canvas></div>'
+      +   '</div>'
+      + '</div>'
+      + '<div class="card" style="margin-bottom:16px;">'
+      +   '<h4 style="margin-top:0;">Comparativo por profissional — tempo até a 2ª consulta</h4>'
+      +   '<div class="chart-box-full" style="height:220px;"><canvas id="analisesCompProf"></canvas></div>'
+      + '</div>'
+      + '<div class="card">'
+      +   '<h4 style="margin-top:0;">Pacientes em risco de abandono</h4>'
+      +   '<p class="footnote" style="margin-top:0;">Pacientes com 2+ consultas cuja última visita já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível.</p>'
+      +   '<div id="analisesRisco"></div>'
+      + '</div>';
+    panelRef.parentElement.appendChild(panel);
+  }
+  injetarAbaAnalises();
+
+  // ---------- Listas ----------
+  // "Pessoas atendidas" com filtro de mês PRÓPRIO (independente do filtro
+  // de Mês do topo): deduplica direto de Atendimentos + Participantes
+  // Ativ. Coletiva (já filtradas por equipe no fetch), sem depender de
+  // nenhum link/aba externa. monthValues vazio = todos os meses
+  // disponíveis (sem filtro); com meses marcados, só entram atendimentos/
+  // participações daqueles meses.
+  function pessoasAtendidasParaMeses(monthValues){
+    var pessoasSet = {}; // nome em maiúsculas -> {nome, at, part, datas:[Date,...], profissionais:{nome:true}}
+    function dentroDoFiltro(d){
+      if(!monthValues || !monthValues.length) return true;
+      return !!d && monthValues.indexOf(monthOptionValue(d)) >= 0;
+    }
+    var atCached = latestSheets[suffixedName("Atendimentos")];
+    if(atCached){
+      var iData = colIndex(atCached.headers, "data_hora");
+      var iNome = colIndex(atCached.headers, "nome");
+      var iProfAt = profissionalColIndex(atCached.headers);
+      if(iData >= 0 && iNome >= 0){
+        atCached.rows.forEach(function(r){
+          var nome = String(r[iNome]||"").trim();
+          var d = parseBRDate(r[iData]);
+          if(!nome || !dentroDoFiltro(d)) return;
+          var chave = nome.toUpperCase();
+          if(!pessoasSet[chave]) pessoasSet[chave] = {nome:nome, at:0, part:0, datas:[], profissionais:{}};
+          pessoasSet[chave].at++;
+          if(d) pessoasSet[chave].datas.push(d);
+          var prof = iProfAt >= 0 ? String(r[iProfAt]||"").trim() : '';
+          if(prof) pessoasSet[chave].profissionais[prof] = true;
+        });
+      }
+    }
+    var partCached = latestSheets[suffixedName("Participantes Ativ. Coletiva")];
+    if(partCached){
+      var iPData = colIndex(partCached.headers, "data");
+      var iPNome = colIndex(partCached.headers, "participante");
+      var iProfPart = profissionalColIndex(partCached.headers);
+      if(iPData >= 0 && iPNome >= 0){
+        partCached.rows.forEach(function(r){
+          var nome = String(r[iPNome]||"").trim();
+          var d = parseBRDate(r[iPData]);
+          if(!nome || nome.indexOf("(sem lista nominal") === 0 || !dentroDoFiltro(d)) return;
+          var chave = nome.toUpperCase();
+          if(!pessoasSet[chave]) pessoasSet[chave] = {nome:nome, at:0, part:0, datas:[], profissionais:{}};
+          pessoasSet[chave].part++;
+          if(d) pessoasSet[chave].datas.push(d);
+          var prof = iProfPart >= 0 ? String(r[iProfPart]||"").trim() : '';
+          if(prof) pessoasSet[chave].profissionais[prof] = true;
+        });
+      }
+    }
+    var pessoasLista = Object.keys(pessoasSet).map(function(k){ return pessoasSet[k]; })
+      .sort(function(a,b){ return a.nome.localeCompare(b.nome,'pt-BR'); });
+    // Ordena as datas de cada pessoa em ordem cronológica e descobre o
+    // maior número de datas entre todas as pessoas, pra saber quantas
+    // colunas "Data N" a tabela precisa ter (colunas sobrando ficam "—"),
+    // limitado a no máximo 10 colunas (MAX_DATAS_PESSOA_ATENDIDA) — quem
+    // tiver mais de 10 eventos no período só mostra os 10 primeiros.
+    var MAX_DATAS_PESSOA_ATENDIDA = 10;
+    var maxDatas = 0;
+    pessoasLista.forEach(function(p){
+      p.datas.sort(function(a,b){ return a-b; });
+      if(p.datas.length > maxDatas) maxDatas = p.datas.length;
+    });
+    maxDatas = Math.min(maxDatas, MAX_DATAS_PESSOA_ATENDIDA);
+    var dataHeaders = [];
+    for(var i=1;i<=maxDatas;i++){ dataHeaders.push("Data "+i); }
+    return {
+      headers: ["Nome","Atendimentos","Participantes Ativ. Coletiva","Total","Profissional"].concat(dataHeaders),
+      rows: pessoasLista.map(function(p){
+        // Uma pessoa com só 1 atendimento (e nenhuma coletiva) tem
+        // exatamente 1 profissional aqui — é esse que aparece nesta
+        // coluna, e ela fica filtrável junto com "Atendimentos" = 1
+        // pelo filtro de coluna já existente na lista. Com mais de um
+        // profissional envolvido, mostra todos separados por vírgula.
+        var listaProf = Object.keys(p.profissionais).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); });
+        var profissionalCol = listaProf.length ? listaProf.join(', ') : '—';
+        var row = [p.nome, p.at, p.part, p.at+p.part, profissionalCol];
+        for(var i=0;i<maxDatas;i++){
+          row.push(p.datas[i] ? fmtBRDate(p.datas[i]) : "—");
+        }
+        return row;
+      })
+    };
+  }
+  // Meses disponíveis pro filtro de "Pessoas atendidas": união dos meses
+  // com dado em Atendimentos e em Participantes Ativ. Coletiva (mais
+  // recente primeiro).
+  function monthOptionsParaPessoasAtendidas(){
+    var seen = {}, months = [];
+    function coletar(name, dateHeader){
+      var cached = latestSheets[name];
+      if(!cached) return;
+      var idx = colIndex(cached.headers, dateHeader);
+      if(idx < 0) return;
+      cached.rows.forEach(function(r){
+        var d = parseBRDate(r[idx]);
+        if(!d) return;
+        var v = monthOptionValue(d);
+        if(!seen[v]){ seen[v] = true; months.push(new Date(d.getFullYear(), d.getMonth(), 1)); }
+      });
+    }
+    coletar(suffixedName("Atendimentos"), "data_hora");
+    coletar(suffixedName("Participantes Ativ. Coletiva"), "data");
+    months.sort(function(a,b){ return b-a; });
+    return months.map(function(d){ return {value: monthOptionValue(d), label: monthOptionLabel(d)}; });
+  }
+  // Traduz o valor bruto da coluna "equipe_unidade" (ex.: "EMULTI CENTRO
+  // DA CIDADE - Centro") pro rótulo curto da equipe (ex.: "Centro"),
+  // usando o mesmo matchKeyword de EQUIPES/filtrarLinhasPorEquipe. Usado
+  // pra exibir a equipe na lista de Busca-Ativa quando "Todas" as equipes
+  // estão selecionadas ao mesmo tempo.
+  function equipeLabelFromRaw(raw){
+    var valor = normalizeText(raw);
+    for(var i=0;i<EQUIPES.length;i++){
+      var kw = normalizeText(EQUIPES[i].matchKeyword || EQUIPES[i].suffix);
+      if(valor.indexOf(kw) !== -1) return EQUIPES[i].suffix;
+    }
+    return String(raw||"").trim() || "—";
+  }
+  // Acha a coluna de profissional de uma aba bruta, tentando o nome exato
+  // "profissional" primeiro e, se não achar, qualquer cabeçalho que
+  // contenha "PROFISSIONAL" (mesma estratégia de equipeColIndex).
+  function profissionalColIndex(headerRow){
+    var idx = colIndex(headerRow, "profissional");
+    if(idx >= 0) return idx;
+    for(var i=0;i<headerRow.length;i++){
+      if(normalizeText(headerRow[i]).indexOf("PROFISSIONAL") !== -1) return i;
+    }
+    return -1;
+  }
+  // Nome exato da coluna calculada de dias sem atendimento (Busca-Ativa) —
+  // usado tanto pro filtro de coluna (que agrupa em faixas, não valor a
+  // valor) quanto pro cálculo em applyFilters.
+  var DIAS_SEM_ATENDIMENTO_HEADER = "Dias sem Atendimento";
+  var FAIXAS_DIAS_SEM_ATENDIMENTO = ['31–60', '61–90', '> 90'];
+  function diasBucketLabel(raw){
+    var n = parseInt(String(raw||"").trim(), 10);
+    if(isNaN(n)) return null;
+    if(n <= 60) return '31–60';
+    if(n <= 90) return '61–90';
+    return '> 90';
+  }
+  // ---------- Busca-Ativa (aba M1) ----------
+  // Lista, calculada aqui mesmo, das pessoas com ATENDIMENTO individual em
+  // atraso: mais de 30 dias desde a última consulta, mas ainda dentro da
+  // janela de 120 dias (a mesma janela usada pelo M1 — ver JANELA_MESES),
+  // sempre contando a partir do ÚLTIMO DIA DO MÊS ATUAL (não do dia de
+  // hoje, nem do mês filtrado no topo da página) — assim a lista mostra
+  // sempre quem vai "sair da janela" do indicador dentro do mês corrente.
+  // Critério de ordenação: 1º a data da última consulta, da mais antiga
+  // pra mais atual (quem está mais atrasado aparece primeiro); em caso de
+  // empate na data, 2º critério é a quantidade de consultas, crescente.
+  function buscaAtivaCompute(){
+    // Janela de referência da Busca-Ativa: os mesmos JANELA_MESES (4)
+    // meses usados pelo M1/M2, terminando no mês ATUAL (não no mês
+    // filtrado no topo da página — a Busca-Ativa não tem filtro de mês
+    // próprio, é sempre "os últimos 4 meses a partir de hoje"). A coluna
+    // "Atendimentos" mostrada na lista conta só os atendimentos DENTRO
+    // dessa janela — não o total histórico da pessoa.
+    var hoje = new Date();
+    var mesAtual = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+    var janelaPeriodo = calcularJanelaPeriodo(mesAtual);
+    var pessoasSet = {}; // nome em maiúsculas -> {nome, countPeriodo, ultima:Date, equipe, profissional}
+    var atCached = latestSheets[suffixedName("Atendimentos")];
+    if(atCached){
+      var iData = colIndex(atCached.headers, "data_hora");
+      var iNome = colIndex(atCached.headers, "nome");
+      var iProf = colIndex(atCached.headers, "profissional");
+      var iEquipe = equipeColIndex(atCached.headers);
+      if(iData >= 0 && iNome >= 0){
+        atCached.rows.forEach(function(r){
+          var nome = String(r[iNome]||"").trim();
+          var d = parseBRDate(r[iData]);
+          if(!nome || !d) return;
+          var chave = nome.toUpperCase();
+          if(!pessoasSet[chave]) pessoasSet[chave] = {nome:nome, countPeriodo:0, ultima:null, equipe:'', profissional:''};
+          // Só entra na contagem exibida se cair dentro da janela dos
+          // últimos 4 meses — a "Última Consulta" (usada pra saber há
+          // quantos dias a pessoa está sem atendimento) continua olhando
+          // TODO o histórico, não só a janela.
+          if(withinPeriod(d, janelaPeriodo.inicio, janelaPeriodo.fim)){
+            pessoasSet[chave].countPeriodo++;
+          }
+          // Equipe/Profissional guardados são sempre os da ÚLTIMA consulta
+          // (a mesma que aparece na coluna "Última Consulta"), não os do
+          // primeiro atendimento encontrado.
+          if(!pessoasSet[chave].ultima || d > pessoasSet[chave].ultima){
+            pessoasSet[chave].ultima = d;
+            pessoasSet[chave].equipe = iEquipe >= 0 ? equipeLabelFromRaw(r[iEquipe]) : '—';
+            pessoasSet[chave].profissional = iProf >= 0 ? (String(r[iProf]||"").trim() || '—') : '—';
+          }
+        });
+      }
+    }
+    // Fim do mês atual, zerado na hora (comparação só por dia).
+    var fimMes = new Date(hoje.getFullYear(), hoje.getMonth()+1, 0);
+    var MS_DIA = 24*60*60*1000;
+    var lista = Object.keys(pessoasSet).map(function(k){ return pessoasSet[k]; })
+      .map(function(p){
+        var ultimaDiaZero = new Date(p.ultima.getFullYear(), p.ultima.getMonth(), p.ultima.getDate());
+        var dias = Math.round((fimMes - ultimaDiaZero) / MS_DIA);
+        return {nome:p.nome, count:p.countPeriodo, ultima:p.ultima, dias:dias, equipe:p.equipe, profissional:p.profissional};
+      })
+      // Janela: mais de 30 dias e no máximo 120 dias sem atendimento,
+      // contados até o último dia do mês atual.
+      .filter(function(p){ return p.dias > 30 && p.dias <= 120; })
+      .sort(function(a,b){
+        var diffData = a.ultima - b.ultima;
+        if(diffData !== 0) return diffData; // mais antiga primeiro
+        return a.count - b.count; // 2º critério: menos consultas primeiro
+      });
+    return {
+      headers: ["Nome","Equipe","Profissional","Última Consulta","Dias sem Atendimento","Atendimentos"],
+      rows: lista.map(function(p){ return [p.nome, p.equipe, p.profissional, fmtBRDate(p.ultima), p.dias, p.count]; })
+    };
+  }
+  function populateSheetsCache(wb){
+    latestSheets = {};
+    wb.SheetNames.forEach(function(name){
+      var rows = sheetToRows(wb.Sheets[name]).filter(function(r){
+        return r.some(function(c){ return String(c).trim() !== ""; });
+      });
+      if(!rows.length) return;
+      var headers = rows[0].map(function(h){ return String(h||"").trim() || "—"; });
+      latestSheets[name] = {headers: headers, rows: rows.slice(1)};
+    });
+  }
+
+  function renderListCard(name){
+    // "Pessoas atendidas" é uma lista calculada aqui mesmo no navegador
+    // (dedup de Atendimentos + Participantes Ativ. Coletiva) — ver
+    // pessoasAtendidasParaMeses. Tem filtro de mês PRÓPRIO, independente
+    // do filtro de Mês do topo da página.
+    var isPessoasAtendidas = (name === suffixedName("Pessoas atendidas"));
+    // "Busca-Ativa" (só na aba M1): outra lista calculada aqui mesmo — ver
+    // buscaAtivaCompute — sem filtro de mês próprio, pois a janela (31 a
+    // 120 dias sem atendimento, contados do fim do mês atual) já é fixa.
+    var isBuscaAtiva = (name === suffixedName("Busca-Ativa"));
+    var cached = isPessoasAtendidas
+      ? pessoasAtendidasParaMeses(listMonthFilters[name] || [])
+      : isBuscaAtiva
+        ? buscaAtivaCompute()
+        : latestSheets[name];
+    if(isPessoasAtendidas || isBuscaAtiva) latestSheets[name] = cached;
+    var body;
+    var hasTable = false;
+    if(!cached){
+      body = '<div class="list-placeholder">Não encontramos uma aba chamada "'+escapeHtml(name)+'" na planilha publicada.</div>';
+    } else if(!cached.rows.length && isBuscaAtiva){
+      body = '<div class="list-placeholder">Nenhum paciente na janela de busca ativa no momento (mais de 30 e até 120 dias sem atendimento, considerando o fim do mês atual).</div>';
+    } else if(!cached.rows.length && !isPessoasAtendidas){
+      body = '<div class="list-placeholder">Esta lista está vazia.</div>';
+    } else {
+      hasTable = true;
+      var dateColIdx = dateColIndexForList(cached.headers);
+      listDateColIdx[name] = dateColIdx;
+      var theadHtml = '<tr>'+cached.headers.map(function(h){ return '<th>'+escapeHtml(h)+'</th>'; }).join('')+'</tr>';
+      var bodyHtml = cached.rows.map(function(r){
+        return '<tr>'+cached.headers.map(function(h,i){
+          var v = r[i];
+          return '<td>'+escapeHtml(v===undefined||v===null?'':v)+'</td>';
+        }).join('')+'</tr>';
+      }).join('');
+      var colOptionsHtml = '<option value="">Filtrar por coluna…</option>'
+        + cached.headers.map(function(h,i){ return '<option value="'+i+'">'+escapeHtml(h)+'</option>'; }).join('');
+      var filterPairsHtml = [0,1,2].map(function(idx){
+        return '<div class="filter-pair">'
+          + '<select class="filter-col">'+colOptionsHtml+'</select>'
+          + '<div class="ms-wrap filter-val-ms ms-disabled" data-pair-idx="'+idx+'"></div>'
+          + '</div>';
+      }).join('');
+      // Filtro de mês (multisseleção) — aparece quando a lista tem uma
+      // coluna de data reconhecível ("data" ou "data_hora"), ou é a
+      // "Pessoas atendidas" calculada (filtro próprio, ver acima). Fica
+      // na MESMA linha dos filtros de coluna (dentro de .list-filters),
+      // como o primeiro item da fileira.
+      var monthFilterHtml = (dateColIdx >= 0 || isPessoasAtendidas)
+        ? '<div class="list-month-filter"><label class="list-month-filter-label">Mês</label>'
+          + '<div class="ms-wrap" data-month-filter="'+escapeHtml(name)+'"'+(isPessoasAtendidas ? ' data-computed-months="1"' : '')+'></div></div>'
+        : '';
+      body = '<p class="list-meta">'+fmtInt(cached.rows.length)+(cached.rows.length===1?' linha':' linhas')+'</p>'
+        + '<div class="list-filters" data-list-filters="'+escapeHtml(name)+'">'+monthFilterHtml+filterPairsHtml+'</div>'
+        + '<input class="list-search" type="text" placeholder="Filtrar nesta lista…" data-filter-key="'+escapeHtml(name)+'">'
+        + '<div class="table-wrap"><table class="data-table"><thead>'+theadHtml+'</thead><tbody>'+bodyHtml+'</tbody></table></div>';
+    }
+    var pdfBtnHtml = hasTable
+      ? '<button type="button" class="pdf-btn" data-pdf-btn="'+escapeHtml(name)+'">'
+        + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h1a1.5 1.5 0 0 0 0-3H9v5"/><path d="M13 12v5h1a2 2 0 0 0 0-5z"/><path d="M18.5 12H17v5"/><path d="M17 14.5h1.3"/></svg>'
+        + '<span>Gerar PDF</span></button>'
+      : '';
+    return '<div class="card list-card" data-list-card="'+escapeHtml(name)+'">'
+      + '<div class="list-card-head"><h4>'+escapeHtml(displayListName(name))+'</h4>'+pdfBtnHtml+'</div>'
+      + body + '</div>';
+  }
+
+  // Aba ativa (nome da lista) por container de listas relacionadas
+  // (listsM1/listsM2) — default é a primeira lista de cada aba.
+  var listActiveTab = {};
+  function relatedListsPillsHtml(containerId, names){
+    var active = listActiveTab[containerId] || names[0];
+    if(names.indexOf(active) < 0) active = names[0];
+    listActiveTab[containerId] = active;
+    var pills = names.map(function(name){
+      var isActive = name === active;
+      var cached = latestSheets[name];
+      var count = cached ? fmtInt(cached.rows.length) : '';
+      var bg = isActive ? '#153F35' : '#FFFFFF';
+      var border = isActive ? '#153F35' : '#D9E1D6';
+      var nameColor = isActive ? '#EEF3EA' : '#1B2E27';
+      var countColor = isActive ? '#9FC0AE' : '#8B978F';
+      return '<button type="button" class="related-list-pill" data-list-pill="'+escapeHtml(name)+'" data-container="'+escapeHtml(containerId)+'"'
+        + ' style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:999px;border:1px solid '+border+';background:'+bg+';cursor:pointer;font-family:inherit;white-space:nowrap;">'
+        + '<span style="font-size:13px;font-weight:600;color:'+nameColor+';">'+escapeHtml(displayListName(name))+'</span>'
+        + (count ? '<span style="font-size:12.5px;color:'+countColor+';">'+count+'</span>' : '')
+        + '</button>';
+    }).join('');
+    return '<div class="related-lists-bar" style="margin-bottom:14px;">'
+      + '<div style="font-size:11px;font-weight:700;letter-spacing:0.06em;color:#5C6B62;text-transform:uppercase;margin-bottom:8px;">Listas relacionadas</div>'
+      + '<div style="display:flex;flex-wrap:wrap;gap:8px;">'+pills+'</div>'
+      + '</div>';
+  }
+  function renderListsSection(containerId, names){
+    var el = document.getElementById(containerId);
+    if(!el) return;
+    el.innerHTML = relatedListsPillsHtml(containerId, names) + names.map(renderListCard).join('');
+
+    // Só o card da lista ativa (pill selecionada) fica visível — os
+    // outros continuam no DOM (com seus próprios filtros já montados),
+    // só escondidos, pra alternar de lista sem perder filtro/estado.
+    function aplicarAbaAtiva(){
+      var active = listActiveTab[containerId];
+      el.querySelectorAll('.list-card').forEach(function(card){
+        card.style.display = (card.getAttribute('data-list-card') === active) ? '' : 'none';
+      });
+      el.querySelectorAll('[data-list-pill]').forEach(function(btn){
+        var isActive = btn.getAttribute('data-list-pill') === active;
+        var nameEl = btn.querySelector('span:first-child');
+        var countEl = btn.querySelector('span:last-child');
+        btn.style.background = isActive ? '#153F35' : '#FFFFFF';
+        btn.style.borderColor = isActive ? '#153F35' : '#D9E1D6';
+        if(nameEl) nameEl.style.color = isActive ? '#EEF3EA' : '#1B2E27';
+        if(countEl && countEl !== nameEl) countEl.style.color = isActive ? '#9FC0AE' : '#8B978F';
+      });
+    }
+    aplicarAbaAtiva();
+    el.querySelectorAll('[data-list-pill]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        listActiveTab[containerId] = btn.getAttribute('data-list-pill');
+        aplicarAbaAtiva();
+      });
+    });
+
+    function applyFilters(card){
+      var listName = card.getAttribute('data-list-card');
+      var cached = latestSheets[listName];
+      var dateColIdx = listDateColIdx[listName];
+      var selectedMonths = listMonthFilters[listName] || [];
+      var textInput = card.querySelector('.list-search');
+      var term = textInput ? textInput.value.trim().toLowerCase() : '';
+      var activeFilters = [];
+      card.querySelectorAll('.filter-pair').forEach(function(pair){
+        var colSelect = pair.querySelector('.filter-col');
+        var valWrap = pair.querySelector('.filter-val-ms');
+        var colIdx = colSelect && colSelect.value !== '' ? parseInt(colSelect.value, 10) : null;
+        var vals = (valWrap && valWrap._msInstance) ? valWrap._msInstance.getSelected() : [];
+        if(colIdx !== null && vals.length){ activeFilters.push({colIdx:colIdx, vals:vals}); }
+      });
+      var visibleCount = 0;
+      card.querySelectorAll('tbody tr').forEach(function(tr, rowIdx){
+        var matchesText = !term || tr.textContent.toLowerCase().indexOf(term) !== -1;
+        var matchesCols = activeFilters.every(function(f){
+          var cell = tr.children[f.colIdx];
+          if(!cell) return false;
+          var headerName = (cached && cached.headers) ? cached.headers[f.colIdx] : '';
+          if(headerName === DIAS_SEM_ATENDIMENTO_HEADER){
+            var bucket = diasBucketLabel(cell.textContent.trim());
+            return !!bucket && f.vals.indexOf(bucket) >= 0;
+          }
+          return f.vals.indexOf(cell.textContent.trim()) >= 0;
+        });
+        var matchesMonth = true;
+        if(selectedMonths.length && dateColIdx != null && dateColIdx >= 0){
+          var raw = cached && cached.rows[rowIdx] ? cached.rows[rowIdx][dateColIdx] : null;
+          var d = parseBRDate(raw);
+          var mv = d ? monthOptionValue(d) : null;
+          matchesMonth = !!mv && selectedMonths.indexOf(mv) >= 0;
+        }
+        var visible = matchesText && matchesCols && matchesMonth;
+        tr.style.display = visible ? '' : 'none';
+        if(visible) visibleCount++;
+      });
+      // Contagem de linhas mostrada acima da lista: reflete o resultado
+      // depois de aplicar TODOS os filtros ativos (mês, colunas e busca),
+      // não o total bruto da lista.
+      var metaEl = card.querySelector('.list-meta');
+      if(metaEl) metaEl.textContent = fmtInt(visibleCount) + (visibleCount === 1 ? ' linha' : ' linhas');
+
+      // Recalcula colunas de quantidade "por período" (ex.:
+      // "qtd_atendimentos_periodo") pra baterem com o período (mês/meses)
+      // e demais filtros ATUALMENTE aplicados nesta lista, em vez de usar
+      // o valor bruto e fixo que já vem pronto da planilha de origem (que
+      // reflete o total da pessoa na aba inteira, não do período
+      // filtrado). Vale pra qualquer lista das abas M1/M2 que tenha uma
+      // coluna "nome" e uma coluna "qtd_..._per..." (ex.: Atendimentos).
+      var headersForQtd = cached ? cached.headers : [];
+      var nomeIdxQtd = -1;
+      headersForQtd.forEach(function(h, i){
+        if(nomeIdxQtd < 0 && normalizeText(h) === 'NOME') nomeIdxQtd = i;
+      });
+      var qtdColIdxs = [];
+      headersForQtd.forEach(function(h, i){
+        var hn = normalizeText(h);
+        if(hn.indexOf('QTD_') === 0 && hn.indexOf('PER') !== -1) qtdColIdxs.push(i);
+      });
+      if(nomeIdxQtd >= 0 && qtdColIdxs.length){
+        var countsPorNomeQtd = {};
+        card.querySelectorAll('tbody tr').forEach(function(tr){
+          if(tr.style.display === 'none') return;
+          var nomeCell = tr.children[nomeIdxQtd];
+          var nomeVal = nomeCell ? nomeCell.textContent.trim().toUpperCase() : '';
+          if(!nomeVal) return;
+          countsPorNomeQtd[nomeVal] = (countsPorNomeQtd[nomeVal] || 0) + 1;
+        });
+        card.querySelectorAll('tbody tr').forEach(function(tr){
+          if(tr.style.display === 'none') return;
+          var nomeCell = tr.children[nomeIdxQtd];
+          var nomeVal = nomeCell ? nomeCell.textContent.trim().toUpperCase() : '';
+          var count = nomeVal ? (countsPorNomeQtd[nomeVal] || 0) : 0;
+          qtdColIdxs.forEach(function(ci){
+            var cell = tr.children[ci];
+            if(cell) cell.textContent = fmtInt(count);
+          });
+        });
+      }
+    }
+
+    el.querySelectorAll('[data-month-filter]').forEach(function(container){
+      var name = container.getAttribute('data-month-filter');
+      if(container.getAttribute('data-computed-months') === '1'){
+        // "Pessoas atendidas": filtro de mês próprio — recalcula a
+        // dedup (Atendimentos + Participantes Ativ. Coletiva) na hora,
+        // em vez de só esconder/mostrar linhas de uma tabela fixa.
+        var optsCalc = monthOptionsParaPessoasAtendidas();
+        var validCalc = optsCalc.map(function(o){ return o.value; });
+        listMonthFilters[name] = (listMonthFilters[name] || []).filter(function(v){
+          return validCalc.indexOf(v) >= 0;
+        });
+        var calcMs = createMultiSelect(container, {
+          placeholder: 'Todos os meses', multi: true, search: optsCalc.length > 8, showTags: true,
+          onChange: function(keys){
+            listMonthFilters[name] = keys;
+            var card = container.closest('.list-card');
+            var novoCached = pessoasAtendidasParaMeses(keys);
+            latestSheets[name] = novoCached;
+            var tbody = card.querySelector('tbody');
+            if(tbody){
+              tbody.innerHTML = novoCached.rows.map(function(r){
+                return '<tr>'+novoCached.headers.map(function(h,i){
+                  var v = r[i];
+                  return '<td>'+escapeHtml(v===undefined||v===null?'':v)+'</td>';
+                }).join('')+'</tr>';
+              }).join('');
+            }
+            applyFilters(card);
+          }
+        });
+        calcMs.setOptions(optsCalc);
+        calcMs.setSelected(listMonthFilters[name]);
+        applyFilters(container.closest('.list-card'));
+        return;
+      }
+      var cached = latestSheets[name];
+      var dateColIdx = listDateColIdx[name];
+      if(!cached || dateColIdx == null || dateColIdx < 0) return;
+      var opts = monthOptionsForList(cached, dateColIdx);
+      var validValues = opts.map(function(o){ return o.value; });
+      // Mantém só a seleção anterior que ainda faz sentido (evita "mês
+      // fantasma" depois que os dados são atualizados).
+      listMonthFilters[name] = (listMonthFilters[name] || []).filter(function(v){
+        return validValues.indexOf(v) >= 0;
+      });
+      var monthMs = createMultiSelect(container, {
+        placeholder: 'Todos os meses', multi: true, search: opts.length > 8, showTags: true,
+        onChange: function(keys){
+          listMonthFilters[name] = keys;
+          applyFilters(container.closest('.list-card'));
+        }
+      });
+      monthMs.setOptions(opts);
+      monthMs.setSelected(listMonthFilters[name]);
+      applyFilters(container.closest('.list-card'));
+    });
+
+    el.querySelectorAll('[data-filter-key]').forEach(function(input){
+      input.addEventListener('input', function(){
+        applyFilters(input.closest('.list-card'));
+      });
+    });
+
+    el.querySelectorAll('.filter-pair').forEach(function(pair){
+      var colSelect = pair.querySelector('.filter-col');
+      var valWrap = pair.querySelector('.filter-val-ms');
+      // Multisseleção de valores ("Todos os valores"): fica desabilitada
+      // (opacidade + sem clique, via .ms-disabled) até uma coluna ser
+      // escolhida no select ao lado. A instância fica pendurada no
+      // próprio elemento (._msInstance) pra applyFilters conseguir ler
+      // os valores marcados sem precisar de um estado global à parte.
+      var msInst = createMultiSelect(valWrap, {
+        placeholder: 'Todos os valores', multi: true, search: true, showTags: true,
+        onChange: function(){ applyFilters(pair.closest('.list-card')); }
+      });
+      valWrap._msInstance = msInst;
+
+      colSelect.addEventListener('change', function(){
+        var card = colSelect.closest('.list-card');
+        var listName = card.querySelector('[data-list-filters]').getAttribute('data-list-filters');
+        var colIdx = colSelect.value !== '' ? parseInt(colSelect.value, 10) : null;
+        if(colIdx === null){
+          msInst.setOptions([]);
+          msInst.setSelected([]);
+          valWrap.classList.add('ms-disabled');
+        } else {
+          var cached = latestSheets[listName];
+          var headerName = (cached && cached.headers) ? cached.headers[colIdx] : '';
+          var isDiasCol = (headerName === DIAS_SEM_ATENDIMENTO_HEADER);
+          var seen = {};
+          var values = [];
+          (cached ? cached.rows : []).forEach(function(r){
+            var v = r[colIdx];
+            v = (v===undefined||v===null) ? '' : String(v).trim();
+            if(!v) return;
+            if(isDiasCol){
+              // Filtro por FAIXA de dias, não valor a valor (31, 32, 33…):
+              // agrupa em "31–60", "61–90" e "> 90".
+              var bucket = diasBucketLabel(v);
+              if(bucket && !seen[bucket]){ seen[bucket] = true; values.push(bucket); }
+            } else if(!seen[v]){ seen[v] = true; values.push(v); }
+          });
+          if(isDiasCol){
+            values.sort(function(a,b){
+              return FAIXAS_DIAS_SEM_ATENDIMENTO.indexOf(a) - FAIXAS_DIAS_SEM_ATENDIMENTO.indexOf(b);
+            });
+          } else if(values.length && values.every(function(v){ return v !== '' && isFinite(Number(v.replace(',', '.'))); })){
+            // Coluna só com números: ordena crescente NUMERICAMENTE, não
+            // alfabeticamente (que colocaria "10" antes de "2").
+            values.sort(function(a,b){ return Number(a.replace(',', '.')) - Number(b.replace(',', '.')); });
+          } else {
+            values.sort(function(a,b){ return a.localeCompare(b, 'pt-BR'); });
+          }
+          msInst.setOptions(values.map(function(v){ return {value:v, label:v}; }));
+          msInst.setSelected([]);
+          valWrap.classList.remove('ms-disabled');
+        }
+        applyFilters(card);
+      });
+    });
+
+    el.querySelectorAll('[data-pdf-btn]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        gerarPdfLista(btn.getAttribute('data-pdf-btn'), btn.closest('.list-card'), btn);
+      });
+    });
+  }
+
+  // ---------- Exportar lista em PDF ----------
+  // Gera um PDF "elegante" (faixa de cabeçalho colorida + tabela) a partir
+  // do que está REALMENTE visível na tela: lê o <thead>/<tbody> do próprio
+  // card já filtrado (busca + filtros de coluna + filtro de mês), em vez
+  // de reconstruir a partir de latestSheets — assim o PDF bate 100% com o
+  // que os filtros ativos estão mostrando, sem duplicar a lógica deles.
+  function monthValueToLabel(v){
+    var parts = String(v).split('-');
+    return monthOptionLabel(new Date(+parts[0], +parts[1]-1, 1));
+  }
+  function slugifyFileName(s){
+    return normalizeText(s).replace(/[^A-Z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+  }
+  function gerarPdfLista(listName, card, btn){
+    if(!card) return;
+    var jspdfNs = window.jspdf;
+    if(!jspdfNs || !jspdfNs.jsPDF){
+      alert('Não foi possível carregar a biblioteca de geração de PDF (verifique a conexão com a internet) — tente novamente.');
+      return;
+    }
+    var headers = Array.prototype.map.call(card.querySelectorAll('thead th'), function(th){ return th.textContent.trim(); });
+    var todasLinhas = card.querySelectorAll('tbody tr');
+    var linhasVisiveis = Array.prototype.filter.call(todasLinhas, function(tr){ return tr.style.display !== 'none'; })
+      .map(function(tr){ return Array.prototype.map.call(tr.children, function(td){ return td.textContent.trim(); }); });
+    if(!linhasVisiveis.length){
+      alert('Nenhuma linha visível com os filtros atuais dessa lista — ajuste os filtros antes de gerar o PDF.');
+      return;
+    }
+
+    // Monta o resumo dos filtros ativos nesta lista, pra registrar no
+    // cabeçalho do PDF exatamente o que foi aplicado.
+    var filtrosAtivos = [];
+    var searchInput = card.querySelector('.list-search');
+    if(searchInput && searchInput.value.trim()) filtrosAtivos.push('Busca: "'+searchInput.value.trim()+'"');
+    var mesesSelecionados = listMonthFilters[listName] || [];
+    if(mesesSelecionados.length){
+      filtrosAtivos.push('Mês: '+mesesSelecionados.map(monthValueToLabel).join(', '));
+    }
+    card.querySelectorAll('.filter-pair').forEach(function(pair){
+      var colSelect = pair.querySelector('.filter-col');
+      var valWrap = pair.querySelector('.filter-val-ms');
+      var colIdx = colSelect && colSelect.value !== '' ? parseInt(colSelect.value, 10) : null;
+      var vals = (valWrap && valWrap._msInstance) ? valWrap._msInstance.getSelected() : [];
+      if(colIdx !== null && vals.length){
+        filtrosAtivos.push(headers[colIdx]+': '+vals.join(', '));
+      }
+    });
+
+    var totalLinhas = todasLinhas.length;
+    var nomeExibicao = displayListName(listName);
+    var equipeLabel = currentEquipes.map(function(e){ return e.label; }).join(' + ');
+
+    var doc = new jspdfNs.jsPDF({orientation: headers.length > 6 ? 'landscape' : 'portrait', unit:'pt', format:'a4'});
+    var pageWidth = doc.internal.pageSize.getWidth();
+    var pageHeight = doc.internal.pageSize.getHeight();
+    var margin = 28;
+
+    // ---- Faixa de cabeçalho ----
+    doc.setFillColor(21,63,53);
+    doc.rect(0,0,pageWidth,64,'F');
+    doc.setTextColor(238,243,234);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(15);
+    doc.text('Painel eMulti — Indicadores M1 e M2', margin, 26);
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(10);
+    doc.setTextColor(159,192,174);
+    doc.text(equipeLabel, margin, 42);
+    doc.setFontSize(8.5);
+    doc.text('Gerado em '+new Date().toLocaleString('pt-BR'), pageWidth-margin, 26, {align:'right'});
+
+    // ---- Título da lista + resumo dos filtros ----
+    var y = 84;
+    doc.setTextColor(21,63,53);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(13);
+    doc.text(nomeExibicao, margin, y);
+    y += 16;
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(9);
+    doc.setTextColor(81,96,90);
+    if(filtrosAtivos.length){
+      filtrosAtivos.forEach(function(linha){
+        var quebradas = doc.splitTextToSize('• '+linha, pageWidth-margin*2);
+        doc.text(quebradas, margin, y);
+        y += 12*quebradas.length;
+      });
+    } else {
+      doc.text('Sem filtros aplicados — exibindo todos os registros.', margin, y);
+      y += 12;
+    }
+    doc.text(fmtInt(linhasVisiveis.length)+' de '+fmtInt(totalLinhas)+(totalLinhas===1?' linha no total.':' linhas no total.'), margin, y);
+    y += 10;
+
+    doc.autoTable({
+      startY: y+6,
+      head: [headers],
+      body: linhasVisiveis,
+      theme: 'grid',
+      margin: {left:margin, right:margin, bottom:34},
+      styles: {font:'helvetica', fontSize: headers.length > 9 ? 7 : (headers.length > 6 ? 7.8 : 8.6), cellPadding:4, overflow:'linebreak', textColor:[19,36,31], lineColor:[220,228,214], lineWidth:0.5},
+      headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold'},
+      alternateRowStyles: {fillColor:[241,244,238]},
+      didDrawPage: function(){
+        doc.setFontSize(8);
+        doc.setTextColor(150,158,152);
+        doc.text('Página '+doc.internal.getCurrentPageInfo().pageNumber, pageWidth-margin, pageHeight-14, {align:'right'});
+      }
+    });
+
+    var arquivo = slugifyFileName(nomeExibicao)+'__'+slugifyFileName(equipeLabel)+'__'+slugifyFileName(new Date().toLocaleDateString('pt-BR'))+'.pdf';
+    doc.save(arquivo);
+  }
+
+  // ---------- PDF de divergência: calculado (painel) vs. oficial (Q2-26) ----------
+  // Compara, mês a mês, o valor que o painel calcularia a partir dos
+  // dados brutos (numeradorXCalculado/denominadorXCalculado/xCalculado —
+  // guardados em aplicarOverrideOficial ANTES da substituição) com o
+  // valor oficial que efetivamente está sendo exibido (numeradorX/
+  // denominadorX/x, já com o override aplicado). Só entram no relatório
+  // os meses/indicadores em que existe dado oficial (m1Oficial/m2Oficial).
+  function gerarPdfDivergenciaOficial(serieTendencia){
+    var jspdfNs = window.jspdf;
+    if(!jspdfNs || !jspdfNs.jsPDF){
+      alert('Não foi possível carregar a biblioteca de geração de PDF (verifique a conexão com a internet) — tente novamente.');
+      return;
+    }
+    var linhas = [];
+    // Estatísticas de divergência por indicador — usadas no comentário
+    // logo abaixo da tabela (qual indicador diverge mais vezes, a
+    // divergência média de cada um, e o detalhamento de quantas dessas
+    // divergências foram "para mais" — oficial acima do calculado — e
+    // quantas foram "para menos"). Um mês só conta como "divergente" se a
+    // diferença (oficial - calculado), já arredondada nas 2 casas
+    // exibidas na tabela, for diferente de zero — assim o comentário bate
+    // exatamente com o que a coluna "Diferença" mostra.
+    function novoStat(){ return {meses:0, divergentes:0, somaAbs:0, paraMais:{n:0,soma:0}, paraMenos:{n:0,soma:0}, itensPareto:[]}; }
+    var statM1 = novoStat();
+    var statM2 = novoStat();
+    function registrarDivergencia(stat, dif, mesLabel){
+      if(dif==null) return;
+      stat.meses++;
+      stat.somaAbs += Math.abs(dif);
+      if(fmtDec(Math.abs(dif),2) === fmtDec(0,2)) return; // sem divergência (bateu na 2ª casa exibida)
+      stat.divergentes++;
+      stat.itensPareto.push({label:mesLabel, valor:Math.abs(dif)});
+      if(dif > 0){ stat.paraMais.n++; stat.paraMais.soma += dif; }
+      else { stat.paraMenos.n++; stat.paraMenos.soma += Math.abs(dif); }
+    }
+    // Mais recente primeiro, mesma ordem da tabela de Série histórica.
+    serieTendencia.slice().reverse().forEach(function(p){
+      var mesLabel = monthShortLabel(p.mes);
+      if(p.m1Oficial){
+        var difM1 = (p.m1!=null && p.m1Calculado!=null) ? (p.m1 - p.m1Calculado) : null;
+        registrarDivergencia(statM1, difM1, mesLabel);
+        linhas.push([
+          mesLabel, 'M1',
+          fmtInt(p.numeradorM1Calculado)+' / '+fmtInt(p.denominadorM1Calculado), p.m1Calculado!=null ? fmtDec(p.m1Calculado,2) : '—',
+          fmtInt(p.numeradorM1)+' / '+fmtInt(p.denominadorM1), p.m1!=null ? fmtDec(p.m1,2) : '—',
+          difM1!=null ? (difM1>=0?'+':'')+fmtDec(difM1,2) : '—'
+        ]);
+      }
+      if(p.m2Oficial){
+        var difM2 = (p.m2!=null && p.m2Calculado!=null) ? (p.m2 - p.m2Calculado) : null;
+        registrarDivergencia(statM2, difM2, mesLabel);
+        linhas.push([
+          mesLabel, 'M2',
+          fmtInt(p.numeradorM2Calculado)+' / '+fmtInt(p.denominadorM2Calculado), p.m2Calculado!=null ? fmtDec(p.m2Calculado,2)+'%' : '—',
+          fmtInt(p.numeradorM2)+' / '+fmtInt(p.denominadorM2), p.m2!=null ? fmtDec(p.m2,2)+'%' : '—',
+          difM2!=null ? (difM2>=0?'+':'')+fmtDec(difM2,2)+'%' : '—'
+        ]);
+      }
+    });
+    if(!linhas.length){
+      alert('Não há meses com dado oficial (aba Q2-26) carregado pra esta equipe — nada pra comparar.');
+      return;
+    }
+
+    var equipeLabel = currentEquipes.map(function(e){ return e.label; }).join(' + ');
+    var doc = new jspdfNs.jsPDF({orientation:'landscape', unit:'pt', format:'a4'});
+    var pageWidth = doc.internal.pageSize.getWidth();
+    var pageHeight = doc.internal.pageSize.getHeight();
+    var margin = 28;
+
+    doc.setFillColor(21,63,53);
+    doc.rect(0,0,pageWidth,64,'F');
+    doc.setTextColor(238,243,234);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(15);
+    doc.text('Painel eMulti — Divergência: calculado × oficial', margin, 26);
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(10);
+    doc.setTextColor(159,192,174);
+    doc.text(equipeLabel, margin, 42);
+    doc.setFontSize(8.5);
+    doc.text('Gerado em '+new Date().toLocaleString('pt-BR'), pageWidth-margin, 26, {align:'right'});
+
+    var y = 84;
+    doc.setTextColor(21,63,53);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(13);
+    doc.text('Calculado pelo painel × Oficial (aba Q2-26)', margin, y);
+    y += 16;
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(9);
+    doc.setTextColor(81,96,90);
+    doc.text('M1 = atendimentos por pessoa (numerador ÷ denominador). M2 = % de ações compartilhadas (numerador ÷ denominador × 100). Diferença = oficial - calculado.', margin, y);
+    y += 14;
+
+    doc.autoTable({
+      startY: y,
+      head: [['Mês','Indicador','Numerador/Denominador (calculado)','Valor (calculado)','Numerador/Denominador (oficial)','Valor (oficial)','Diferença']],
+      body: linhas,
+      theme: 'grid',
+      margin: {left:margin, right:margin, bottom:34},
+      styles: {font:'helvetica', fontSize:8.6, cellPadding:4, overflow:'linebreak', textColor:[19,36,31], lineColor:[220,228,214], lineWidth:0.5},
+      headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold'},
+      alternateRowStyles: {fillColor:[241,244,238]},
+      didDrawPage: function(){
+        doc.setFontSize(8);
+        doc.setTextColor(150,158,152);
+        doc.text('Página '+doc.internal.getCurrentPageInfo().pageNumber, pageWidth-margin, pageHeight-14, {align:'right'});
+      }
+    });
+
+    // ---- Comentário: indicador com mais divergência + médias + detalhe "para mais"/"para menos" ----
+    var mediaM1 = statM1.meses ? (statM1.somaAbs/statM1.meses) : null;
+    var mediaM2 = statM2.meses ? (statM2.somaAbs/statM2.meses) : null;
+    var comentario;
+    if(statM1.divergentes === 0 && statM2.divergentes === 0){
+      comentario = 'Nenhum mês apresentou divergência entre o valor calculado pelo painel e o valor oficial — M1 e M2 bateram em todos os meses comparados.';
+    } else if(statM1.divergentes > statM2.divergentes){
+      comentario = 'M1 é o indicador com maior número de divergências ('+statM1.divergentes+' de '+statM1.meses+' meses, contra '+statM2.divergentes+' de '+statM2.meses+' em M2).';
+    } else if(statM2.divergentes > statM1.divergentes){
+      comentario = 'M2 é o indicador com maior número de divergências ('+statM2.divergentes+' de '+statM2.meses+' meses, contra '+statM1.divergentes+' de '+statM1.meses+' em M1).';
+    } else {
+      comentario = 'M1 e M2 empatam no número de meses com divergência ('+statM1.divergentes+' de '+statM1.meses+' meses cada).';
+    }
+    comentario += ' Divergência média (oficial - calculado, em módulo) — M1: '+(mediaM1!=null ? fmtDec(mediaM1,2) : '—')
+      +' | M2: '+(mediaM2!=null ? fmtDec(mediaM2,2)+'%' : '—')+'.';
+
+    // "Para mais" = valor oficial ACIMA do calculado pelo painel (oficial
+    // > calculado); "para menos" = oficial ABAIXO do calculado. A média
+    // de cada lado usa só os meses daquele lado (não conta os meses sem
+    // divergência).
+    function detalheDirecao(stat, sufixo){
+      var mediaMais = stat.paraMais.n ? (stat.paraMais.soma/stat.paraMais.n) : null;
+      var mediaMenos = stat.paraMenos.n ? (stat.paraMenos.soma/stat.paraMenos.n) : null;
+      return 'para mais: '+stat.paraMais.n+' mês(es)'+(mediaMais!=null ? ' (média +'+fmtDec(mediaMais,2)+sufixo+')' : '')
+        +'; para menos: '+stat.paraMenos.n+' mês(es)'+(mediaMenos!=null ? ' (média -'+fmtDec(mediaMenos,2)+sufixo+')' : '');
+    }
+    comentario += ' Detalhamento M1 — '+detalheDirecao(statM1, '')+'.';
+    comentario += ' Detalhamento M2 — '+detalheDirecao(statM2, '%')+'.';
+
+    var yComentario = (doc.lastAutoTable ? doc.lastAutoTable.finalY : y) + 22;
+    var linhasComentario = doc.splitTextToSize(comentario, pageWidth-margin*2);
+    var alturaComentario = 14 + 12*linhasComentario.length;
+    if(yComentario + alturaComentario > pageHeight - margin){
+      doc.addPage();
+      yComentario = margin + 10;
+    }
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(21,63,53);
+    doc.text('Resumo da divergência', margin, yComentario);
+    yComentario += 14;
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(8.8);
+    doc.setTextColor(81,96,90);
+    doc.text(linhasComentario, margin, yComentario);
+
+    // ---- Gráfico de Pareto: uma página por indicador, com todos os meses ----
+    // divergentes ordenados do maior pro menor desvio, mais a curva de %
+    // acumulado (regra 80/20). Só desenha a página do indicador que teve
+    // pelo menos 1 mês divergente.
+    function desenharPareto(doc, opts){
+      var x = opts.x, yTop = opts.y, w = opts.w, h = opts.h;
+      var itens = opts.itens.slice().sort(function(a,b){ return b.valor - a.valor; });
+      var total = itens.reduce(function(s,it){ return s + it.valor; }, 0);
+      var n = itens.length;
+
+      var labelH = 26;   // espaço pro rótulo do mês, abaixo do eixo
+      var topPad = 16;   // espaço acima da maior barra pro rótulo do valor
+      var plotY = yTop + topPad;
+      var plotH = h - labelH - topPad;
+      var baseY = plotY + plotH;
+
+      var maxValor = itens[0] ? itens[0].valor : 0;
+      if(maxValor <= 0) maxValor = 1;
+
+      doc.setDrawColor(150,158,152);
+      doc.setLineWidth(0.75);
+      doc.line(x, plotY, x, baseY);
+      doc.line(x, baseY, x+w, baseY);
+      doc.line(x+w, plotY, x+w, baseY);
+
+      doc.setFontSize(7.5);
+      [0,20,40,60,80,100].forEach(function(p){
+        var gy = baseY - plotH*(p/100);
+        if(p===80){ doc.setDrawColor(200,120,60); doc.setLineWidth(0.9); doc.setLineDashPattern([3,2],0); }
+        else { doc.setDrawColor(230,232,228); doc.setLineWidth(0.5); doc.setLineDashPattern([],0); }
+        doc.line(x, gy, x+w, gy);
+        doc.setLineDashPattern([],0);
+        if(p===80) doc.setTextColor(200,120,60); else doc.setTextColor(150,158,152);
+        doc.text(p+'%', x+w+4, gy+2);
+      });
+
+      var slot = w / n;
+      var barW = Math.min(slot*0.55, 34);
+      var pontos = [];
+      var acumulado = 0;
+      itens.forEach(function(it, i){
+        var cx = x + slot*i + slot/2;
+        var barH = plotH * (it.valor / maxValor);
+        var by = baseY - barH;
+        doc.setFillColor(opts.corBarra[0], opts.corBarra[1], opts.corBarra[2]);
+        doc.rect(cx - barW/2, by, barW, barH, 'F');
+
+        doc.setFontSize(7.6);
+        doc.setTextColor(81,96,90);
+        doc.text(it.label, cx, baseY + 12, {align:'center'});
+
+        acumulado += it.valor;
+        var pct = total>0 ? (acumulado/total*100) : 0;
+        pontos.push({x:cx, y: baseY - plotH*(pct/100), valorLabel: opts.fmtValor(it.valor), yTopoBarra: by});
+      });
+
+      doc.setDrawColor(190,70,50);
+      doc.setLineWidth(1.1);
+      for(var i=0;i<pontos.length-1;i++){
+        doc.line(pontos[i].x, pontos[i].y, pontos[i+1].x, pontos[i+1].y);
+      }
+      doc.setFillColor(190,70,50);
+      pontos.forEach(function(p){ doc.circle(p.x, p.y, 1.9, 'F'); });
+
+      // Rótulos de valor no topo de cada barra — desenhados por último pra
+      // ficarem por cima da linha/marcador do acumulado (evita que o ponto
+      // vermelho cubra o número quando a curva passa perto do topo da barra).
+      doc.setFontSize(7.2);
+      pontos.forEach(function(p){
+        // "respiro" branco atrás do texto, só o suficiente pra não ficar
+        // ilegível em cima da linha vermelha.
+        var tw = doc.getTextWidth(p.valorLabel);
+        doc.setFillColor(255,255,255);
+        doc.rect(p.x - tw/2 - 1.5, p.yTopoBarra - 4 - 6.5, tw+3, 8, 'F');
+        doc.setTextColor(60,70,66);
+        doc.text(p.valorLabel, p.x, p.yTopoBarra - 4, {align:'center'});
+      });
+
+      return baseY;
+    }
+
+    function paginaParetoIndicador(indicadorNome, stat, corBarra, fmtValor){
+      if(!stat.itensPareto.length) return;
+      doc.addPage();
+      doc.setFillColor(21,63,53);
+      doc.rect(0,0,pageWidth,64,'F');
+      doc.setTextColor(238,243,234);
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(15);
+      doc.text('Painel eMulti — Pareto de divergências ('+indicadorNome+')', margin, 26);
+      doc.setFont('helvetica','normal');
+      doc.setFontSize(10);
+      doc.setTextColor(159,192,174);
+      doc.text(equipeLabel, margin, 42);
+      doc.setFontSize(8.5);
+      doc.text('Gerado em '+new Date().toLocaleString('pt-BR'), pageWidth-margin, 26, {align:'right'});
+
+      var yy = 92;
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(11.5);
+      doc.setTextColor(21,63,53);
+      doc.text('Meses ordenados da maior pra menor divergência, com % acumulado (linha) e referência de 80% (regra 80/20)', margin, yy);
+
+      desenharPareto(doc, {
+        x: margin, y: yy+18, w: pageWidth-margin*2, h: pageHeight-yy-18-margin-16,
+        itens: stat.itensPareto, corBarra: corBarra, fmtValor: fmtValor
+      });
+
+      doc.setFontSize(8);
+      doc.setTextColor(150,158,152);
+      doc.text('Página '+doc.internal.getCurrentPageInfo().pageNumber, pageWidth-margin, pageHeight-14, {align:'right'});
+    }
+
+    paginaParetoIndicador('M1', statM1, [58,120,102], function(v){ return fmtDec(v,2); });
+    paginaParetoIndicador('M2', statM2, [58,120,102], function(v){ return fmtDec(v,2)+'%'; });
+
+    var arquivo = 'divergencia_oficial__'+slugifyFileName(equipeLabel)+'__'+slugifyFileName(new Date().toLocaleDateString('pt-BR'))+'.pdf';
+    doc.save(arquivo);
+  }
+
+  // ---------- Gauge ----------
+  function polar(cx,cy,r,angleDeg){
+    var a = angleDeg * Math.PI/180;
+    return {x: cx + r*Math.cos(a), y: cy - r*Math.sin(a)};
+  }
+  function arcPath(cx,cy,r,startAngle,endAngle){
+    var p1 = polar(cx,cy,r,startAngle);
+    var p2 = polar(cx,cy,r,endAngle);
+    var large = Math.abs(startAngle-endAngle) > 180 ? 1 : 0;
+    return "M "+p1.x+" "+p1.y+" A "+r+" "+r+" 0 "+large+" 1 "+p2.x+" "+p2.y;
+  }
+  function buildGauge(value, domainMax, bands, gaugeId){
+    var cx=115,cy=100,r=92,thick=16;
+    // Arco de 240° — mesma abertura usada nos mini-gauges da Visão geral
+    // (ver ovRingSVG), aplicada aqui pros gauges grandes das abas M1/M2 (e
+    // do card de desempenho individual, que reaproveita esta função). As
+    // cores das faixas (b.color, vindas de arcHex/arcHexOv) continuam
+    // exatamente as mesmas de antes.
+    var GAUGE_SWEEP = 240;
+    var GAUGE_START = 90 + GAUGE_SWEEP/2; // 210° (era 180°)
+    var bandsSvg = bands.map(function(b){
+      var a1 = GAUGE_START - (b.from/domainMax)*GAUGE_SWEEP;
+      var a2 = GAUGE_START - (b.to/domainMax)*GAUGE_SWEEP;
+      return '<path d="'+arcPath(cx,cy,r,a1,a2)+'" stroke="'+b.color+'" stroke-width="'+thick+'" fill="none" stroke-linecap="round"/>';
+    }).join('');
+    var frac = (value===null || value===undefined || isNaN(value)) ? 0 : Math.max(0, Math.min(1, value/domainMax));
+    var targetAngle = GAUGE_START - frac*GAUGE_SWEEP;
+    var needleRotation = 180 - targetAngle; // graus a girar o ponteiro (que nasce apontando p/ 0)
+    var needleLen = r - thick/2 - 6;
+    var tipBase = polar(cx,cy,needleLen,180);
+    // Ponteiro é desenhado sempre apontando para "0" (esquerda) e a rotação até
+    // o valor real é feita via CSS puro (animation + custom property), em vez
+    // de depender de JS aplicar o transform depois — isso evita que o ponteiro
+    // fique "zerado" caso a atualização via JS não rode a tempo/corretamente.
+    var needleSvg = '<g id="'+gaugeId+'" class="gauge-needle" style="transform-origin:'+cx+'px '+cy+'px;--target-angle:'+needleRotation+'deg;">'
+      + '<line x1="'+cx+'" y1="'+cy+'" x2="'+tipBase.x+'" y2="'+tipBase.y+'" stroke="#13241F" stroke-width="3" stroke-linecap="round"/>'
+      + '<circle cx="'+cx+'" cy="'+cy+'" r="5.5" fill="#13241F"/></g>';
+    // Altura do viewBox recalculada pra abertura de 240°: com cy=100 o topo
+    // do arco (90°) encosta em y=0 e a ponta inferior das faixas (210°/-30°)
+    // termina em y=154 — antes era um semicírculo puro (0 0 230 134); agora
+    // as pontas descem abaixo do centro, então a caixa ficou mais alta pra
+    // não cortar as bordas do arco (ver também .gauge-value no CSS, cujo
+    // margin-top foi recalculado pra continuar "colado" no ponteiro).
+    return '<svg class="gauge-svg" viewBox="0 0 230 154">'+bandsSvg+needleSvg+'</svg>';
+  }
+  function animateGauges(){
+    // Mantida como no-op por compatibilidade com as chamadas existentes em
+    // renderDashboard(); a animação agora é 100% CSS (ver .gauge-needle).
+  }
+
+  var CLASS_BANDS_M1 = [
+    {from:0,to:1,classe:"Regular",color:arcHex("Regular")},
+    {from:1,to:2,classe:"Suficiente",color:arcHex("Suficiente")},
+    {from:2,to:3,classe:"Bom",color:arcHex("Bom")},
+    {from:3,to:4,classe:"Ótimo",color:arcHex("Ótimo")}
+  ];
+  var CLASS_BANDS_M2 = [
+    {from:0,to:1,classe:"Regular",color:arcHex("Regular")},
+    {from:1,to:2.5,classe:"Suficiente",color:arcHex("Suficiente")},
+    {from:2.5,to:5,classe:"Bom",color:arcHex("Bom")},
+    {from:5,to:8,classe:"Ótimo",color:arcHex("Ótimo")}
+  ];
+  var CLASS_BANDS_NOTA = [
+    {from:0,to:2.5,classe:"Regular",color:arcHex("Regular")},
+    {from:2.5,to:5,classe:"Suficiente",color:arcHex("Suficiente")},
+    {from:5,to:7.5,classe:"Bom",color:arcHex("Bom")},
+    {from:7.5,to:10,classe:"Ótimo",color:arcHex("Ótimo")}
+  ];
+  // Mesmas faixas, só que com a cor mais intensa (arcHexOv) — usadas
+  // apenas nos anéis da Visão geral (overviewCardHTML/ovRingSVG).
+  var CLASS_BANDS_M1_OV = [
+    {from:0,to:1,classe:"Regular",color:arcHexOv("Regular")},
+    {from:1,to:2,classe:"Suficiente",color:arcHexOv("Suficiente")},
+    {from:2,to:3,classe:"Bom",color:arcHexOv("Bom")},
+    {from:3,to:4,classe:"Ótimo",color:arcHexOv("Ótimo")}
+  ];
+  var CLASS_BANDS_M2_OV = [
+    {from:0,to:1,classe:"Regular",color:arcHexOv("Regular")},
+    {from:1,to:2.5,classe:"Suficiente",color:arcHexOv("Suficiente")},
+    {from:2.5,to:5,classe:"Bom",color:arcHexOv("Bom")},
+    {from:5,to:8,classe:"Ótimo",color:arcHexOv("Ótimo")}
+  ];
+  var CLASS_BANDS_NOTA_OV = [
+    {from:0,to:2.5,classe:"Regular",color:arcHexOv("Regular")},
+    {from:2.5,to:5,classe:"Suficiente",color:arcHexOv("Suficiente")},
+    {from:5,to:7.5,classe:"Bom",color:arcHexOv("Bom")},
+    {from:7.5,to:10,classe:"Ótimo",color:arcHexOv("Ótimo")}
+  ];
+
+
+  function gaugeLegendHTML(items){
+    return '<div class="gauge-legend">' + items.map(function(it){
+      return '<span><i style="background:'+it.color+'"></i>'+it.label+' '+it.cond+'</span>';
+    }).join('') + '</div>';
+  }
+  var LEGEND_M1 = [
+    {label:'Ótimo',      cond:'&gt; 3',           color:arcHex('Ótimo')},
+    {label:'Bom',        cond:'&gt; 2 e ≤ 3',     color:arcHex('Bom')},
+    {label:'Suficiente', cond:'&gt; 1 e ≤ 2',     color:arcHex('Suficiente')},
+    {label:'Regular',    cond:'≤ 1',              color:arcHex('Regular')}
+  ];
+  var LEGEND_M2 = [
+    {label:'Ótimo',      cond:'&gt; 5%',              color:arcHex('Ótimo')},
+    {label:'Bom',        cond:'&gt; 2,5% e ≤ 5%',     color:arcHex('Bom')},
+    {label:'Suficiente', cond:'&gt; 1% e ≤ 2,5%',     color:arcHex('Suficiente')},
+    {label:'Regular',    cond:'≤ 1%',                 color:arcHex('Regular')}
+  ];
+  var LEGEND_NOTA = [
+    {label:'Ótimo',      cond:'&gt; 7,5',            color:arcHex('Ótimo')},
+    {label:'Bom',        cond:'≥ 5 e ≤ 7,5',         color:arcHex('Bom')},
+    {label:'Suficiente', cond:'&gt; 2,5 e &lt; 5',   color:arcHex('Suficiente')},
+    {label:'Regular',    cond:'≤ 2,5',               color:arcHex('Regular')}
+  ];
+
+  // ---------- Cartões da Visão geral (modelo "ícone + anel + evolução") ----------
+  // Cor por STATUS (não mais por indicador): o ícone, o anel e o badge de
+  // cada cartão seguem a classificação atual daquele indicador.
+  var OV_STATUS = {
+    'Ótimo':      {accent:arcHexOv('Ótimo'), badgeBg:'#eff6ff', badgeText:'#1e40af', icon:'★', barColor:arcHexOv('Ótimo')},
+    'Bom':        {accent:arcHexOv('Bom'), badgeBg:'#dcfce7', badgeText:'#166534', icon:'↗', barColor:arcHexOv('Bom')},
+    'Suficiente': {accent:arcHexOv('Suficiente'), badgeBg:'#ffedd5', badgeText:'#9a3412', icon:'→', barColor:arcHexOv('Suficiente')},
+    'Regular':    {accent:arcHexOv('Regular'), badgeBg:'#fee2e2', badgeText:'#991b1b', icon:'↘', barColor:arcHexOv('Regular')}
+  };
+  var OV_STATUS_FALLBACK = {accent:'#6b7280', badgeBg:'#f3f4f6', badgeText:'#374151', icon:'•', barColor:'#d1d5db'};
+  function ovStatus(classe){ return OV_STATUS[classe] || OV_STATUS_FALLBACK; }
+  var OV_ICONS = {
+    pulse: '<path d="M3 12h4l2-7 4 14 2-7h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+    users: '<circle cx="8.5" cy="8" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M2.5 19c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="17" cy="9" r="2.4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.3 13.6c2.6.3 4.7 2.3 4.7 5.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+    speed: '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 12l4.5-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/>'
+  };
+  function ovIconHTML(kind, st){
+    return '<div class="ov-icon" style="background:'+st.badgeBg+';color:'+st.accent+';">'
+      + '<svg viewBox="0 0 24 24">'+OV_ICONS[kind]+'</svg></div>';
+  }
+  // Anel de progresso (valor ÷ domainMax) — usado no lugar do arco meia-lua
+  // nos cartões da Visão geral.
+  function ovRingSVG(value, domainMax, bands, classeAtual, st, gaugeId){
+    // Arco de 240° (era meia lua de 180°): faixas proporcionais ao
+    // domainMax, só a faixa do valor atual em cor cheia, as demais
+    // esmaecidas, e um ponteiro indicando a posição exata do valor.
+    // GAUGE_SWEEP/GAUGE_START controlam a abertura — as cores das faixas
+    // continuam exatamente as mesmas de antes (vêm de b.color/st.accent).
+    // cy foi recalculado pra o topo do arco (90°) encostar em y=0, e h
+    // aumentado pra caber as pontas do arco (que agora descem abaixo do
+    // centro) mais os mesmos 24px de "vão" reservados na base pro número
+    // grande (.ov-value) continuar mordendo o mesmo espaço via margin-top
+    // negativo (ver .ov-value no CSS) — nada mudou nesse comportamento.
+    var GAUGE_SWEEP = 240;
+    var GAUGE_START = 90 + GAUGE_SWEEP/2; // 210° (era 180°)
+    var w=140, h=125, cx=70, cy=65, r=58, thick=14;
+    if(!bands || !bands.length){
+      // fallback: se não vier bands, desenha só uma faixa cheia até o valor
+      // (mesma lógica de antes, agora em formato de 240°).
+      var frac0 = (value==null || !domainMax) ? 0 : Math.max(0, Math.min(1, value/domainMax));
+      var a0 = GAUGE_START - frac0*GAUGE_SWEEP;
+      return '<svg class="gauge-svg ov-ring-svg" viewBox="0 0 '+w+' '+h+'">'
+        + '<path d="'+arcPath(cx,cy,r,GAUGE_START,GAUGE_START-GAUGE_SWEEP)+'" stroke="'+st.badgeBg+'" stroke-width="'+thick+'" fill="none"/>'
+        + '<path d="'+arcPath(cx,cy,r,GAUGE_START,a0)+'" stroke="'+st.accent+'" stroke-width="'+thick+'" fill="none" stroke-linecap="round"/>'
+        + '</svg>';
+    }
+    var bandsSvg = bands.map(function(b){
+      var a1 = GAUGE_START - (b.from/domainMax)*GAUGE_SWEEP;
+      var a2 = GAUGE_START - (b.to/domainMax)*GAUGE_SWEEP;
+      var ativa = (b.classe === classeAtual);
+      return '<path d="'+arcPath(cx,cy,r,a1,a2)+'" stroke="'+b.color+'" stroke-width="'+thick+'" fill="none" stroke-opacity="'+(ativa?1:0.5)+'"/>';
+    }).join('');
+    var frac = (value===null || value===undefined || isNaN(value)) ? 0 : Math.max(0, Math.min(1, value/domainMax));
+    var targetAngle = GAUGE_START - frac*GAUGE_SWEEP;
+    var needleRotation = 180 - targetAngle; // graus a girar o ponteiro (que nasce apontando p/ 0)
+    var needleLen = r - thick/2 - 5;
+    var tipBase = polar(cx,cy,needleLen,180);
+    // Ponteiro sempre desenhado apontando pra "0" (esquerda) e girado até o
+    // valor real via CSS (.gauge-needle + --target-angle) — mesma técnica
+    // usada no gauge de 240° das abas M1/M2, pra ter o mesmo efeito de
+    // movimento em vez de aparecer já na posição final.
+    var needleSvg = '<g id="'+gaugeId+'" class="gauge-needle" style="transform-origin:'+cx+'px '+cy+'px;--target-angle:'+needleRotation+'deg;">'
+      + '<line x1="'+cx+'" y1="'+cy+'" x2="'+tipBase.x+'" y2="'+tipBase.y+'" stroke="#13241F" stroke-width="2.5" stroke-linecap="round"/>'
+      + '<circle cx="'+cx+'" cy="'+cy+'" r="4.5" fill="#13241F"/></g>';
+    return '<svg class="gauge-svg ov-ring-svg" viewBox="0 0 '+w+' '+h+'">'+bandsSvg+needleSvg+'</svg>';
+  }
+  // Régua de faixas (Regular → Ótimo) no rodapé do card, cada chip com a
+  // cor do respectivo status.
+  function ovLegendHTML(items){
+    var out = items.map(function(it){
+      var st = ovStatus(it.classe);
+      return '<div class="ov-legend-item">'
+        + '<span class="ov-legend-swatch" style="background:'+st.barColor+';"></span>'
+        + '<span class="ov-legend-text"><b>'+it.cond+'</b> '+it.classe+'</span>'
+        + '</div>';
+    }).join('');
+    return '<div class="ov-legend">'+out+'</div>';
+  }
+  var OV_LEGEND_M1 = [
+    {classe:'Regular',    cond:'≤ 1'},
+    {classe:'Suficiente', cond:'&gt; 1 e ≤ 2'},
+    {classe:'Bom',        cond:'&gt; 2 e ≤ 3'},
+    {classe:'Ótimo',      cond:'&gt; 3'}
+  ];
+  var OV_LEGEND_M2 = [
+    {classe:'Regular',    cond:'≤ 1%'},
+    {classe:'Suficiente', cond:'&gt; 1% e ≤ 2,5%'},
+    {classe:'Bom',        cond:'&gt; 2,5% e ≤ 5%'},
+    {classe:'Ótimo',      cond:'&gt; 5%'}
+  ];
+  var OV_LEGEND_NOTA = [
+    {classe:'Regular',    cond:'≤ 2,5'},
+    {classe:'Suficiente', cond:'&gt; 2,5 e &lt; 5'},
+    {classe:'Bom',        cond:'≥ 5 e ≤ 7,5'},
+    {classe:'Ótimo',      cond:'&gt; 7,5'}
+  ];
+  // Quadrimestre imediatamente anterior ao selecionado, calculado com a
+  // MESMA metodologia do quadrimestre atual (média do m1/m2 de cada um dos
+  // 4 meses, cada um já com sua janela móvel oficial — ver mediaDeMeses) —
+  // usado só pro bloco "Evolução - Quadrimestre" dos cartões da Visão
+  // geral. Retorna null nos campos que não tiverem os 4 meses de dado
+  // disponíveis (aí o cartão mostra "Sem histórico" pra aquele indicador).
+  function calcularQuadrimestreAnterior(){
+    if(!latestWb) return {m1:null, m2:null, notaFinal:null};
+    var anchorAtual = new Date(quadSelecionado.ano, quadSelecionado.qIndex*4+3, 1);
+    var anchorAnterior = addMonths(anchorAtual, -4);
+    var pontos = calcularSerieTendencia(latestWb, anchorAnterior, 4);
+    function media(campo){
+      var vals = pontos.map(function(p){ return p[campo]; }).filter(function(v){ return v!=null; });
+      if(vals.length < 4) return null; // só conta como quadrimestre completo com os 4 meses
+      return vals.reduce(function(a,b){ return a+b; }, 0) / vals.length;
+    }
+    var m1 = media('m1');
+    var m2 = media('m2');
+    var classificacaoM1 = m1!=null ? classificarM1(m1) : null;
+    var classificacaoM2 = m2!=null ? classificarM2(m2) : null;
+    var p1 = classificacaoM1 ? PONTOS_POR_CLASSE[classificacaoM1]*6 : null;
+    var p2 = classificacaoM2 ? PONTOS_POR_CLASSE[classificacaoM2]*4 : null;
+    var notaFinal = (p1!=null && p2!=null) ? (p1+p2) : null;
+    return {m1:m1, m2:m2, notaFinal:notaFinal, label:quadShortLabel(anchorAnterior)};
+  }
+  // Trilha compartilhada da "Evolução (Quadrimestre)": fundo esmaecido
+  // (50% de opacidade) com o gradiente das faixas reais do indicador
+  // (mesmas cores do arco/legenda, alinhadas aos limiares de classificação
+  // — ver evoTrackGradient), com uma barra sólida por cima preenchendo até
+  // o valor atual e um traço marcando onde estava o valor do quadrimestre
+  // anterior.
+  function evoTrackGradient(bands, domainMax){
+    var stops = bands.map(function(b){
+      var mid = (b.from + b.to) / 2;
+      var pct = Math.max(0, Math.min(100, (mid/domainMax)*100));
+      return b.color + ' ' + pct.toFixed(1) + '%';
+    });
+    return 'linear-gradient(90deg,' + stops.join(',') + ')';
+  }
+  function evoTrackHTML(atual, anterior, domainMax, decimals, suffix, bands){
+    var delta = atual - anterior;
+    var dir = delta > 0.0001 ? 'up' : (delta < -0.0001 ? 'down' : 'flat');
+    var fracAtual = Math.max(0, Math.min(1, atual/domainMax));
+    var fracAnterior = Math.max(0, Math.min(1, anterior/domainMax));
+    var fillColor = dir==='down' ? '#A84747' : (dir==='up' ? '#15803d' : '#51605A');
+    var bandStyle = bands ? ' style="background:'+evoTrackGradient(bands, domainMax)+';"' : '';
+    return '<div class="ov-evo-track">'
+      +   '<div class="ov-evo-band"'+bandStyle+'></div>'
+      +   '<div class="ov-evo-fill" style="width:'+(fracAtual*100).toFixed(1)+'%;background:'+fillColor+';"></div>'
+      +   '<div class="ov-evo-mark" style="left:'+(fracAnterior*100).toFixed(1)+'%;"></div>'
+      + '</div>'
+      + '<div class="ov-evo-labels"><span>Anterior<br><b>'+fmtDec(anterior,decimals)+suffix+'</b></span>'
+      +   '<span style="text-align:right;">Atual<br><b>'+fmtDec(atual,decimals)+suffix+'</b></span></div>';
+  }
+  // Bloco "Evolução - Quadrimestre": compara o valor atual com o do
+  // quadrimestre anterior (calcularQuadrimestreAnterior). Sem dado
+  // suficiente pra reconstruir o período anterior, mostra um aviso em vez
+  // da barra de comparação.
+  function ovEvoHTML(atual, anterior, domainMax, decimals, suffix, bands){
+    suffix = suffix || '';
+    if(anterior==null || atual==null){
+      return '<div class="ov-evo">'
+        + '<p class="ov-evo-title">Evolução (quadrimestre)</p>'
+        + '<p class="ov-evo-empty">Sem histórico suficiente pra comparar com o quadrimestre anterior.</p>'
+        + '</div>';
+    }
+    var delta = atual - anterior;
+    var dir = delta > 0.0001 ? 'up' : (delta < -0.0001 ? 'down' : 'flat');
+    var arrow = dir==='up' ? '↗' : (dir==='down' ? '↘' : '→');
+    var deltaColor = dir==='up' ? '#15803d' : (dir==='down' ? '#b91c1c' : 'var(--ink-soft)');
+    var deltaTxt = (delta>0?'+':'')+fmtDec(delta,decimals)+suffix;
+    return '<div class="ov-evo">'
+      + '<div class="ov-evo-head">'
+      +   '<p class="ov-evo-title">Evolução (quadrimestre)</p>'
+      +   '<span class="ov-evo-delta" style="color:'+deltaColor+';">'+arrow+' '+deltaTxt+'</span>'
+      + '</div>'
+      + evoTrackHTML(atual, anterior, domainMax, decimals, suffix, bands)
+      + '</div>';
+  }
+  // Cartão no modelo "ícone + anel + evolução" (só na Visão geral).
+  // Valor grande fica embaixo do arco (não mais ao lado), centralizado
+  // com ele, puxado por cima com margin-top negativo pra formar um
+  // bloco visualmente único — ver .ov-main/.ov-value no CSS. A legenda
+  // "X atendimentos ÷ Y pessoas" vira uma barra de linha única entre
+  // esse bloco e a Evolução do quadrimestre.
+  function overviewCardHTML(opts){
+    var st = ovStatus(opts.classe);
+    return '<div class="card ov-card" style="border-top:4px solid '+st.accent+';">'
+      + '<div class="ov-head">'
+      +   '<div class="ov-head-left">'+ovIconHTML(opts.iconKind, st)+'<h3 class="ov-title" title="'+opts.title+'">'+opts.title+'</h3></div>'
+      +   '<span class="ov-badge" style="background:'+st.badgeBg+';color:'+st.badgeText+';">'+st.icon+' '+(opts.classe||'—')+'</span>'
+      + '</div>'
+      + '<div class="ov-main">'
+      +   '<div class="ov-ring-wrap">'+ovRingSVG(opts.value, opts.domainMax, opts.bands, opts.classe, st, opts.gaugeId)+'</div>'
+      +   '<div class="ov-value" style="color:'+st.accent+';">'+opts.valueTxt+'</div>'
+      + '</div>'
+      + (opts.valueCap ? '<p class="ov-formula-divider">'+opts.valueCap+'</p>' : '')
+      + ovEvoHTML(opts.value, opts.anterior, opts.domainMax, opts.decimals, opts.suffix||'', opts.bands)
+      + ovLegendHTML(opts.legend)
+      + '</div>';
+  }
+
+  function gaugeCardHTML(title, formula, value, domainMax, bands, gaugeId, valueHtml, classLabel, note, legend, anterior, decimals, suffix, metaLabel){
+    // title/formula já aparecem no cabeçalho da aba (.indicator-tab-head)
+    // logo acima do mm-layout — aqui, dentro do card, mostramos um cabeçalho
+    // próprio com ícone + "Resultado do indicador" (usando "formula" como
+    // subtítulo) e, ao lado do gauge, uma caixa de "Interpretação" com o
+    // texto descritivo da classificação atual e a meta do período.
+    return '<div class="card gauge-card">'
+      + '<div class="gi-row">'
+      +   '<div class="gi-left">'
+      +     '<div class="gi-header">'
+      +       '<div class="gi-icon"><svg viewBox="0 0 24 24">'+OV_ICONS.speed+'</svg></div>'
+      +       '<div class="gi-header-text"><h3 class="gauge-top-title">Resultado do indicador</h3>'
+      +         (formula ? '<p class="gi-subtitle">'+formula+'</p>' : '')
+      +       '</div>'
+      +     '</div>'
+      +     buildGauge(value, domainMax, bands, gaugeId)
+      +     '<div class="gauge-value">'+valueHtml+'</div>'
+      +     '<span class="pill" style="background:'+pillHex(classLabel)+'">'+(classLabel||'—')+'</span>'
+      +     (note ? '<p class="gauge-note">'+note+'</p>' : '')
+      +   '</div>'
+      +   '<div class="gi-right">'
+      +     '<div class="gi-interp-header">'
+      +       '<div class="gi-interp-icon">'+METAS_ICON_SVG+'</div>'
+      +       '<h4>Interpretação</h4>'
+      +     '</div>'
+      +     '<p class="gi-interp-text">'+gaugeInterpretationHTML(classLabel)+'</p>'
+      +     (metaLabel ? (
+              '<hr class="gi-divider"/>'
+            + '<div class="gi-meta-row">'
+            +   '<span class="gi-meta-icon">💡</span>'
+            +   '<div><div class="gi-meta-label">Meta do período</div>'
+            +     '<div class="gi-meta-value">'+metaLabel+'</div></div>'
+            + '</div>'
+          ) : '')
+      +   '</div>'
+      + '</div>'
+      + ovEvoHTML(value, anterior, domainMax, decimals!=null?decimals:2, suffix||'')
+      + (legend ? gaugeLegendHTML(legend) : '')
+      + '</div>';
+  }
+
+  // ---------- Cards das abas M1/M2 no modelo de 3 colunas (imagem de
+  // referência): coluna 1 com o arco + resultado + Evolução do
+  // quadrimestre embutida no mesmo cartão, abaixo do gauge. ----------
+  var IP_TREND_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>';
+
+  // Conteúdo interno de "Evolução (Quadrimestre)" — sem o wrapper de card
+  // próprio, pra poder ser embutido dentro de outro cartão (o do gauge)
+  // ou, se algum dia precisar de novo isolado, envolvido por fora.
+  function ipEvoContentHTML(value, anterior, domainMax, decimals, suffix, bands){
+    suffix = suffix || '';
+    if(anterior==null || value==null){
+      return '<div class="ip-evo-head"><div class="ip-evo-head-left">'+IP_TREND_ICON_SVG+'<h4>Evolução (Quadrimestre)</h4></div></div>'
+        + '<p class="ov-evo-empty">Sem histórico suficiente pra comparar com o quadrimestre anterior.</p>';
+    }
+    var delta = value - anterior;
+    var dir = delta>0.0001 ? 'up' : (delta<-0.0001 ? 'down' : 'flat');
+    var arrow = dir==='up' ? '↗' : (dir==='down' ? '↘' : '→');
+    var color = dir==='up' ? '#15803d' : (dir==='down' ? '#b91c1c' : 'var(--ink-soft)');
+    var deltaTxt = (delta>0?'+':'') + fmtDec(delta,decimals) + suffix;
+    return '<div class="ip-evo-head">'
+      +   '<div class="ip-evo-head-left">'+IP_TREND_ICON_SVG+'<h4>Evolução (Quadrimestre)</h4></div>'
+      +   '<span class="ip-evo-delta" style="color:'+color+';">'+arrow+' '+deltaTxt+'</span>'
+      + '</div>'
+      + evoTrackHTML(value, anterior, domainMax, decimals, suffix, bands);
+  }
+
+  // Cartão do gauge (coluna 1): arco + resultado no topo, legenda de
+  // faixas logo abaixo do arco, e a Evolução do quadrimestre embutida no
+  // final, dentro do mesmo cartão.
+  function ipGaugeCardHTML(value, domainMax, bands, gaugeId, valueHtml, classLabel, capText, anterior, decimals, suffix, legend){
+    // O número (valueHtml) agora fica dentro do próprio gauge, logo abaixo
+    // do ponteiro (mesma técnica de margin-top negativo usada no ov-value
+    // da Visão geral — ver .ip-gauge-visual .ip-result-value no CSS), em
+    // vez de ficar solto no bloco lateral. O bloco lateral (ip-result-block)
+    // guarda só o rótulo + badge de classificação.
+    return '<div class="card ip-gauge-card" style="border-top:4px solid '+arcHex(classLabel)+';">'
+      + '<div class="ip-gauge-row">'
+      +   '<div class="ip-gauge-visual">'+buildGauge(value, domainMax, bands, gaugeId)
+      +     '<div class="ip-result-value">'+valueHtml+'</div>'
+      +   '</div>'
+      +   '<div class="ip-result-block">'
+      +     '<div class="ip-result-head">'
+      +       '<p class="ip-result-label">Resultado do indicador</p>'
+      +       '<span class="pill" style="background:'+pillHex(classLabel)+'">'+(classLabel||'—')+'</span>'
+      +     '</div>'
+      +   '</div>'
+      + '</div>'
+      + (legend ? '<div class="ip-gauge-legend-row">'+gaugeLegendHTML(legend)+'</div>' : '')
+      + (capText ? '<p class="ip-formula-divider">'+capText+'</p>' : '')
+      + '<div class="ip-evo-embed">'+ipEvoContentHTML(value, anterior, domainMax, decimals, suffix, bands)+'</div>'
+      + '</div>';
+  }
+
+  // Próxima faixa acima da classificação atual (pra montar a frase "Para
+  // alcançar a faixa X, é necessário...") — usa as próprias bands do gauge.
+  function nextTierInfo(classLabel, bands){
+    var idx = -1;
+    for(var i=0;i<bands.length;i++){ if(bands[i].classe===classLabel){ idx=i; break; } }
+    if(idx<0 || idx>=bands.length-1) return null;
+    return {label: bands[idx+1].classe, threshold: bands[idx+1].from};
+  }
+
+  // Bloco "Leitura do M1/M2" (abaixo das 3 colunas): resume em texto o
+  // valor atual, a variação em relação ao período anterior e o que falta
+  // pra subir de faixa.
+  function ipReadingHTML(title, value, classLabel, anterior, decimals, suffix, bands, unitLabel){
+    var valTxt = fmtDec(value,decimals)+suffix;
+    var base = 'O indicador está em <b>'+valTxt+'</b>, classificado como <b>'+(classLabel||'—')+'</b>.';
+    var deltaTxt = '';
+    if(anterior!=null && value!=null){
+      var delta = value - anterior;
+      if(Math.abs(delta) > 0.0001){
+        var dir = delta>0 ? 'aumento' : 'redução';
+        deltaTxt = ' Houve '+dir+' de '+fmtDec(Math.abs(delta),decimals)+suffix+' em relação ao período anterior.';
+      } else {
+        deltaTxt = ' O valor se manteve estável em relação ao período anterior.';
+      }
+    }
+    var nextTxt = '';
+    var next = nextTierInfo(classLabel, bands);
+    if(next){
+      nextTxt = ' Para alcançar a faixa <b>'+next.label+'</b>, é necessário atingir pelo menos '+fmtDec(next.threshold,decimals)+suffix+' '+unitLabel+'.';
+    } else if(classLabel==='Ótimo'){
+      nextTxt = ' O indicador já está na faixa máxima (Ótimo).';
+    }
+    return '<div class="card ip-reading">'
+      + '<span class="ip-reading-icon">💡</span>'
+      + '<p class="ip-reading-text"><b>'+title+':</b> '+base+deltaTxt+nextTxt+'</p>'
+      + '</div>';
+  }
+
+  // ---------- Meta do quadrimestre ----------
+  // Ícone simples de alvo/meta usado no cabeçalho de cada bloco.
+  var METAS_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
+    + '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4.3"/><circle cx="12" cy="12" r="1"/></svg>';
+
+  function fmtDecMeta(n){
+    return (Math.round(n*10)/10).toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1});
+  }
+
+  // Um card de meta (ex.: "Bom" ou "Ótimo"): alvo a bater, ritmo médio
+  // necessário até o fim do quadrimestre e quanto ainda falta.
+  function metaCardHTML(cfg){
+    var subLines =
+        '<p class="meta-card-sub">Média/mês: '+fmtDecMeta(cfg.mediaMes)+'</p>'
+      + '<p class="meta-card-sub">Média/semana: '+fmtDecMeta(cfg.mediaSemana)+'</p>';
+    var faltamHtml;
+    if(cfg.faltam<=0){
+      faltamHtml = '<p class="meta-card-done">Meta já atingida ✓</p>';
+    } else if(cfg.semanasRestantes<=0){
+      faltamHtml = '<p class="meta-card-faltam">Faltam: '+fmtInt(cfg.faltam)+' '+cfg.unidadeFaltam+' (quadrimestre encerrado)</p>';
+    } else {
+      faltamHtml = '<p class="meta-card-faltam">Faltam: '+fmtInt(cfg.faltam)+' '+cfg.unidadeFaltam+'</p>'
+        + '<p class="meta-card-sub">Média/semana: '+fmtDecMeta(cfg.mediaSemanaFaltam)+'</p>';
+    }
+    return '<div class="meta-card">'
+      + '<h4 style="color:'+cfg.color+'">'+cfg.label+'</h4>'
+      + '<div class="meta-card-value" style="color:'+cfg.color+'">'+fmtInt(cfg.alvo)+' <span>'+cfg.unidade+'</span></div>'
+      + subLines + faltamHtml
+      + '</div>';
+  }
+
+  // Bloco completo de meta do quadrimestre para um indicador (M1 ou M2):
+  // cabeçalho com a base de cálculo + selo "Preliminar"/"Projeção"
+  // (enquanto o quadrimestre ainda não terminou) e os cards de cada
+  // faixa-alvo. projecaoLabel (opcional): quando a média usada é uma
+  // projeção baseada só nos meses já decorridos (ver
+  // mesesElapsedDoQuadrimestre), mostra "Projeção (base: <meses>)" em
+  // vez do "Preliminar" genérico.
+  function metaQuadrimestreHTML(titulo, base, baseLabel, cardsCfg, preliminar, projecaoLabel){
+    var cardsHtml = cardsCfg.map(metaCardHTML).join('');
+    var selo = projecaoLabel
+      ? '<span class="pill-preliminar" title="Meses ainda sem dado real são projetados pelo ritmo de '+escapeHtml(projecaoLabel)+'"><i></i>Projeção (base: '+escapeHtml(projecaoLabel)+')</span>'
+      : (preliminar ? '<span class="pill-preliminar"><i></i>Preliminar</span>' : '');
+    return '<div class="meta-quad-wrap">'
+      + '<div class="meta-quad-head">'
+      +   '<span class="meta-icon">'+METAS_ICON_SVG+'</span>'
+      +   '<div class="meta-quad-titles"><h3>'+titulo+'</h3><p>de <b>'+fmtInt(base)+'</b> '+baseLabel+'</p></div>'
+      +   selo
+      + '</div>'
+      + '<div class="meta-cards">'+cardsHtml+'</div>'
+      + '</div>';
+  }
+
+  // Calcula os cards de meta (Bom/Ótimo) de um indicador para o
+  // quadrimestre selecionado: alvo = limiar × base (denominador), ritmo
+  // médio necessário (mês/semana) pra bater o alvo ao longo do
+  // quadrimestre inteiro, e quanto falta + ritmo pro tempo que resta.
+  // Versão compacta do bloco de Meta do quadrimestre, no formato de
+  // comp-card — usada empilhada junto com Numerador/Denominador nas
+  // abas M1/M2 (ver mm-comp-col). Mostra só o essencial: alvo de cada
+  // faixa (Bom/Ótimo) e quanto falta, sem os detalhes de ritmo médio
+  // (que só aparecem no bloco completo da Visão geral).
+  function metaQuadrimestreMiniHTML(base, baseLabel, cardsCfg, preliminar, projecaoLabel){
+    // Cada faixa (Bom/Ótimo) agora é uma "caixa" própria — ponto colorido +
+    // rótulo/alvo à esquerda, badge de status (faltam X / meta atingida) à
+    // direita — no modelo das imagens de referência.
+    var CHECK_SVG = '<svg class="meta-mini-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5" fill="currentColor" stroke="none" opacity=".15"/><path d="M7.5 12.5l3 3 6-6.5"/></svg>';
+    var rows = cardsCfg.map(function(c){
+      // "Quase lá" (faltam menos que o ritmo médio de uma semana): mostra
+      // em verde, com check, mas ainda informando quanto falta — em vez do
+      // alerta vermelho, reservado pra metas mais distantes.
+      var quaseLa = c.faltam>0 && c.mediaSemana>0 && c.faltam <= c.mediaSemana;
+      var status;
+      if(c.faltam<=0){
+        status = '<span class="meta-mini-status meta-mini-status-ok">'+CHECK_SVG+'Meta atingida</span>';
+      } else if(quaseLa){
+        status = '<span class="meta-mini-status meta-mini-status-ok">'+CHECK_SVG+'Faltam '+fmtInt(c.faltam)+' '+c.unidadeFaltam+'</span>';
+      } else {
+        status = '';
+      }
+      var alertHtml = (c.faltam>0 && !quaseLa)
+        ? '<div class="meta-mini-alert"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"/><path d="M12 8v5"/><circle cx="12" cy="15.8" r=".9" fill="currentColor" stroke="none"/></svg>'
+          + '<span>Faltam '+fmtInt(c.faltam)+' '+c.unidadeFaltam+'.</span></div>'
+        : '';
+      return '<div class="meta-mini-row" style="background:color-mix(in srgb,'+c.color+' 10%,white);border-color:color-mix(in srgb,'+c.color+' 30%,white);">'
+        + '<div class="meta-mini-row-left">'
+        +   '<span class="meta-mini-dot" style="background:'+c.color+'"></span>'
+        +   '<div><p class="meta-mini-label" style="color:'+c.color+';">'+c.label+'</p>'
+        +     '<p class="meta-mini-sub">Alvo: '+fmtInt(c.alvo)+' '+c.unidade+'</p>'
+        +     '<p class="meta-mini-basenote">(base de '+fmtInt(base)+' '+baseLabel+')</p></div>'
+        + '</div>'
+        + status
+        + '</div>'
+        + alertHtml;
+    }).join('');
+    return '<div class="card comp-card meta-mini-card">'
+      + '<div class="meta-mini-head"><span class="meta-mini-head-icon">'+METAS_ICON_SVG+'</span>'
+      +   '<h4>Meta do quadrimestre'+(projecaoLabel
+            ? ' <span class="pill-preliminar-mini" title="Meses ainda sem dado real são projetados pelo ritmo de '+escapeHtml(projecaoLabel)+'">Projeção</span>'
+            : (preliminar ? ' <span class="pill-preliminar-mini">Preliminar</span>' : ''))+'</h4></div>'
+      + '<div class="meta-mini-rows">'+rows+'</div>'
+      + '</div>';
+  }
+
+  // ---------- Aba M1: novo layout (gauge + composição + metas num único card) ----------
+  // Card da esquerda: badge de status + gauge (reaproveita buildGauge/CLASS_BANDS_M1,
+  // o mesmo gauge usado em todo o resto do painel) + fórmula + régua de faixas.
+  function m1GaugeCardHTML(m1Value, classificacaoM1, numM1, denM1){
+    var st = ovStatus(classificacaoM1);
+    return '<div class="m1-card">'
+      + '<div>'
+      +   '<div class="m1-gauge-top">'
+      +     '<span class="m1-gauge-top-title">Resultado do indicador</span>'
+      +     '<span class="m1-badge-status" style="background:'+st.badgeBg+';color:'+st.badgeText+';">'+st.icon+' '+(classificacaoM1||'—')+'</span>'
+      +   '</div>'
+      +   '<div class="m1-gauge-wrapper">'+buildGauge(m1Value, 4, CLASS_BANDS_M1, 'needle-m1tab-m1')+'</div>'
+      +   '<div class="m1-gauge-value-row">'
+      +     '<div class="m1-gauge-value" style="color:'+pillHex(classificacaoM1)+';">'+fmtDec(m1Value,2)+'</div>'
+      +     '<div class="m1-gauge-subtext">escala de 0 a 4</div>'
+      +   '</div>'
+      +   '<div class="m1-formula-box">'+fmtInt(numM1)+' atendimentos ÷ '+fmtInt(denM1)+' pessoas</div>'
+      + '</div>'
+      + '<div class="m1-meta-rule">'
+      +   '<div class="m1-rule-item m1-rule-regular">≤1<br>Regular</div>'
+      +   '<div class="m1-rule-item m1-rule-suficiente">&gt;1 e ≤2<br>Suficiente</div>'
+      +   '<div class="m1-rule-item m1-rule-bom">&gt;2 e ≤3<br>Bom</div>'
+      +   '<div class="m1-rule-item m1-rule-otimo">&gt;3<br>Ótimo</div>'
+      + '</div>'
+      + '</div>';
+  }
+
+  // Cards da direita: Numerador/Denominador do M1, no novo visual de barra
+  // empilhada + lista de itens (mesmos dados de sempre: atendIndGauge/
+  // participColGauge/denM1Gauge — só muda a apresentação).
+  function m1CompCardHTML(title, totalLabel, total, segments){
+    var bars = segments.map(function(s){
+      var pct = total>0 ? (s.value/total*100) : 0;
+      return '<div class="m1-bar-segment" style="width:'+pct+'%;background:'+s.color+';"></div>';
+    }).join('');
+    var rows = segments.map(function(s){
+      return '<div class="m1-item-row">'
+        + '<span class="m1-item-label"><span class="m1-dot" style="background:'+s.color+';"></span>'+s.label+'</span>'
+        + '<span style="font-weight:700;">'+fmtInt(s.value)+'</span>'
+        + '</div>';
+    }).join('');
+    return '<div class="m1-card" style="padding:18px 20px;">'
+      + '<div class="m1-section-title"><span>'+title+'</span><span style="font-size:.8125rem;font-weight:700;color:var(--ink);">'+totalLabel+'</span></div>'
+      + '<div class="m1-stacked-bar">'+bars+'</div>'
+      + '<div class="m1-item-list">'+rows+'</div>'
+      + '</div>';
+  }
+
+  // Diagnóstico de metas do M1 no novo visual (caixa por faixa + tag de
+  // "faltam X"), usando os mesmos números já calculados em
+  // calcularMetasQuadrimestre (alvo com Math.ceil, faltam reais).
+  function m1DiagnosticoHTML(base, metaM1){
+    var rows = metaM1.cards.map(function(c){
+      var ok = c.faltam<=0;
+      return '<div class="m1-meta-target-item">'
+        + '<div><div class="m1-mt-lbl" style="color:'+c.color+';">• '+c.label+'</div>'
+        +   '<div class="m1-mt-sub">Alvo: '+fmtInt(c.alvo)+' '+c.unidade+' (base: '+fmtInt(base)+' pessoas)</div></div>'
+        + '<div class="m1-missing-tag'+(ok?' ok':'')+'">'+(ok?'Meta atingida ✓':'faltam '+fmtInt(c.faltam)+' '+c.unidade)+'</div>'
+        + '</div>';
+    }).join('');
+    return '<div class="m1-diagnostic-card">'
+      + '<div class="m1-section-title" style="margin-bottom:6px;"><span>Meta do Quadrimestre</span>'+(metaM1.preliminar ? '<span class="m1-pill-preliminar">Preliminar</span>' : '')+'</div>'
+      + rows
+      + '</div>';
+  }
+
+  function calcularMetasQuadrimestre(numerador, denominador, thresholds, unidade, unidadeFaltam){
+    var meses = mesesDoQuadrimestre(quadSelecionado.ano, quadSelecionado.qIndex);
+    var inicioQuad = new Date(meses[0].getFullYear(), meses[0].getMonth(), 1, 0,0,0,0);
+    var fimQuad = new Date(meses[3].getFullYear(), meses[3].getMonth()+1, 0, 23,59,59,999);
+    var hoje = new Date();
+    var diasQuad = Math.round((fimQuad-inicioQuad)/86400000)+1;
+    var semanasQuad = diasQuad/7;
+    var diasRestantes = Math.max(0, Math.round((fimQuad-hoje)/86400000));
+    var semanasRestantes = diasRestantes/7;
+    var cards = thresholds.map(function(t){
+      var alvo = Math.ceil(t.value*denominador);
+      var faltam = Math.max(0, alvo-(numerador||0));
+      return {
+        label: t.label, color: t.color, unidade: unidade, unidadeFaltam: unidadeFaltam || unidade,
+        alvo: alvo,
+        mediaMes: alvo/4,
+        mediaSemana: alvo/semanasQuad,
+        faltam: faltam,
+        semanasRestantes: semanasRestantes,
+        mediaSemanaFaltam: semanasRestantes>0 ? faltam/semanasRestantes : 0
+      };
+    });
+    return {cards: cards, preliminar: hoje < fimQuad};
+  }
+
+  var M1_META_THRESHOLDS = [
+    {value:2,   label:'Bom (M1 ≥ 2,00)',   color:'var(--arc-bom)'},
+    {value:3,   label:'Ótimo (M1 ≥ 3,00)', color:'var(--arc-otimo)'}
+  ];
+  var M2_META_THRESHOLDS = [
+    {value:0.025, label:'Bom (M2 ≥ 2,50%)',  color:'var(--arc-bom)'},
+    {value:0.05,  label:'Ótimo (M2 ≥ 5,00%)', color:'var(--arc-otimo)'}
+  ];
+
+  // ---------- Composition bars ----------
+  function stackbar(segments, total){
+    var t = total || segments.reduce(function(s,x){return s+(x.value||0);},0);
+    var bars = segments.map(function(s){
+      var pct = t>0 ? (s.value/t*100) : 0;
+      return '<div class="seg" style="width:'+pct+'%;background:'+s.color+'"></div>';
+    }).join('');
+    // Label e contagem em spans separados: o layout padrão (Visão geral)
+    // continua mostrando "label (contagem)" numa linha só; as abas M1/M2
+    // usam CSS escopado (.mm-comp-col) pra virar linha cheia com a
+    // contagem em negrito alinhada à direita — modelo das imagens de
+    // referência — sem duplicar esta função.
+    var legend = segments.map(function(s){
+      var pct = t>0 ? (s.value/t*100) : 0;
+      return '<span class="legend-item"><i style="background:'+s.color+'"></i>'
+        + '<span class="legend-label">'+s.label+'</span>'
+        + '<span class="legend-count">'+fmtInt(s.value)+'<span class="legend-pct">('+fmtDec(pct,1)+'%)</span></span></span>';
+    }).join('');
+    return '<div class="stackbar">'+bars+'</div><div class="legend">'+legend+'</div>';
+  }
+
+  // ---------- Sparkline ----------
+  // points: [{y, label, value}] — "value" (opcional) é o texto já formatado
+  // (ex.: "2,45" ou "5,20%") mostrado acima de cada ponto da linha.
+  function sparkline(points, color, opts){
+    opts = opts || {};
+    if(points.length < 2) return '<p class="footnote">Ainda não há leituras suficientes para mostrar a tendência.</p>';
+    var hasAvg = !!opts.quadAvg;
+    var hideAxis = !!opts.hideAxis;
+    // W maior porque agora o gráfico ocupa a largura inteira do card (antes
+    // eram 2 cards lado a lado, metade da largura). Sem aumentar o viewBox
+    // junto, o texto/pontos esticariam 2x — ficando enormes.
+    var W=640, padX=16, padTop=20;
+    // Com linha de média, reserva uma faixa a mais (avgLabelGap) entre o
+    // fundo da área de plotagem e a linha de rótulos dos meses, só pro
+    // valor da média caber embaixo da linha tracejada sem encostar em nada.
+    var plotH = hasAvg ? 54 : 66;
+    var plotBottom = padTop + plotH;
+    var avgLabelGap = hasAvg ? 22 : 0;
+    // Sem eixo de meses (gráfico de cima, empilhado, que compartilha o
+    // eixo do gráfico de baixo): não reserva a faixa de rótulo dos meses,
+    // só o respiro mínimo pro texto da média não cortar.
+    var axisY = hideAxis ? null : plotBottom + avgLabelGap + 10;
+    var H = hideAxis ? (plotBottom + avgLabelGap + 4) : (axisY + 4);
+
+    var vals = points.map(function(p){return p.y;});
+    // Quando existe a série "não oficial" (yAlt: valor calculado direto da
+    // planilha, ANTES do override da aba Q2-26 — ver m1Calculado/m2Calculado
+    // em calcularSerieTendencia/aplicarOverrideOficial), inclui esses
+    // valores no min/max pra a linha preliminar caber na mesma escala sem
+    // distorcer a proporção da linha oficial.
+    var hasAlt = points.some(function(p){ return p.yAlt!=null; });
+    if(hasAlt){
+      points.forEach(function(p){ if(p.yAlt!=null) vals.push(p.yAlt); });
+    }
+    var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
+    if(min===max){ min = min - 1; max = max + 1; }
+    var stepX = (W-2*padX)/(points.length-1);
+    var coords = points.map(function(p,i){
+      var x = padX + i*stepX;
+      var y = plotBottom - ((p.y-min)/(max-min))*(plotBottom-padTop);
+      return {x:x,y:y};
+    });
+    // Meses "futuros" (ver isMesFuturo) são projeção, não dado real — a
+    // linha principal ("oficial") vira tracejada a partir do primeiro
+    // deles. Como a série é sempre cronológica, os futuros só aparecem
+    // no fim; separa em dois trechos (sólido até o último mês real,
+    // tracejado dali em diante) que se conectam no mesmo ponto pra não
+    // deixar um buraco na linha.
+    var firstFutureIdx = -1;
+    for(var fi=0; fi<points.length; fi++){ if(points[fi].futuro){ firstFutureIdx = fi; break; } }
+    var coordsSolid = firstFutureIdx === -1 ? coords : coords.slice(0, firstFutureIdx+1);
+    var coordsProjecao = (firstFutureIdx > 0) ? coords.slice(firstFutureIdx) : [];
+    var path = coordsSolid.map(function(c,i){ return (i===0?"M ":"L ")+c.x+" "+c.y; }).join(" ");
+    var pathProjecao = coordsProjecao.length >= 2
+      ? coordsProjecao.map(function(c,i){ return (i===0?"M ":"L ")+c.x+" "+c.y; }).join(" ")
+      : '';
+    // Pontos e rótulo numérico de cada mês: coloridos pela classificação
+    // (Regular/Suficiente/Bom/Ótimo) DAQUELE valor específico — a linha
+    // que os conecta continua na cor original do gráfico (só os valores
+    // ganham a cor da faixa).
+    // Cada mês vira um <g class="tp-point" data-month="..."> com um
+    // círculo maior e invisível (área de toque/hover mais fácil de
+    // acertar), o ponto, o valor e o rótulo do mês embaixo — tudo junto
+    // pra dar/tirar destaque em bloco ao passar o mouse ou clicar (ver
+    // setupTrendInteractivity), inclusive no card do outro indicador.
+    var pointsSvg = points.map(function(p,i){
+      var tone = opts.classify ? ovStatus(opts.classify(p.y)).accent : color;
+      var ly = Math.max(9, coords[i].y - 8);
+      var valTxt = (p.value!==undefined && p.value!==null && p.value!=='') ? '<text class="tp-val" x="'+coords[i].x+'" y="'+ly+'" font-size="9.5" font-weight="600" fill="'+tone+'" text-anchor="middle">'+escapeHtml(p.value)+'</text>' : '';
+      return '<g class="tp-point" data-month="'+escapeHtml(p.label)+'">'
+        + '<circle class="tp-hit" cx="'+coords[i].x+'" cy="'+coords[i].y+'" r="9" fill="transparent"/>'
+        + '<circle class="tp-dot" cx="'+coords[i].x+'" cy="'+coords[i].y+'" r="3.2" fill="'+tone+'"/>'
+        + valTxt
+        + (hideAxis ? '' : '<text class="tp-axis" x="'+coords[i].x+'" y="'+axisY+'" font-size="9" fill="var(--ink-soft)" text-anchor="middle">'+p.label+'</text>')
+        + '</g>';
+    }).join("");
+
+    // "Montanha" de média de cada quadrimestre (Jan–Abr / Mai–Ago /
+    // Set–Dez): agrupa os pontos exibidos que pertencem ao mesmo
+    // quadrimestre (cada ponto já traz p.quadKey/p.quadLabel) e desenha,
+    // atrás da linha de dados, um bloco reto (sem cantos arredondados) do
+    // fundo do gráfico até a altura da média DESSES pontos — 30% opaco
+    // (70% transparente) — com uma linha tracejada marcando o topo e o
+    // valor logo ABAIXO dela (dentro da faixa reservada em avgLabelGap,
+    // longe da linha de dados, dos rótulos de valor e da linha de meses).
+    // A cor (área + linha + texto) segue a classificação da média
+    // (Regular/Suficiente/Bom/Ótimo), igual às outras faixas do painel.
+    var avgAreaSvg = '', avgLineSvg = '';
+    if(hasAvg){
+      var groups = [];
+      points.forEach(function(p,i){
+        var last = groups[groups.length-1];
+        if(last && last.key === p.quadKey){ last.idx.push(i); }
+        else { groups.push({key:p.quadKey, label:p.quadLabel, idx:[i]}); }
+      });
+      groups.forEach(function(g){
+        var ys = g.idx.map(function(i){ return points[i].y; });
+        var avg = ys.reduce(function(a,b){ return a+b; }, 0)/ys.length;
+        var avgY = plotBottom - ((avg-min)/(max-min))*(plotBottom-padTop);
+        var x1 = coords[g.idx[0]].x, x2 = coords[g.idx[g.idx.length-1]].x;
+        if(g.idx.length===1){ x1 -= 12; x2 += 12; }
+        x1 = Math.max(padX-4, x1); x2 = Math.min(W-padX+4, x2);
+        var midX = (x1+x2)/2;
+        var textY = Math.min(avgY + 16, plotBottom + avgLabelGap - 4);
+        var faixa = opts.classify ? opts.classify(avg) : null;
+        var tone = faixa ? ovStatus(faixa).accent : '#7A5A2E';
+        var valTxt = g.label+': '+fmtDec(avg,2)+(opts.suffix||'');
+        var chipW = Math.max(34, valTxt.length*4.6+8);
+        var chip = '<rect x="'+(midX-chipW/2)+'" y="'+(textY-9)+'" width="'+chipW+'" height="12" rx="3" fill="var(--surface)" opacity="0.92"/>';
+        avgAreaSvg += '<polygon points="'+x1+','+plotBottom+' '+x1+','+avgY+' '+x2+','+avgY+' '+x2+','+plotBottom+'" fill="'+tone+'" opacity="0.3"/>';
+        avgLineSvg += '<line x1="'+x1+'" y1="'+avgY+'" x2="'+x2+'" y2="'+avgY+'" stroke="'+tone+'" stroke-width="1.3" stroke-dasharray="3 3" opacity="0.9"/>'
+          + chip
+          + '<text x="'+midX+'" y="'+textY+'" font-size="8" font-weight="700" fill="'+tone+'" text-anchor="middle">'+escapeHtml(valTxt)+'</text>';
+      });
+    }
+
+    // Linha "Preliminar": a MESMA linha de tendência (mesmo traçado que
+    // liga os pontos), só que calculada com os valores da tabela nominal
+    // (yAlt = m1Calculado/m2Calculado, direto da planilha), ignorando o
+    // override da aba Q2-26. Nos meses sem override, yAlt é idêntico a y
+    // (aplicarOverrideOficial só substitui quando há dado oficial), então
+    // a linha só "se separa" da linha principal nos meses com selo
+    // "Oficial". Fica invisível até o pill "Preliminar" (canto superior
+    // direito do card) ser ativado (ver setupPreliminarToggle / CSS
+    // .show-preliminar .tp-trendline).
+    var trendLineSvg = '';
+    if(hasAlt){
+      var coordsAlt = points.map(function(p,i){
+        var yv = p.yAlt!=null ? p.yAlt : p.y;
+        return {x:coords[i].x, y: plotBottom - ((yv-min)/(max-min))*(plotBottom-padTop)};
+      });
+      var pathAlt = coordsAlt.map(function(c,i){ return (i===0?"M ":"L ")+c.x+" "+c.y; }).join(" ");
+      // Marca com um pontinho só os meses onde a linha preliminar realmente
+      // diverge da oficial (isto é, onde houve override — ver p.oficial)
+      // pra destacar visualmente ONDE a planilha diverge da aba Q2-26.
+      var dotsAlt = points.map(function(p,i){
+        if(!p.oficial) return '';
+        return '<circle cx="'+coordsAlt[i].x+'" cy="'+coordsAlt[i].y+'" r="2.6" fill="#6B6B6B"/>';
+      }).join('');
+      var lastAlt = coordsAlt[coordsAlt.length-1];
+      trendLineSvg = '<g class="tp-trendline">'
+        + '<path d="'+pathAlt+'" fill="none" stroke="#6B6B6B" stroke-width="1.8" stroke-dasharray="5 4" stroke-linecap="round"/>'
+        + dotsAlt
+        + '<text x="'+(lastAlt.x-2)+'" y="'+(lastAlt.y-8)+'" font-size="8.5" font-weight="700" fill="#6B6B6B" text-anchor="end">Preliminar (planilha)</text>'
+        + '</g>';
+    }
+
+    var projecaoSvg = pathProjecao
+      ? '<path d="'+pathProjecao+'" fill="none" stroke="'+color+'" stroke-width="2" stroke-dasharray="7 5" stroke-linecap="round"/>'
+      : '';
+
+    return '<svg class="spark-svg trend-interactive" viewBox="0 0 '+W+' '+(H+14)+'">'
+      + avgAreaSvg
+      + '<path d="'+path+'" fill="none" stroke="'+color+'" stroke-width="2"/>' + projecaoSvg + pointsSvg
+      + avgLineSvg + trendLineSvg + '</svg>';
+  }
+
+  // ---------- Interatividade da aba Tendência ----------
+  // Ao passar o mouse (ou clicar/tocar, no celular) em cima de um ponto de
+  // qualquer um dos dois gráficos (M1 ou M2), destaca em AMBOS os
+  // containers só o ponto daquele mês: apaga (opacidade 0) o número dos
+  // demais pontos e deixa o ponto/rótulo dos outros meses esmaecido, nos
+  // dois gráficos ao mesmo tempo — permitindo comparar M1 e M2 do mesmo
+  // mês lado a lado. Clique/toque "fixa" o destaque (pra quem não tem
+  // hover); clicar de novo no mesmo ponto, ou fora dos gráficos, desfaz.
+  function setupTrendInteractivity(){
+    var svgs = document.querySelectorAll('.trend-interactive');
+    if(!svgs.length) return;
+    var pinnedMonth = null;
+
+    function applyHighlight(month){
+      svgs.forEach(function(svg){
+        svg.classList.toggle('tp-hover-active', !!month);
+        svg.querySelectorAll('.tp-point').forEach(function(pt){
+          pt.classList.toggle('tp-active', !!month && pt.getAttribute('data-month') === month);
+        });
+      });
+    }
+
+    svgs.forEach(function(svg){
+      svg.querySelectorAll('.tp-point').forEach(function(pt){
+        var month = pt.getAttribute('data-month');
+        pt.addEventListener('mouseenter', function(){
+          if(!pinnedMonth) applyHighlight(month);
+        });
+        pt.addEventListener('mouseleave', function(){
+          if(!pinnedMonth) applyHighlight(null);
+        });
+        pt.addEventListener('click', function(e){
+          e.stopPropagation();
+          pinnedMonth = (pinnedMonth === month) ? null : month;
+          applyHighlight(pinnedMonth);
+        });
+      });
+    });
+
+    document.addEventListener('click', function(){
+      if(pinnedMonth){
+        pinnedMonth = null;
+        applyHighlight(null);
+      }
+    });
+  }
+
+  // Pill "Preliminar" no canto superior direito do card de tendência:
+  // ao clicar, alterna a classe "show-preliminar" no card, que via CSS
+  // revela (opacity) a linha de tendência preliminar (.tp-trendline) já
+  // desenhada dentro dos dois gráficos SVG (ver sparkline/points[].yAlt)
+  // — evita ter que re-renderizar os gráficos a cada clique.
+  function setupPreliminarToggle(){
+    var btn = document.getElementById('trendPreliminarToggle');
+    if(!btn) return;
+    var card = btn.closest('.trend-card-combo');
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      var active = btn.classList.toggle('active');
+      if(card) card.classList.toggle('show-preliminar', active);
+    });
+  }
+
+  // ---------- Tabs ----------
+  var FILTER_BAR_TABS = {geral:true, m1:true, m2:true, tendencia:true, profissionais:true};
+  document.querySelectorAll('.tab').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      document.querySelectorAll('.tab').forEach(function(b){ b.classList.toggle('active', b===btn); });
+      var target = btn.getAttribute('data-tab');
+      document.querySelectorAll('.tab-panel').forEach(function(p){
+        p.classList.toggle('active', p.id === 'tab'+target.charAt(0).toUpperCase()+target.slice(1));
+      });
+      document.getElementById('filterBar').classList.toggle('hidden', !FILTER_BAR_TABS[target]);
+      // Gráficos Chart.js criados enquanto a aba estava escondida (display:none)
+      // ficam com tamanho zero e não se redesenham sozinhos ao trocar de aba —
+      // re-renderiza na hora em que o painel de Desempenho Profissional fica visível.
+      if(target === 'profissionais'){
+        renderPerformanceProfissionais(profListaAtual);
+      }
+      if(target === 'analises'){
+        renderAnalises(analisesDataAtual);
+      }
+    });
+  });
+
+  // ---------- Render ----------
+  function renderDashboard(record, serieTendencia, performanceProfissionais, analisesData){
+    serieTendencia = serieTendencia || [];
+    // Ao reabrir uma leitura antiga do histórico (sem recalcular a partir
+    // do cache bruto), a aba de Desempenho Profissional fica vazia — só é
+    // recalculada quando vem de aplicarMesReferencia (ver chamadas abaixo).
+    renderPerformanceProfissionais(performanceProfissionais || []);
+    renderAnalises(analisesData || null);
+    document.getElementById('statusState').style.display = 'none';
+    populateQuadSelect();
+    document.getElementById('topEquipe').textContent = record.equipe || '—';
+    document.getElementById('topPeriodo').textContent = record.periodo
+      ? 'Período: ' + record.periodo.inicio + ' a ' + record.periodo.fim
+      : '';
+    document.getElementById('topUpdated').textContent = record.error
+      ? 'Falha na última leitura'
+      : 'Atualizado em ' + fmtDate(record.timestamp);
+
+    if(record.error){
+      document.getElementById('gaugeRow').innerHTML =
+        '<div class="card" style="flex:1;"><p style="color:var(--pill-regular);margin:0;">Não encontramos os indicadores M1 e M2 nesta planilha. Confira se o link publicado é o correto.</p></div>';
+      document.getElementById('compRow').innerHTML = '';
+      return;
+    }
+
+    var d = record.data;
+    // Legenda do gauge (a linha "X atendimentos ÷ Y pessoas" embaixo do
+    // ponteiro) e os cards de Composição precisam bater com o valor do
+    // m1/m2 mostrado — que é calculado com a janela móvel oficial. Quando
+    // existir a versão "Janela" (média do quadrimestre / vários meses
+    // selecionados), usa ela; num mês único o próprio d.numeradorM1/
+    // d.denominadorM1 JÁ é a janela (ver aplicarMesReferencia), então cai
+    // nele direto. Meta do quadrimestre usa essas MESMAS variáveis (num/
+    // denM1Gauge, num/denM2Gauge), pra bater com o valor do ponteiro do
+    // gauge em vez dos totais reais do quadrimestre.
+    var numM1Gauge = d.numeradorM1Janela!=null ? d.numeradorM1Janela : d.numeradorM1;
+    var denM1Gauge = d.denominadorM1Janela!=null ? d.denominadorM1Janela : d.denominadorM1;
+    var numM2Gauge = d.numeradorM2Janela!=null ? d.numeradorM2Janela : d.numeradorM2;
+    var denM2Gauge = d.denominadorM2Janela!=null ? d.denominadorM2Janela : d.denominadorM2;
+    var atendIndGauge = d.atendimentosIndividuaisJanela!=null ? d.atendimentosIndividuaisJanela : d.atendimentosIndividuais;
+    var participColGauge = d.participacoesColetivasJanela!=null ? d.participacoesColetivasJanela : d.participacoesColetivas;
+    var atividadesCompGauge = d.atividadesCompartilhadasJanela!=null ? d.atividadesCompartilhadasJanela : d.atividadesCompartilhadas;
+    var reunioesCompGauge = d.reunioesCompartilhadasJanela!=null ? d.reunioesCompartilhadasJanela : d.reunioesCompartilhadas;
+
+    // ---- Composição (4 cartões: Numerador/Denominador de M1 e M2) ----
+    var numM1Bar = stackbar([
+        {label:'Atendimentos individuais', value:atendIndGauge, color:'#153F35'},
+        {label:'Participações coletivas', value:participColGauge, color:'#C68A3D'}
+      ], numM1Gauge);
+    var denM1Bar = stackbar([
+        {label:'Pessoas atendidas', value:denM1Gauge, color:'#153F35'}
+      ], denM1Gauge);
+    var numM2Bar = stackbar([
+        {label:'Atividades coletivas compartilhadas', value:atividadesCompGauge, color:'#153F35'},
+        {label:'Reuniões compartilhadas', value:reunioesCompGauge, color:'#C68A3D'}
+      ], numM2Gauge);
+    var denM2Bar = stackbar([
+        {label:'Atendimentos individuais (base)', value:(denM2Gauge!=null && numM2Gauge!=null) ? denM2Gauge-numM2Gauge : atendIndGauge, color:'#CBD3C4'},
+        {label:'Atividades coletivas compartilhadas', value:atividadesCompGauge, color:'#153F35'},
+        {label:'Reuniões compartilhadas', value:reunioesCompGauge, color:'#C68A3D'}
+      ], denM2Gauge);
+
+    document.getElementById('compRow').innerHTML =
+        '<div class="card comp-card">'+compCardHeaderHTML('Numerador do M1', numM1Gauge)+numM1Bar+'</div>'
+      + '<div class="card comp-card">'+compCardHeaderHTML('Denominador do M1', denM1Gauge)+denM1Bar+'</div>'
+      + '<div class="card comp-card">'+compCardHeaderHTML('Numerador do M2', numM2Gauge)+numM2Bar+'</div>'
+      + '<div class="card comp-card">'+compCardHeaderHTML('Denominador do M2', denM2Gauge)+denM2Bar+'</div>';
+
+    // ---- Visão geral: 3 cards no modelo "ícone + anel + evolução" ----
+    var quadAnterior = calcularQuadrimestreAnterior();
+    document.getElementById('gaugeRow').innerHTML =
+        overviewCardHTML({
+          iconKind:'pulse', title:'M1 — Média de Atendimentos por Pessoa', classe:d.classificacaoM1,
+          value:d.m1, domainMax:4, decimals:2, suffix:'', bands:CLASS_BANDS_M1_OV, gaugeId:'ovGaugeM1',
+          valueTxt:fmtDec(d.m1,2), valueCap:fmtInt(numM1Gauge)+' atendimentos ÷ '+fmtInt(denM1Gauge)+' pessoas',
+          ringTxt:fmtDec(d.m1,2),
+          anterior:quadAnterior.m1, legend:OV_LEGEND_M1
+        })
+      + overviewCardHTML({
+          iconKind:'users', title:'M2 — Ações Interprofissionais', classe:d.classificacaoM2,
+          value:d.m2, domainMax:8, decimals:1, suffix:'%', bands:CLASS_BANDS_M2_OV, gaugeId:'ovGaugeM2',
+          valueTxt:fmtDec(d.m2,1)+'%', valueCap:fmtInt(numM2Gauge)+' compartilhadas ÷ '+fmtInt(denM2Gauge)+' ações',
+          ringTxt:fmtDec(d.m2,1),
+          anterior:quadAnterior.m2, legend:OV_LEGEND_M2
+        })
+      + overviewCardHTML({
+          iconKind:'speed', title:'Desempenho Quadrimestral', classe:d.desempenho,
+          value:d.notaFinal, domainMax:10, decimals:1, suffix:'', bands:CLASS_BANDS_NOTA_OV, gaugeId:'ovGaugeNota',
+          valueTxt:fmtDec(d.notaFinal,1), valueCap:'M1: '+fmtDec(d.pontosM1,1)+' ('+(d.classificacaoM1||'—')+') · M2: '+fmtDec(d.pontosM2,1)+' ('+(d.classificacaoM2||'—')+') | Pesos: 6 + 4',
+          ringTxt:fmtDec(d.notaFinal,1),
+          anterior:quadAnterior.notaFinal, legend:OV_LEGEND_NOTA
+        });
+
+    // ---- Meta do quadrimestre: alvo de atendimentos/ações compartilhadas
+    // pra bater "Bom" e "Ótimo" em M1 e M2, com ritmo médio necessário. ----
+    var metaM1 = calcularMetasQuadrimestre(numM1Gauge, denM1Gauge, M1_META_THRESHOLDS, 'atend.',
+      'atendimentos (retornos) de pessoas que foram atendidas nos últimos 4 meses');
+    var metaM2 = calcularMetasQuadrimestre(numM2Gauge, denM2Gauge, M2_META_THRESHOLDS, 'ações');
+    document.getElementById('metaQuadRow').innerHTML =
+        metaQuadrimestreHTML('Meta do quadrimestre — M1', denM1Gauge, 'pessoas atendidas', metaM1.cards, metaM1.preliminar, d.mesesProjecaoLabel)
+      + metaQuadrimestreHTML('Meta do quadrimestre — M2', denM2Gauge, 'ações realizadas', metaM2.cards, metaM2.preliminar, d.mesesProjecaoLabel);
+
+    // ---- Aba M1: layout de 3 colunas (gauge + evolução | composição |
+    // meta), igual ao modelo de referência, + leitura textual + listas ----
+    document.getElementById('gaugeRowM1').innerHTML =
+      ipGaugeCardHTML(d.m1, 4, CLASS_BANDS_M1, 'needle-m1tab-m1', fmtDec(d.m1,2), d.classificacaoM1,
+        fmtInt(numM1Gauge)+' atendimentos ÷ '+fmtInt(denM1Gauge)+' pessoas',
+        quadAnterior.m1, 2, '', LEGEND_M1);
+    document.getElementById('compRowM1').innerHTML =
+        '<div class="card comp-card">'+compCardHeaderHTML('Composição do numerador', numM1Gauge)+numM1Bar+'</div>'
+      + '<div class="card comp-card">'+compCardHeaderHTML('Denominador do M1', denM1Gauge)+denM1Bar+'</div>';
+    document.getElementById('sideRowM1').innerHTML =
+      metaQuadrimestreMiniHTML(denM1Gauge, 'pessoas atendidas', metaM1.cards, metaM1.preliminar, d.mesesProjecaoLabel);
+    document.getElementById('readingM1').innerHTML =
+      ipReadingHTML('Leitura do M1', d.m1, d.classificacaoM1, quadAnterior.m1, 2, '', CLASS_BANDS_M1, 'atendimentos por pessoa');
+    renderListsSection('listsM1', m1ListNames());
+
+    // ---- Aba M2: mesmo layout de 3 colunas + leitura + listas ----
+    document.getElementById('gaugeRowM2').innerHTML =
+      ipGaugeCardHTML(d.m2, 8, CLASS_BANDS_M2, 'needle-m2tab-m2', fmtDec(d.m2,2)+'<span class="unit">%</span>', d.classificacaoM2,
+        fmtInt(numM2Gauge)+' compartilhadas ÷ '+fmtInt(denM2Gauge)+' ações',
+        quadAnterior.m2, 2, '%', LEGEND_M2);
+    document.getElementById('compRowM2').innerHTML =
+        '<div class="card comp-card">'+compCardHeaderHTML('Composição do numerador', numM2Gauge)+numM2Bar+'</div>'
+      + '<div class="card comp-card">'+compCardHeaderHTML('Denominador do M2', denM2Gauge)+denM2Bar+'</div>';
+    document.getElementById('sideRowM2').innerHTML =
+      metaQuadrimestreMiniHTML(denM2Gauge, 'ações realizadas', metaM2.cards, metaM2.preliminar, d.mesesProjecaoLabel);
+    document.getElementById('readingM2').innerHTML =
+      ipReadingHTML('Leitura do M2', d.m2, d.classificacaoM2, quadAnterior.m2, 2, '%', CLASS_BANDS_M2, 'de ações compartilhadas');
+    renderListsSection('listsM2', m2ListNames());
+
+    // Tendência mês a mês: cada ponto é o M1/M2 calculado com sua própria
+    // janela móvel de JANELA_MESES meses terminando naquele mês (ver
+    // calcularSerieTendencia) — não é mais o histórico de vezes que a
+    // página foi atualizada.
+    var trend = '<div class="card trend-card-combo">'
+      + '<button type="button" id="trendPreliminarToggle" class="trend-preliminar-toggle" title="Mostrar a linha calculada só com os dados da planilha (tabela nominal), sem o override da aba Q2-26"><i></i>Preliminar</button>'
+      + '<div class="trend-sub"><h4>M1 mês a mês</h4>'
+        + '<p class="cur">Mês de referência ('+refMonthLabel()+'): '+fmtDec(d.m1,2)+'</p>'
+        + sparkline(serieTendencia.map(function(p){ return {y:p.m1, label:monthShortLabel(p.mes), value:fmtDec(p.m1,2), quadKey:quadKeyOfDate(p.mes), quadLabel:quadCode(p.mes), oficial:!!p.m1Oficial, yAlt:p.m1Calculado, futuro:isMesFuturo(p.mes)}; }).filter(function(p){return p.y!=null;}), '#153F35', {quadAvg:true, classify:classificarM1, hideAxis:true})
+        + '</div>'
+      + '<div class="trend-sub"><h4>M2 (%) mês a mês</h4>'
+        + '<p class="cur">Mês de referência ('+refMonthLabel()+'): '+fmtDec(d.m2,2)+'%</p>'
+        + sparkline(serieTendencia.map(function(p){ return {y:p.m2, label:monthShortLabel(p.mes), value:fmtDec(p.m2,2)+'%', quadKey:quadKeyOfDate(p.mes), quadLabel:quadCode(p.mes), oficial:!!p.m2Oficial, yAlt:p.m2Calculado, futuro:isMesFuturo(p.mes)}; }).filter(function(p){return p.y!=null;}), '#C68A3D', {quadAvg:true, suffix:'%', classify:classificarM2})
+        + '</div>'
+      + '<p class="footnote">Cada ponto já é a janela de '+JANELA_MESES+' meses terminando naquele mês. Linha tracejada fina = média do quadrimestre no período exibido; o trecho tracejado mais grosso no final da linha principal = meses que ainda não terminaram (projeção). O pill "Preliminar" (canto superior direito) mostra/esconde a linha calculada só com os dados da planilha (tabela nominal), sem o override da aba Q2-26 — os pontinhos marcam os meses em que ela diverge da linha oficial.</p>'
+      + '</div>';
+    document.getElementById('trendRow').innerHTML = trend;
+    setupTrendInteractivity();
+    setupPreliminarToggle();
+
+    // Série histórica (tabela): um mês por linha, cada um já calculado com
+    // sua própria janela móvel de JANELA_MESES meses (mesmos pontos do
+    // sparkline acima) — mostra numerador/denominador/classificação de
+    // M1 e M2 e o "Desempenho quadrimestral" (síntese M1×6 + M2×4) mês a
+    // mês, pra dar visibilidade à composição por trás de cada ponto do
+    // gráfico. Ordem: mês mais recente primeiro (slice().reverse() —
+    // serieTendencia em si continua do mais antigo pro mais novo, ordem
+    // usada pelos gráficos de Tendência acima).
+    var serieRecenteParaAntigo = serieTendencia.slice().reverse();
+    var trendHistoryRows = serieRecenteParaAntigo.map(function(p){
+      var classeM1 = classificarM1(p.m1);
+      var classeM2 = classificarM2(p.m2);
+      var desemp = classificarDesempenho(p.notaFinal);
+      function pill(txt){ return '<span class="pill" style="background:'+(CLASS_PILL_HEX[txt]||'#7A8A82')+'">'+escapeHtml(txt)+'</span>'; }
+      // Pequeno selo "Oficial" na célula do M1/M2 quando aquele mês usou
+      // o dado da aba Q2-26 em vez do calculado pelo painel (ver
+      // aplicarOverrideOficial) — só um lembrete visual, não muda o valor.
+      function oficialTag(ehOficial){ return ehOficial ? ' <span class="pill" style="background:#3B7DDD;font-size:9.5px;">Oficial</span>' : ''; }
+      return '<tr>'
+        + '<td>'+escapeHtml(monthShortLabel(p.mes))+'</td>'
+        + '<td>'+fmtInt(p.numeradorM1)+'</td>'
+        + '<td>'+fmtInt(p.denominadorM1)+'</td>'
+        + '<td>'+(p.m1!=null ? fmtDec(p.m1,2) : '—')+oficialTag(p.m1Oficial)+'</td>'
+        + '<td>'+pill(classeM1)+'</td>'
+        + '<td>'+fmtInt(p.numeradorM2)+'</td>'
+        + '<td>'+fmtInt(p.denominadorM2)+'</td>'
+        + '<td>'+(p.m2!=null ? fmtDec(p.m2,2)+'%' : '—')+oficialTag(p.m2Oficial)+'</td>'
+        + '<td>'+pill(classeM2)+'</td>'
+        + '<td>'+(p.notaFinal!=null ? fmtDec(p.notaFinal,2) : '—')+'</td>'
+        + '<td>'+pill(desemp)+'</td>'
+        + '</tr>';
+    }).join('');
+    var temAlgumOficial = serieTendencia.some(function(p){ return p.m1Oficial || p.m2Oficial; });
+    var divergenciaBtnHtml = temAlgumOficial
+      ? '<button type="button" class="pdf-btn" id="btnDivergenciaOficial">'
+        + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h1a1.5 1.5 0 0 0 0-3H9v5"/><path d="M13 12v5h1a2 2 0 0 0 0-5z"/><path d="M18.5 12H17v5"/><path d="M17 14.5h1.3"/></svg>'
+        + '<span>PDF de divergência</span></button>'
+      : '';
+    document.getElementById('trendHistoryWrap').innerHTML =
+        '<div class="card"><div class="list-card-head"><h4 style="margin:0;font-size:14.5px;font-weight:500;">Série histórica — numerador, denominador e desempenho quadrimestral</h4>'+divergenciaBtnHtml+'</div>'
+      + '<p class="footnote" style="margin:4px 0 12px;">Um mês por linha (mais recente primeiro), cada um com sua própria janela móvel de '+JANELA_MESES+' meses terminando naquele mês (mesmos pontos dos gráficos acima). "Desempenho quadrimestral" é a síntese própria M1×6 + M2×4 — ver Notas Metodológicas. O selo "Oficial" marca meses em que o valor veio da aba Q2-26 em vez do cálculo do painel.</p>'
+      + '<div class="table-wrap"><table class="data-table"><thead><tr>'
+      +   '<th>Mês</th><th>Numerador M1</th><th>Denominador M1</th><th>M1</th><th>Classe M1</th>'
+      +   '<th>Numerador M2</th><th>Denominador M2</th><th>M2 (%)</th><th>Classe M2</th><th>Nota do desempenho</th><th>Desempenho quadrimestral</th>'
+      + '</tr></thead><tbody>'+trendHistoryRows+'</tbody></table></div></div>';
+    var btnDivergencia = document.getElementById('btnDivergenciaOficial');
+    if(btnDivergencia){
+      btnDivergencia.addEventListener('click', function(){ gerarPdfDivergenciaOficial(serieTendencia); });
+    }
+
+    var notesList = document.getElementById('notesList');
+    if(record.notes && record.notes.length){
+      notesList.innerHTML = record.notes.map(function(n){ return '<li>'+escapeHtml(n)+'</li>'; }).join('');
+    } else {
+      notesList.innerHTML = '<li style="list-style:none;margin-left:-20px;">Nenhuma nota disponível para esta leitura.</li>';
+    }
+
+    animateGauges();
+    renderHistoryList();
+  }
+
+  // ---------- Storage ----------
+  function loadHistoryArray(){
+    return window.__historyCache || [];
+  }
+
+  function refreshHistoryFromStorage(cb){
+    if(!STORAGE_AVAILABLE){
+      window.__historyCache = memoryHistory;
+      if(cb) cb(memoryHistory);
+      return;
+    }
+    window.storage.get(STORAGE_KEY, false).then(function(res){
+      var arr = [];
+      if(res && res.value){
+        try{ arr = JSON.parse(res.value); }catch(e){ arr = []; }
+      }
+      window.__historyCache = arr;
+      if(cb) cb(arr);
+    }).catch(function(){
+      window.__historyCache = [];
+      if(cb) cb([]);
+    });
+  }
+
+  function saveHistoryArray(arr){
+    window.__historyCache = arr;
+    memoryHistory = arr;
+    if(!STORAGE_AVAILABLE) return Promise.resolve();
+    try{
+      return window.storage.set(STORAGE_KEY, JSON.stringify(arr), false).catch(function(){});
+    }catch(e){
+      return Promise.resolve();
+    }
+  }
+
+  function renderHistoryList(){
+    var arr = loadHistoryArray().slice().sort(function(a,b){ return b.timestamp-a.timestamp; });
+    var el = document.getElementById('historyList');
+    var clearBtn = document.getElementById('clearHistory');
+    if(!arr.length){
+      el.innerHTML = '<p class="history-empty">Nenhuma leitura ainda.</p>';
+      clearBtn.style.display = 'none';
+      return;
+    }
+    clearBtn.style.display = 'block';
+    el.innerHTML = arr.map(function(h){
+      var dotColor = h.error ? '#9AA69E' : pillHex(h.data && h.data.desempenho);
+      return '<div class="history-item'+(h.id===currentRecordId?' active':'')+'" data-id="'+h.id+'">'
+        + '<span class="history-dot" style="background:'+dotColor+'"></span>'
+        + '<span class="history-text"><span class="eq">'+escapeHtml(h.equipe)+'</span><span class="dt">'+fmtDate(h.timestamp)+'</span></span>'
+        + '<button class="history-del" data-del="'+h.id+'" title="Remover">×</button>'
+        + '</div>';
+    }).join('');
+
+    el.querySelectorAll('.history-item').forEach(function(item){
+      item.addEventListener('click', function(e){
+        if(e.target.classList.contains('history-del')) return;
+        var id = item.getAttribute('data-id');
+        var rec = loadHistoryArray().find(function(h){ return h.id === id; });
+        if(rec){
+          currentRecordId = id;
+          renderDashboard(rec, calcularSerieTendencia(latestWb, anchorMonthDate(), TREND_MESES));
+        }
+      });
+    });
+    el.querySelectorAll('.history-del').forEach(function(btn){
+      btn.addEventListener('click', function(e){
+        e.stopPropagation();
+        var id = btn.getAttribute('data-del');
+        var arr2 = loadHistoryArray().filter(function(h){ return h.id !== id; });
+        saveHistoryArray(arr2).then(function(){
+          if(id === currentRecordId && arr2.length){
+            var latest = arr2.slice().sort(function(a,b){return b.timestamp-a.timestamp;})[0];
+            currentRecordId = latest.id;
+            renderDashboard(latest);
+          } else {
+            renderHistoryList();
+          }
+        });
+      });
+    });
+  }
+
+  document.getElementById('clearHistory').addEventListener('click', function(){
+    if(!confirm('Remover todo o histórico de leituras deste navegador?')) return;
+    saveHistoryArray([]).then(function(){
+      currentRecordId = null;
+      renderHistoryList();
+    });
+  });
+
+  // ---------- Fetch ----------
+  var fetchStatusEl = document.getElementById('fetchStatus');
+  var refreshBtn = document.getElementById('refreshBtn');
+  var refreshLabel = document.getElementById('refreshLabel');
+
+  function sameData(a,b){
+    if(!a || !b) return false;
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+
+  // Dados brutos (já filtrados pela equipe atual, mas SEM filtro de
+  // período — o período é aplicado depois, em calcularIndicadoresDoPeriodo)
+  // guardados aqui após o último fetch bem-sucedido. Trocar o "Mês de
+  // referência" no seletor reusa este cache e recalcula tudo na hora, sem
+  // precisar buscar a planilha de novo na rede.
+  var latestWb = null;
+
+  // Recalcula M1/M2/pontos/nota + a série de tendência pro mês de
+  // referência atual (refMonthDates), a partir do cache latestWb.
+  // saveHistory=true (usado logo após um fetch): grava uma nova "leitura"
+  // no histórico se os dados mudaram desde a última do mesmo período/equipe.
+  // saveHistory=false (usado ao trocar o seletor de mês): só recalcula e
+  // renderiza na hora, sem criar entrada nova no histórico de leituras.
+  function aplicarMesReferencia(saveHistory){
+    if(!latestWb) return;
+
+    var extracted, periodo, periodoDatas;
+    if(refMonthDates.length === 1){
+      // Um único mês escolhido: NÃO é só aquele mês isolado — é a janela
+      // móvel de JANELA_MESES meses TERMINANDO nesse mês (ex.: maio →
+      // fev, mar, abr e maio, incluindo os dois extremos), a mesma janela
+      // usada pela série de tendência (ver calcularJanelaPeriodo).
+      var janelaMes = calcularJanelaPeriodo(refMonthDates[0]);
+      extracted = calcularJanelaComOverride(latestWb, refMonthDates[0]);
+      periodo = {inicio: fmtBRDate(janelaMes.inicio), fim: fmtBRDate(janelaMes.fim)};
+      periodoDatas = {inicio: janelaMes.inicio, fim: janelaMes.fim};
+    } else if(refMonthDates.length > 1){
+      // Vários meses escolhidos: o M1/M2 de CADA mês marcado já é o valor
+      // com a janela móvel de JANELA_MESES meses terminando naquele mês
+      // (mesma regra do mês único, acima) — os resultados dos meses
+      // marcados entram na MÉDIA (mesmo princípio da média do
+      // quadrimestre, ver mediaDeMeses), e os totais de contexto/"Pessoas
+      // atendidas" somam o mês isolado (sem janela) de cada um, pra não
+      // sobrepor dados de meses vizinhos quando as janelas se cruzam.
+      var resultadosMensaisSel = refMonthDates.map(function(m){
+        return calcularIndicadoresDoPeriodo(latestWb, periodoMesUnico(m));
+      });
+      var resultadosJanelaSel = refMonthDates.map(function(m){
+        return calcularJanelaComOverride(latestWb, m);
+      });
+      extracted = mediaDeMeses(resultadosMensaisSel, resultadosJanelaSel);
+      periodo = {
+        inicio: fmtBRDate(periodoMesUnico(refMonthDates[0]).inicio),
+        fim: fmtBRDate(periodoMesUnico(refMonthDates[refMonthDates.length-1]).fim)
+      };
+      periodoDatas = {
+        inicio: periodoMesUnico(refMonthDates[0]).inicio,
+        fim: periodoMesUnico(refMonthDates[refMonthDates.length-1]).fim
+      };
+    } else {
+      // Nenhum mês escolhido: média dos meses do quadrimestre selecionado
+      // que JÁ TERMINARAM (mesesElapsedDoQuadrimestre) — os meses futuros
+      // (ainda sem nenhum atendimento/atividade real na planilha) NÃO
+      // entram na média, pra não diluir o resultado com dado inexistente.
+      // Isso equivale, na prática, a projetar os meses que faltam pelo
+      // ritmo médio dos meses já decorridos (preencher um mês futuro com
+      // a própria média dos já decorridos não muda essa média — só
+      // filtrar já dá o mesmo resultado, sem precisar simular nada).
+      // O M1/M2 de CADA mês usado na média já é o valor com a janela móvel
+      // de JANELA_MESES meses terminando naquele mês (mesma regra oficial
+      // usada na seleção de mês individual e no gráfico de tendência) —
+      // por isso calculamos cada mês duas vezes: uma com a janela (pra
+      // entrar na média de M1/M2) e outra isolada, só o mês em si (pra
+      // somar contagens de contexto e montar "Pessoas atendidas" sem
+      // sobrepor dados de meses vizinhos).
+      var meses = mesesDoQuadrimestre(quadSelecionado.ano, quadSelecionado.qIndex);
+      var mesesUsados = mesesElapsedDoQuadrimestre(quadSelecionado.ano, quadSelecionado.qIndex);
+      var mesesProjecaoLabel = mesesUsados.length < meses.length
+        ? mesesUsados.map(monthShortLabel).join('+')
+        : null;
+      var resultadosMensais = mesesUsados.map(function(m){
+        return calcularIndicadoresDoPeriodo(latestWb, periodoMesUnico(m));
+      });
+      var resultadosJanela = mesesUsados.map(function(m){
+        return calcularJanelaComOverride(latestWb, m);
+      });
+      extracted = mediaDeMeses(resultadosMensais, resultadosJanela, mesesProjecaoLabel);
+      periodo = {
+        inicio: fmtBRDate(periodoMesUnico(meses[0]).inicio),
+        fim: fmtBRDate(periodoMesUnico(meses[3]).fim)
+      };
+      periodoDatas = {inicio: periodoMesUnico(meses[0]).inicio, fim: periodoMesUnico(meses[3]).fim};
+    }
+
+    var performanceProfissionais = calcularPerformanceProfissionais(latestWb, periodoDatas);
+    var analisesData = calcularAnalises(latestWb);
+
+    populateSheetsCache(latestWb);
+    // "Pessoas atendidas" agora NÃO usa mais extracted.pessoasAtendidas
+    // (ligado ao filtro de Mês do topo) — a lista, na aba Listas, é
+    // recalculada direto por renderListCard/pessoasAtendidasParaMeses,
+    // com o próprio filtro de mês (ver renderListsSection).
+
+    var serie = calcularSerieTendencia(latestWb, anchorMonthDate(), TREND_MESES);
+
+    if(quadMs) quadMs.setSelected([quadSelecionado.ano+'-'+quadSelecionado.qIndex]);
+    if(mesMs) mesMs.setSelected(refMonthDates.map(monthOptionValue));
+    var winEl = document.getElementById('refWindowLabel');
+    if(winEl){
+      winEl.innerHTML = refMonthDates.length
+        ? 'Resultado de <b>'+refMonthLabel()+'</b> — janela de '+JANELA_MESES+' meses cada ('+periodo.inicio+' a '+periodo.fim+')'
+        : 'Média de <b>'+QUAD_LABELS[quadSelecionado.qIndex]+'/'+quadSelecionado.ano+'</b> ('+periodo.inicio+' a '+periodo.fim+')';
+    }
+
+    if(!saveHistory){
+      var base = currentRecordId ? loadHistoryArray().find(function(h){ return h.id === currentRecordId; }) : null;
+      var record = {
+        id: base ? base.id : 'tmp',
+        timestamp: base ? base.timestamp : Date.now(),
+        equipe: extracted.equipe,
+        data: extracted.data,
+        notes: extracted.notes,
+        periodo: periodo
+      };
+      renderDashboard(record, serie, performanceProfissionais, analisesData);
+      return;
+    }
+
+    var now = Date.now();
+    var history = loadHistoryArray();
+    var lastForEquipe = history.filter(function(h){
+      return !h.error && h.equipe === extracted.equipe
+        && h.periodo && h.periodo.inicio === periodo.inicio && h.periodo.fim === periodo.fim;
+    }).sort(function(a,b){ return b.timestamp-a.timestamp; })[0];
+
+    if(lastForEquipe && sameData(lastForEquipe.data, extracted.data)){
+      currentRecordId = lastForEquipe.id;
+      fetchStatusEl.textContent = 'Dados sem alterações desde a última leitura.';
+      renderDashboard(lastForEquipe, serie, performanceProfissionais, analisesData);
+      return;
+    }
+
+    var record = {
+      id: 'u'+now+Math.random().toString(36).slice(2,7),
+      timestamp: now,
+      equipe: extracted.equipe,
+      data: extracted.data,
+      notes: extracted.notes,
+      periodo: periodo
+    };
+    var arr = loadHistoryArray();
+    arr.push(record);
+    saveHistoryArray(arr).then(function(){
+      currentRecordId = record.id;
+      fetchStatusEl.textContent = 'Planilha lida e calculada com sucesso.';
+      renderDashboard(record, serie, performanceProfissionais, analisesData);
+    });
+  }
+
+  function fetchAndLoad(){
+    refreshBtn.classList.add('loading');
+    refreshBtn.disabled = true;
+    refreshLabel.textContent = 'Atualizando…';
+    fetchStatusEl.textContent = 'Buscando dados…';
+    fetchStatusEl.className = 'fetch-status';
+
+    Promise.all([fetchAllSheets(), fetchOfficialOverridesSafe(), fetchProfissionaisSafe()])
+      .then(function(arr){
+        var results = arr[0];
+        var faltando = results.filter(function(r){ return !r.ok; });
+        if(faltando.length){
+          throw new Error('Não foi possível ler a(s) aba(s) "' + faltando.map(function(r){return r.name;}).join('", "')
+            + '" (verifique se elas ainda existem com esse nome e se a planilha está com acesso "qualquer pessoa com o link pode visualizar").');
+        }
+
+        var wb = {SheetNames:[], Sheets:{}};
+        results.forEach(function(r){
+          var parsedRows = parseCsv(r.csvText);
+          if(!parsedRows.length) return;
+          // r.name é o nome REAL da aba (sem sufixo). Filtra as linhas pela
+          // equipe selecionada e guarda no workbook sob a chave "sufixada"
+          // — o resto do painel (cálculo, listas) continua lendo por essa
+          // chave, sem precisar saber que a aba é compartilhada entre
+          // equipes. Note: SEM filtro de período aqui — cada mês de
+          // referência filtra por data na hora, em aplicarMesReferencia().
+          var filtradas = filtrarLinhasPorEquipe(parsedRows, currentEquipes);
+          var key = suffixedName(r.name);
+          wb.Sheets[key] = filtradas;
+          wb.SheetNames.push(key);
+        });
+
+        latestWb = wb;
+        aplicarMesReferencia(true);
+      })
+      .catch(function(err){
+        var msg = (err && err.message) ? err.message : 'verifique sua conexão e o link publicado.';
+        fetchStatusEl.textContent = 'Não foi possível ler a planilha: ' + msg;
+        fetchStatusEl.className = 'fetch-status err';
+        var history = loadHistoryArray();
+        if(!history.length){
+          document.getElementById('statusState').innerHTML =
+            '<h2>Não foi possível carregar</h2><p>' + escapeHtml(msg) + '</p>'
+            + '<div class="ficha"><b>Verifique:</b> se a planilha continua publicada em "Arquivo → Compartilhar → Publicar na web" (incluindo todas as abas) e se o link ainda é válido.</div>'
+            + '<button class="retry-btn" id="retryBtn">Tentar de novo</button>';
+          var retry = document.getElementById('retryBtn');
+          if(retry) retry.addEventListener('click', fetchAndLoad);
+        }
+      })
+      .finally(function(){
+        refreshBtn.classList.remove('loading');
+        refreshBtn.disabled = false;
+        refreshLabel.textContent = 'Atualizar';
+      });
+  }
+
+  refreshBtn.addEventListener('click', fetchAndLoad);
+
+  function renderEquipeSwitcher(){
+    var TODAS_KEY = 'todas';
+    var equipeMs = createMultiSelect(document.getElementById('equipeMs'), {
+      placeholder: 'Selecione',
+      multi: false,
+      search: false,
+      onChange: function(keys){
+        currentEquipes = keys[0] === TODAS_KEY ? EQUIPES.slice()
+          : EQUIPES.filter(function(eq){ return eq.key === keys[0]; });
+        document.getElementById('statusState').style.display = '';
+        fetchAndLoad();
+      }
+    });
+    equipeMs.setOptions(
+      EQUIPES.map(function(eq){ return {value: eq.key, label: eq.label}; })
+        .concat([{value: TODAS_KEY, label: 'Todas'}])
+    );
+    equipeMs.setSelected([currentEquipes.length > 1 ? TODAS_KEY : currentEquipes[0].key]);
+  }
+  renderEquipeSwitcher();
+
+  // ---------- Init ----------
+  refreshHistoryFromStorage(function(arr){
+    if(arr.length){
+      var latest = arr.slice().sort(function(a,b){ return b.timestamp-a.timestamp; })[0];
+      currentRecordId = latest.id;
+      renderDashboard(latest);
+    }
+    fetchAndLoad();
+  });
+})();
