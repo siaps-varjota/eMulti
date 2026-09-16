@@ -1712,11 +1712,13 @@
             return (todosProfs.length >= 2 && ultimosProfsSet[nomeProf]) ? '<b>'+escapado+'</b>' : escapado;
           }).join(', ');
           var profissionalTxt = todosProfs.join(', ');
+          var ultimoProfissionaisArr = Object.keys(ultimosProfsSet).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); });
           var equipeTxt = equipeLabelUnica || Object.keys(p.equipes||{}).sort().join(' + ');
           risco.push({
             nome:p.nome, diasDesde:diasDesde, ultima:ultima, totalConsultas:p.datas.length,
             profissional: profissionalTxt || '—',
             profissionalHtml: profissionalHtml || '—',
+            ultimoProfissionais: ultimoProfissionaisArr,
             equipe: equipeTxt || '—'
           });
         }
@@ -1797,17 +1799,71 @@
 
   function riscoTableHtml(risco){
     if(!risco.length) return '<p class="footnote">Nenhum paciente na janela de risco no momento (ou ainda não há intervalo histórico suficiente pra calcular).</p>';
-    var linhas = risco.slice(0,40).map(function(r){
-      return '<tr><td>'+escapeHtml(r.nome)+'</td><td>'+(r.profissionalHtml || escapeHtml(r.profissional))+'</td><td>'+escapeHtml(r.equipe)+'</td><td>'+fmtInt(r.totalConsultas)+'</td><td>'+fmtBRDate(r.ultima)+'</td><td>'+fmtInt(r.diasDesde)+' dias</td></tr>';
+    var visiveis = risco.slice(0,40);
+    var linhas = visiveis.map(function(r){
+      var profAttr = escapeHtml((r.ultimoProfissionais||[]).join('|'));
+      return '<tr data-ultimo-prof="'+profAttr+'"><td>'+escapeHtml(r.nome)+'</td><td>'+(r.profissionalHtml || escapeHtml(r.profissional))+'</td><td>'+escapeHtml(r.equipe)+'</td><td>'+fmtInt(r.totalConsultas)+'</td><td>'+fmtBRDate(r.ultima)+'</td><td>'+fmtInt(r.diasDesde)+' dias</td></tr>';
     }).join('');
     var pdfBtnHtml = '<button type="button" class="pdf-btn" id="btnRiscoPdf">'
       + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h1a1.5 1.5 0 0 0 0-3H9v5"/><path d="M13 12v5h1a2 2 0 0 0 0-5z"/><path d="M18.5 12H17v5"/><path d="M17 14.5h1.3"/></svg>'
       + '<span>Gerar PDF</span></button>';
+    // Filtro por profissional da ÚLTIMA consulta + busca livre, no mesmo
+    // padrão visual das listas das outras abas (.list-filters/.list-search).
+    // As opções do filtro e a busca valem só sobre os pacientes exibidos
+    // na tela (até 40) — o PDF continua trazendo a lista completa, sem
+    // filtro.
     return '<div style="display:flex;justify-content:flex-end;margin-bottom:8px;">'+pdfBtnHtml+'</div>'
+      + '<p class="list-meta" id="riscoListMeta">'+fmtInt(visiveis.length)+(visiveis.length===1?' paciente':' pacientes')+'</p>'
+      + '<div class="list-filters">'
+      +   '<div class="list-month-filter"><label class="list-month-filter-label">Profissional (última consulta)</label>'
+      +     '<div class="ms-wrap" id="riscoProfMs"></div></div>'
+      + '</div>'
+      + '<input class="list-search" type="text" placeholder="Filtrar nesta lista…" id="riscoSearchInput">'
       + '<div class="table-wrap"><table class="data-table"><thead><tr>'
       + '<th>Paciente</th><th>Profissional</th><th>Equipe</th><th>Consultas</th><th>Última consulta</th><th>Dias sem voltar</th>'
       + '</tr></thead><tbody>'+linhas+'</tbody></table></div>'
       + (risco.length>40 ? '<p class="footnote">Mostrando os 40 pacientes há mais tempo sem voltar na tela (de '+risco.length+' no total) — o PDF traz a lista completa.</p>' : '');
+  }
+
+  // Liga o filtro de profissional (multisseleção) e a busca livre da
+  // tabela "Pacientes em risco de abandono" — mesmo padrão das listas das
+  // outras abas (ver applyFilters/renderListsSection), mas aqui a tabela é
+  // renderizada à parte (riscoTableHtml), então o filtro é ligado à mão.
+  function wireRiscoFiltros(risco){
+    var profMsEl = document.getElementById('riscoProfMs');
+    var searchEl = document.getElementById('riscoSearchInput');
+    var metaEl = document.getElementById('riscoListMeta');
+    var tbody = document.querySelector('#analisesRisco tbody');
+    if(!tbody) return;
+
+    var visiveis = (risco||[]).slice(0,40);
+    var profsSet = {};
+    visiveis.forEach(function(r){ (r.ultimoProfissionais||[]).forEach(function(nome){ profsSet[nome] = true; }); });
+    var profsOpts = Object.keys(profsSet).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); })
+      .map(function(nome){ return {value:nome, label:nome}; });
+
+    var profMs = profMsEl ? createMultiSelect(profMsEl, {
+      placeholder: 'Todos', multi:true, search: profsOpts.length>8, showTags:true,
+      onChange: function(){ aplicarRiscoFiltro(); }
+    }) : null;
+    if(profMs) profMs.setOptions(profsOpts);
+
+    if(searchEl) searchEl.addEventListener('input', aplicarRiscoFiltro);
+
+    function aplicarRiscoFiltro(){
+      var selecionados = profMs ? profMs.getSelected() : [];
+      var termo = searchEl ? searchEl.value.trim().toLowerCase() : '';
+      var visiveisCount = 0;
+      tbody.querySelectorAll('tr').forEach(function(tr){
+        var profsLinha = (tr.getAttribute('data-ultimo-prof')||'').split('|').filter(Boolean);
+        var matchesProf = !selecionados.length || selecionados.some(function(v){ return profsLinha.indexOf(v) >= 0; });
+        var matchesTexto = !termo || tr.textContent.toLowerCase().indexOf(termo) !== -1;
+        var visivel = matchesProf && matchesTexto;
+        tr.style.display = visivel ? '' : 'none';
+        if(visivel) visiveisCount++;
+      });
+      if(metaEl) metaEl.textContent = fmtInt(visiveisCount) + (visiveisCount===1 ? ' paciente' : ' pacientes');
+    }
   }
 
   // ---------- Exportar "Pacientes em risco de abandono" em PDF ----------
@@ -1905,6 +1961,7 @@
       elRisco.innerHTML = riscoTableHtml(data.risco);
       var btnRiscoPdf = document.getElementById('btnRiscoPdf');
       if(btnRiscoPdf) btnRiscoPdf.addEventListener('click', function(){ gerarPdfRisco(data.risco); });
+      wireRiscoFiltros(data.risco);
     }
 
     var freqEl = document.getElementById('analisesFreqLegenda');
