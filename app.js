@@ -2092,7 +2092,7 @@
       + '</div>'
       + '<div class="card">'
       +   '<h4 style="margin-top:0;">Pacientes em risco de abandono</h4>'
-      +   '<p class="footnote" style="margin-top:0;">Pacientes com 2+ consultas cuja última visita já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível.</p>'
+      +   '<p class="footnote" style="margin-top:0;font-size:14px;line-height:1.5;">Pacientes com 2+ consultas cuja última visita já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível. Quando o paciente tem 2 ou mais profissionais no histórico, o nome em <b>negrito</b> na coluna "Profissional" é de quem realizou a última consulta.</p>'
       +   '<div id="analisesRisco"></div>'
       + '</div>';
     panelRef.parentElement.appendChild(panel);
