@@ -4258,8 +4258,34 @@
   }
 
   // ---------- Agendamento ----------
-  var agendamentoConfig = {equipe:'todas', profissional:'', diaSemana:1, intervaloDias:30};
-  try { var salvo = JSON.parse(localStorage.getItem('painelAgendamentoConfig') || 'null'); if(salvo) Object.assign(agendamentoConfig, salvo); } catch(e){}
+  var agendamentoConfig = {equipe:'todas', profissional:'', diasSemana:[1], intervaloDias:30};
+  // Compatibilidade com configurações antigas que guardavam apenas um dia.
+  try {
+    var configAntiga = JSON.parse(localStorage.getItem('painelAgendamentoConfig') || 'null');
+    if(configAntiga && !Array.isArray(configAntiga.diasSemana) && configAntiga.diaSemana !== undefined){
+      configAntiga.diasSemana = [Number(configAntiga.diaSemana)];
+    }
+  } catch(e){}
+  function diasAgendamentoSelecionados(){
+    var dias = Array.isArray(agendamentoConfig.diasSemana) ? agendamentoConfig.diasSemana : [];
+    dias = dias.map(Number).filter(function(d){ return d >= 0 && d <= 6; });
+    return dias.length ? dias : [1];
+  }
+  function sincronizarPillsDias(){
+    var selecionados = diasAgendamentoSelecionados();
+    document.querySelectorAll('#agendamentoDias .weekday-pill').forEach(function(btn){
+      var ativo = selecionados.indexOf(Number(btn.getAttribute('data-day'))) >= 0;
+      btn.classList.toggle('active', ativo);
+      btn.setAttribute('aria-pressed', ativo ? 'true' : 'false');
+    });
+  }
+  try {
+    var salvo = JSON.parse(localStorage.getItem('painelAgendamentoConfig') || 'null');
+    if(salvo) Object.assign(agendamentoConfig, salvo);
+    if(!Array.isArray(agendamentoConfig.diasSemana)){
+      agendamentoConfig.diasSemana = agendamentoConfig.diaSemana !== undefined ? [Number(agendamentoConfig.diaSemana)] : [1];
+    }
+  } catch(e){}
   var DIAS_SEMANA_AGENDAMENTO = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
   function salvarAgendamentoConfig(){ try{ localStorage.setItem('painelAgendamentoConfig', JSON.stringify(agendamentoConfig)); }catch(e){} }
   function nomesProfissionaisAgendamento(){
@@ -4282,24 +4308,54 @@
       var k=nome.toUpperCase(); if(!mapa[k]||d>mapa[k].ultima) mapa[k]={nome:nome,ultima:d,profissional:prof};
     });
     var intervalo=Math.max(1,Math.min(365,parseInt(agendamentoConfig.intervaloDias,10)||30));
-    return Object.keys(mapa).map(function(k){var p=mapa[k], prev=new Date(p.ultima.getTime()); prev.setDate(prev.getDate()+intervalo); while(prev.getDay()!==Number(agendamentoConfig.diaSemana)) prev.setDate(prev.getDate()+1); return {nome:p.nome,profissional:p.profissional||agendamentoConfig.profissional||'—',ultima:p.ultima,prevista:prev,intervalo:intervalo};}).sort(function(a,b){return a.prevista-b.prevista||a.nome.localeCompare(b.nome,'pt-BR');});
+    var diasSelecionados = diasAgendamentoSelecionados();
+    return Object.keys(mapa).map(function(k){
+      var p=mapa[k], prev=new Date(p.ultima.getTime());
+      prev.setDate(prev.getDate()+intervalo);
+      while(diasSelecionados.indexOf(prev.getDay()) < 0) prev.setDate(prev.getDate()+1);
+      return {nome:p.nome,profissional:p.profissional||agendamentoConfig.profissional||'—',ultima:p.ultima,prevista:prev,intervalo:intervalo};
+    }).sort(function(a,b){return a.prevista-b.prevista||a.nome.localeCompare(b.nome,'pt-BR');});
   }
   function renderAgendamentoConfig(){
     var eq=document.getElementById('agendamentoEquipe'), pf=document.getElementById('agendamentoProfissional'); if(!eq||!pf) return;
     eq.innerHTML=EQUIPES.map(function(e){return '<option value="'+escapeHtml(e.key)+'">'+escapeHtml(e.label)+'</option>';}).join('')+'<option value="todas">Todas</option>';
     pf.innerHTML='<option value="">Todos os profissionais</option>'+nomesProfissionaisAgendamento().map(function(n){return '<option value="'+escapeHtml(n)+'">'+escapeHtml(n)+'</option>';}).join('');
-    eq.value=agendamentoConfig.equipe; pf.value=agendamentoConfig.profissional; document.getElementById('agendamentoDia').value=String(agendamentoConfig.diaSemana); document.getElementById('agendamentoIntervalo').value=agendamentoConfig.intervaloDias;
+    eq.value=agendamentoConfig.equipe;
+    pf.value=agendamentoConfig.profissional;
+    sincronizarPillsDias();
+    document.getElementById('agendamentoIntervalo').value=agendamentoConfig.intervaloDias;
   }
   function renderAgendamento(){
     var el=document.getElementById('agendamentoTabela'), resumo=document.getElementById('agendamentoResumo'); if(!el||!resumo) return;
-    var rows=dadosAgendamento(); resumo.textContent=rows.length+' paciente'+(rows.length===1?'':'s')+' na agenda · '+DIAS_SEMANA_AGENDAMENTO[Number(agendamentoConfig.diaSemana)]+' · intervalo de '+agendamentoConfig.intervaloDias+' dia'+(Number(agendamentoConfig.intervaloDias)===1?'':'s');
+    var rows=dadosAgendamento();
+    var nomesDias = diasAgendamentoSelecionados().map(function(d){ return DIAS_SEMANA_AGENDAMENTO[d]; }).join(', ');
+    resumo.textContent=rows.length+' paciente'+(rows.length===1?'':'s')+' na agenda · '+nomesDias+' · intervalo de '+agendamentoConfig.intervaloDias+' dia'+(Number(agendamentoConfig.intervaloDias)===1?'':'s');
     if(!rows.length){el.innerHTML='<div class="list-placeholder">Nenhum paciente encontrado para os filtros atuais.</div>';return;}
     el.innerHTML='<div class="table-wrap"><table class="data-table agendamento-table"><thead><tr><th>Paciente</th><th>Profissional</th><th>Última consulta</th><th>Próximo agendamento</th><th>Intervalo</th></tr></thead><tbody>'+rows.map(function(r){return '<tr><td>'+escapeHtml(r.nome)+'</td><td>'+escapeHtml(r.profissional)+'</td><td>'+fmtBRDate(r.ultima)+'</td><td><b>'+fmtBRDate(r.prevista)+'</b></td><td>'+r.intervalo+' dias</td></tr>';}).join('')+'</tbody></table></div>';
   }
   var agendamentoBtn=document.querySelector('.tab[data-tab="agendamento"]');
   var configuracoesBtn=document.querySelector('.tab[data-tab="configuracoes"]');
+  document.querySelectorAll('#agendamentoDias .weekday-pill').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var dia = Number(btn.getAttribute('data-day'));
+      var atuais = diasAgendamentoSelecionados();
+      if(atuais.indexOf(dia) >= 0){
+        if(atuais.length === 1) return;
+        agendamentoConfig.diasSemana = atuais.filter(function(d){ return d !== dia; });
+      } else {
+        agendamentoConfig.diasSemana = atuais.concat([dia]).sort(function(a,b){ return a-b; });
+      }
+      sincronizarPillsDias();
+    });
+  });
   var salvarAgendamentoBtn=document.getElementById('salvarAgendamento');
-  if(salvarAgendamentoBtn) salvarAgendamentoBtn.addEventListener('click',function(){agendamentoConfig.equipe=document.getElementById('agendamentoEquipe').value;agendamentoConfig.profissional=document.getElementById('agendamentoProfissional').value;agendamentoConfig.diaSemana=Number(document.getElementById('agendamentoDia').value);agendamentoConfig.intervaloDias=Math.max(1,Number(document.getElementById('agendamentoIntervalo').value)||30);salvarAgendamentoConfig();renderAgendamento();this.textContent='Configurações salvas';var b=this;setTimeout(function(){b.textContent='Salvar configurações';},1600);});
+  if(salvarAgendamentoBtn) salvarAgendamentoBtn.addEventListener('click',function(){
+    agendamentoConfig.equipe=document.getElementById('agendamentoEquipe').value;
+    agendamentoConfig.profissional=document.getElementById('agendamentoProfissional').value;
+    agendamentoConfig.diasSemana=diasAgendamentoSelecionados();
+    agendamentoConfig.intervaloDias=Math.max(1,Number(document.getElementById('agendamentoIntervalo').value)||30);
+    salvarAgendamentoConfig();renderAgendamento();this.textContent='Configurações salvas';var b=this;setTimeout(function(){b.textContent='Salvar configurações';},1600);
+  });
 
   // ---------- Tabs ----------
   var FILTER_BAR_TABS = {geral:true, m1:true, m2:true, tendencia:true, profissionais:true, analises:false, agendamento:false, configuracoes:false};
