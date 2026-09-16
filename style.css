@@ -666,10 +666,25 @@
   .kpi-item label{display:block;font-size:10.5px;color:var(--ink-soft);margin-bottom:2px;}
   .kpi-item span{font-size:15px;font-weight:700;color:var(--ink);}
 
+  /* Legenda vertical do "Perfil de frequência" ao lado da rosca — maior
+     que o kpi-container padrão (usado nas linhas horizontais de KPI) pra
+     aproveitar melhor o espaço do card. */
+  .kpi-legend-vertical{padding:18px 20px;}
+  .kpi-legend-vertical .kpi-item label{font-size:12.5px;margin-bottom:4px;}
+  .kpi-legend-vertical .kpi-item span{font-size:19px;}
+
   .card-charts-layout{
     display:flex;align-items:center;justify-content:space-around;gap:10px;height:150px;
   }
+  /* Versão maior pro card "Perfil de frequência", que tinha bastante
+     espaço sobrando no container ao lado (rosca pequena + card de
+     legenda apertado). */
+  .card-charts-layout--lg{height:230px;gap:20px;}
   .chart-box{position:relative;width:50%;height:100%;}
+  /* Gráfico sozinho no card (sem par lado a lado dentro de
+     .card-charts-layout) — precisa ocupar 100% da largura, não os 50%
+     pensados pro layout donut+legenda/donut+barra. */
+  .chart-box-full{position:relative;width:100%;height:100%;}
   .donut-center-text{
     position:absolute;top:55%;left:50%;transform:translate(-50%,-50%);
     text-align:center;pointer-events:none;
