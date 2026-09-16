@@ -3545,11 +3545,24 @@
     var fracAnterior = Math.max(0, Math.min(1, anterior/domainMax));
     var fillColor = dir==='down' ? '#A84747' : (dir==='up' ? '#15803d' : '#51605A');
     var bandStyle = bands ? ' style="background:'+evoTrackGradient(bands, domainMax)+';"' : '';
+    // Percentual em relação ao quadrimestre anterior (delta/anterior),
+    // mostrado centralizado abaixo da barra, entre ela e a linha
+    // Anterior/Atual — só quando dá pra calcular (anterior != 0).
+    var pctHTML = '';
+    if(anterior){
+      var pct = (delta/Math.abs(anterior))*100;
+      var pctColor = dir==='up' ? '#15803d' : (dir==='down' ? '#b91c1c' : 'var(--ink-soft)');
+      var pctSign = dir==='up' ? '+ ' : (dir==='down' ? '- ' : '');
+      pctHTML = '<div class="ov-evo-percent-wrap">'
+        +   '<span class="ov-evo-percent" style="color:'+pctColor+';">'+pctSign+fmtDec(Math.abs(pct),1)+'%</span>'
+        + '</div>';
+    }
     return '<div class="ov-evo-track">'
       +   '<div class="ov-evo-band"'+bandStyle+'></div>'
       +   '<div class="ov-evo-fill" style="width:'+(fracAtual*100).toFixed(1)+'%;background:'+fillColor+';"></div>'
       +   '<div class="ov-evo-mark" style="left:'+(fracAnterior*100).toFixed(1)+'%;"></div>'
       + '</div>'
+      + pctHTML
       + '<div class="ov-evo-labels"><span>Anterior<br><b>'+fmtDec(anterior,decimals)+suffix+'</b></span>'
       +   '<span style="text-align:right;">Atual<br><b>'+fmtDec(atual,decimals)+suffix+'</b></span></div>';
   }
