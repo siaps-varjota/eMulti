@@ -1813,23 +1813,26 @@
     }).join('') + '</div>';
   }
 
+  // Uma linha da tabela de risco — função à parte porque agora é usada
+  // tanto no render inicial quanto toda vez que o filtro (profissional ou
+  // busca) muda (ver renderTabelaRisco, dentro de wireRiscoFiltros).
+  function linhaRiscoHtml(r){
+    var profAttr = escapeHtml((r.ultimoProfissionais||[]).join('|'));
+    return '<tr data-ultimo-prof="'+profAttr+'"><td>'+escapeHtml(r.nome)+'</td><td>'+(r.profissionalHtml || escapeHtml(r.profissional))+'</td><td>'+escapeHtml(r.equipe)+'</td><td>'+fmtInt(r.totalConsultas)+'</td><td>'+fmtBRDate(r.ultima)+'</td><td>'+fmtInt(r.diasDesde)+' dias</td></tr>';
+  }
+
   function riscoTableHtml(risco){
     if(!risco.length) return '<p class="footnote">Nenhum paciente na janela de risco no momento (ou ainda não há intervalo histórico suficiente pra calcular).</p>';
-    var visiveis = risco.slice(0,40);
-    var linhas = visiveis.map(function(r){
-      var profAttr = escapeHtml((r.ultimoProfissionais||[]).join('|'));
-      return '<tr data-ultimo-prof="'+profAttr+'"><td>'+escapeHtml(r.nome)+'</td><td>'+(r.profissionalHtml || escapeHtml(r.profissional))+'</td><td>'+escapeHtml(r.equipe)+'</td><td>'+fmtInt(r.totalConsultas)+'</td><td>'+fmtBRDate(r.ultima)+'</td><td>'+fmtInt(r.diasDesde)+' dias</td></tr>';
-    }).join('');
+    // A tabela/contador/rodapé começam vazios de propósito — quem preenche
+    // (e reage ao filtro de profissional + busca) é wireRiscoFiltros, logo
+    // depois deste HTML entrar no DOM. Isso garante que o quantitativo
+    // mostrado na tela E o PDF sempre reflitam o filtro atual, em vez de
+    // só esconder linhas já renderizadas da lista completa.
     var pdfBtnHtml = '<button type="button" class="pdf-btn" id="btnRiscoPdf">'
       + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h1a1.5 1.5 0 0 0 0-3H9v5"/><path d="M13 12v5h1a2 2 0 0 0 0-5z"/><path d="M18.5 12H17v5"/><path d="M17 14.5h1.3"/></svg>'
       + '<span>Gerar PDF</span></button>';
-    // Filtro por profissional da ÚLTIMA consulta + busca livre, no mesmo
-    // padrão visual das listas das outras abas (.list-filters/.list-search).
-    // As opções do filtro e a busca valem só sobre os pacientes exibidos
-    // na tela (até 40) — o PDF continua trazendo a lista completa, sem
-    // filtro.
     return '<div style="display:flex;justify-content:flex-end;margin-bottom:8px;">'+pdfBtnHtml+'</div>'
-      + '<p class="list-meta" id="riscoListMeta">'+fmtInt(visiveis.length)+(visiveis.length===1?' paciente':' pacientes')+'</p>'
+      + '<p class="list-meta" id="riscoListMeta"></p>'
       + '<div class="list-filters">'
       +   '<div class="list-month-filter"><label class="list-month-filter-label">Profissional (última consulta)</label>'
       +     '<div class="ms-wrap" id="riscoProfMs"></div></div>'
@@ -1837,65 +1840,94 @@
       + '<input class="list-search" type="text" placeholder="Filtrar nesta lista…" id="riscoSearchInput">'
       + '<div class="table-wrap"><table class="data-table"><thead><tr>'
       + '<th>Paciente</th><th>Profissional</th><th>Equipe</th><th>Consultas</th><th>Última consulta</th><th>Dias sem voltar</th>'
-      + '</tr></thead><tbody>'+linhas+'</tbody></table></div>'
-      + (risco.length>40 ? '<p class="footnote">Mostrando os 40 pacientes há mais tempo sem voltar na tela (de '+risco.length+' no total) — o PDF traz a lista completa.</p>' : '');
+      + '</tr></thead><tbody id="riscoTbody"></tbody></table></div>'
+      + '<p class="footnote" id="riscoFootnote"></p>';
   }
 
   // Liga o filtro de profissional (multisseleção) e a busca livre da
-  // tabela "Pacientes em risco de abandono" — mesmo padrão das listas das
-  // outras abas (ver applyFilters/renderListsSection), mas aqui a tabela é
-  // renderizada à parte (riscoTableHtml), então o filtro é ligado à mão.
+  // tabela "Pacientes em risco de abandono", e também o botão de PDF —
+  // os três precisam compartilhar o mesmo resultado filtrado (ver
+  // riscoFiltrado, abaixo), pra que o quantitativo na tela, o rodapé
+  // ("Mostrando X de Y") e o PDF gerado batam sempre com o filtro atual
+  // (profissional da última consulta + busca), em vez do total geral.
   function wireRiscoFiltros(risco){
     var profMsEl = document.getElementById('riscoProfMs');
     var searchEl = document.getElementById('riscoSearchInput');
     var metaEl = document.getElementById('riscoListMeta');
-    var tbody = document.querySelector('#analisesRisco tbody');
+    var footnoteEl = document.getElementById('riscoFootnote');
+    var tbody = document.getElementById('riscoTbody');
+    var btnPdf = document.getElementById('btnRiscoPdf');
     if(!tbody) return;
 
-    var visiveis = (risco||[]).slice(0,40);
+    var todos = risco || [];
+    // Opções do filtro: qualquer profissional que apareça como responsável
+    // pela ÚLTIMA consulta de PELO MENOS UM paciente em risco (lista
+    // completa, não só os 40 exibidos na tela).
     var profsSet = {};
-    visiveis.forEach(function(r){ (r.ultimoProfissionais||[]).forEach(function(nome){ profsSet[nome] = true; }); });
+    todos.forEach(function(r){ (r.ultimoProfissionais||[]).forEach(function(nome){ profsSet[nome] = true; }); });
     var profsOpts = Object.keys(profsSet).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); })
       .map(function(nome){ return {value:nome, label:nome}; });
 
+    // Texto de busca de cada paciente, pré-montado (mesmas colunas
+    // exibidas na tabela), pra buscar sobre os DADOS reais — e não só
+    // sobre o texto já renderizado na tela, que só cobre os 40 visíveis.
+    function textoBusca(r){
+      return [r.nome, r.profissional, r.equipe, fmtInt(r.totalConsultas), fmtBRDate(r.ultima), fmtInt(r.diasDesde)+' dias']
+        .join(' ').toLowerCase();
+    }
+
+    var riscoFiltrado = todos.slice(); // resultado do filtro atual (lista completa, sem cap de 40) — é o que o PDF usa
+
     var profMs = profMsEl ? createMultiSelect(profMsEl, {
       placeholder: 'Todos', multi:true, search: profsOpts.length>8, showTags:true,
-      onChange: function(){ aplicarRiscoFiltro(); }
+      onChange: function(){ renderTabelaRisco(); }
     }) : null;
     if(profMs) profMs.setOptions(profsOpts);
 
-    if(searchEl) searchEl.addEventListener('input', aplicarRiscoFiltro);
+    if(searchEl) searchEl.addEventListener('input', renderTabelaRisco);
 
-    function aplicarRiscoFiltro(){
+    function renderTabelaRisco(){
       var selecionados = profMs ? profMs.getSelected() : [];
       var termo = searchEl ? searchEl.value.trim().toLowerCase() : '';
-      var visiveisCount = 0;
-      tbody.querySelectorAll('tr').forEach(function(tr){
-        var profsLinha = (tr.getAttribute('data-ultimo-prof')||'').split('|').filter(Boolean);
+      riscoFiltrado = todos.filter(function(r){
+        var profsLinha = r.ultimoProfissionais || [];
         var matchesProf = !selecionados.length || selecionados.some(function(v){ return profsLinha.indexOf(v) >= 0; });
-        var matchesTexto = !termo || tr.textContent.toLowerCase().indexOf(termo) !== -1;
-        var visivel = matchesProf && matchesTexto;
-        tr.style.display = visivel ? '' : 'none';
-        if(visivel) visiveisCount++;
+        var matchesTexto = !termo || textoBusca(r).indexOf(termo) !== -1;
+        return matchesProf && matchesTexto;
       });
-      if(metaEl) metaEl.textContent = fmtInt(visiveisCount) + (visiveisCount===1 ? ' paciente' : ' pacientes');
+
+      var visiveis = riscoFiltrado.slice(0,40);
+      tbody.innerHTML = visiveis.length
+        ? visiveis.map(linhaRiscoHtml).join('')
+        : '<tr><td colspan="6" class="footnote" style="padding:14px 12px;">Nenhum paciente encontrado com esse filtro.</td></tr>';
+
+      if(metaEl) metaEl.textContent = fmtInt(visiveis.length) + (visiveis.length===1 ? ' paciente' : ' pacientes');
+      if(footnoteEl){
+        footnoteEl.textContent = riscoFiltrado.length > 40
+          ? 'Mostrando os 40 pacientes há mais tempo sem voltar na tela (de '+fmtInt(riscoFiltrado.length)+' no total com o filtro atual) — o PDF traz a lista completa do filtro.'
+          : '';
+      }
     }
+    renderTabelaRisco();
+
+    if(btnPdf) btnPdf.addEventListener('click', function(){ gerarPdfRisco(riscoFiltrado, todos.length); });
   }
 
   // ---------- Exportar "Pacientes em risco de abandono" em PDF ----------
   // Mesma linha visual dos outros PDFs do painel (faixa de cabeçalho +
   // tabela), mas usa a lista COMPLETA de risco (não só os 40 primeiros
   // mostrados na tela).
-  function gerarPdfRisco(risco){
+  function gerarPdfRisco(risco, totalGeral){
     var jspdfNs = window.jspdf;
     if(!jspdfNs || !jspdfNs.jsPDF){
       alert('Não foi possível carregar a biblioteca de geração de PDF (verifique a conexão com a internet) — tente novamente.');
       return;
     }
     if(!risco.length){
-      alert('Não há pacientes na janela de risco no momento.');
+      alert('Não há pacientes pra exportar (nenhum paciente na janela de risco com o filtro atual).');
       return;
     }
+    var filtroAtivo = typeof totalGeral === 'number' && totalGeral > risco.length;
     var equipeLabel = currentEquipes.map(function(e){ return e.label; }).join(' + ');
     var doc = new jspdfNs.jsPDF({orientation:'landscape', unit:'pt', format:'a4'});
     var pageWidth = doc.internal.pageSize.getWidth();
@@ -1926,7 +1958,7 @@
     doc.setTextColor(81,96,90);
     doc.text('Pacientes com 2+ consultas cuja última visita já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível.', margin, y, {maxWidth: pageWidth-margin*2});
     y += 22;
-    doc.text(fmtInt(risco.length)+(risco.length===1?' paciente no total.':' pacientes no total.'), margin, y);
+    doc.text(fmtInt(risco.length)+(risco.length===1?' paciente no total':' pacientes no total')+(filtroAtivo ? ' (filtro de profissional/busca aplicado — total geral sem filtro: '+fmtInt(totalGeral)+')' : '')+'.', margin, y, {maxWidth: pageWidth-margin*2});
     y += 10;
 
     doc.autoTable({
@@ -1997,8 +2029,6 @@
     }
     if(elRisco){
       elRisco.innerHTML = riscoTableHtml(data.risco);
-      var btnRiscoPdf = document.getElementById('btnRiscoPdf');
-      if(btnRiscoPdf) btnRiscoPdf.addEventListener('click', function(){ gerarPdfRisco(data.risco); });
       wireRiscoFiltros(data.risco);
     }
 
