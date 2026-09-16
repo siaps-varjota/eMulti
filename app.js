@@ -672,6 +672,7 @@
     "HANNA LUIZA OLIVEIRA GOMES",
     "KARISE SANTOS VASCONCELOS",
     "ANNA MAEVILLY LIRA LOPES MARTINS"
+    "LETÍCIA EMILLY MESQUITA DE SOUSA"
   ].map(normalizeText);
   function ehProfissionalComparativoEmulti(nome){
     return PROFISSIONAIS_COMPARATIVO_EMULTI.indexOf(normalizeText(nome)) >= 0;
