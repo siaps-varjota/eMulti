@@ -401,6 +401,12 @@
   // Visão geral (ovRingSVG) — não afeta os gauges grandes das abas M1/M2,
   // que continuam usando CLASS_ARC_HEX normalmente.
   var CLASS_ARC_HEX_OV = {"Regular":"#BF2929","Suficiente":"#CF7E09","Bom":"#2A894A","Ótimo":"#1B59B5"};
+  // Ainda mais saturada que CLASS_ARC_HEX_OV — usada só na faixa ATIVA
+  // (o intervalo onde o resultado atual do gauge cai) dos anéis da Visão
+  // geral, pra destacar mais o intervalo certo; as demais faixas (fora do
+  // intervalo) continuam com CLASS_ARC_HEX_OV, só que com opacidade menor
+  // (ver ovRingSVG) pra ficarem ainda mais esmaecidas.
+  var CLASS_ARC_HEX_OV_ATIVA = {"Regular":"#C61010","Suficiente":"#D67D00","Bom":"#15933F","Ótimo":"#0553C7"};
 
   // ---------- Listas complementares ----------
   function m1ListNames(){ return ["Atendimentos", "Participantes Ativ. Coletiva", "Pessoas atendidas", "Busca-Ativa"].map(suffixedName); }
@@ -463,6 +469,7 @@
   function pillHex(c){ return CLASS_PILL_HEX[c] || "#9AA69E"; }
   function arcHex(c){ return CLASS_ARC_HEX[c] || "#9AA69E"; }
   function arcHexOv(c){ return CLASS_ARC_HEX_OV[c] || "#9AA69E"; }
+  function arcHexOvAtiva(c){ return CLASS_ARC_HEX_OV_ATIVA[c] || "#9AA69E"; }
   // Texto descritivo da caixa "Interpretação" do card de gauge das abas
   // M1/M2, de acordo com a classificação atual do indicador.
   var GAUGE_INTERPRETATION = {
@@ -3357,7 +3364,11 @@
       var a1 = GAUGE_START - (b.from/domainMax)*GAUGE_SWEEP;
       var a2 = GAUGE_START - (b.to/domainMax)*GAUGE_SWEEP;
       var ativa = (b.classe === classeAtual);
-      return '<path d="'+arcPath(cx,cy,r,a1,a2)+'" stroke="'+b.color+'" stroke-width="'+thick+'" fill="none" stroke-opacity="'+(ativa?1:0.5)+'"/>';
+      // Faixa do resultado atual: cor mais saturada (arcHexOvAtiva) e
+      // opacidade cheia. Demais faixas (fora do intervalo): cor normal
+      // (b.color/arcHexOv), bem mais esmaecidas (opacidade baixa).
+      var cor = ativa ? arcHexOvAtiva(b.classe) : b.color;
+      return '<path d="'+arcPath(cx,cy,r,a1,a2)+'" stroke="'+cor+'" stroke-width="'+thick+'" fill="none" stroke-opacity="'+(ativa?1:0.28)+'"/>';
     }).join('');
     var frac = (value===null || value===undefined || isNaN(value)) ? 0 : Math.max(0, Math.min(1, value/domainMax));
     var targetAngle = GAUGE_START - frac*GAUGE_SWEEP;
