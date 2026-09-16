@@ -1609,7 +1609,7 @@
 
     // Sazonalidade: nº de atendimentos por dia da semana (todas as datas,
     // não só a 1ª consulta).
-    var DIAS_SEMANA = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+    var DIAS_SEMANA = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
     var porDiaSemana = [0,0,0,0,0,0,0];
     pacientes.forEach(function(p){ p.datas.forEach(function(d){ porDiaSemana[d.getDay()]++; }); });
 
@@ -1799,11 +1799,11 @@
         var wrap = compCanvas.parentElement;
         if(wrap) wrap.style.height = compH+'px';
         compCanvas.style.height = compH+'px';
-        analisesChartInstances.push(new Chart(compCanvas, {
+        var compChart = new Chart(compCanvas, {
           type: 'bar',
           data: {
             labels: data.comparativoProf.map(function(p){ return p.profissional; }),
-            datasets: [{ label:'Mediana de dias até a 2ª consulta', data: data.comparativoProf.map(function(p){ return Math.round(p.medianaDias); }), backgroundColor:'#C68A3D', borderRadius:4 }]
+            datasets: [{ label:'Mediana de dias até a 2ª consulta', data: data.comparativoProf.map(function(p){ return Math.round(p.medianaDias); }), backgroundColor:'#C68A3D', borderRadius:4, categoryPercentage:0.7, barPercentage:0.9 }]
           },
           options: {
             indexAxis: 'y', responsive: true, maintainAspectRatio: false,
@@ -1813,7 +1813,13 @@
               x: { ticks: { font:{size:13} } }
             }
           }
-        }));
+        });
+        analisesChartInstances.push(compChart);
+        // Redimensiona explicitamente depois que a altura do container já
+        // foi ajustada acima — em alguns navegadores o Chart.js não pega
+        // o novo tamanho sozinho se a altura mudou no mesmo instante em
+        // que o gráfico foi criado.
+        setTimeout(function(){ try{ compChart.resize(); }catch(e){} }, 0);
       } else if(compCanvas){
         var wrap2 = compCanvas.parentElement;
         if(wrap2) wrap2.innerHTML = '<p class="footnote">Sem dados suficientes ainda.</p>';
