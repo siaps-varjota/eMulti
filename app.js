@@ -1863,21 +1863,27 @@
       return;
     }
     // União dos profissionais que aparecem em qualquer um dos dois
-    // intervalos, ordenada pela mesma ordem "oficial" da eMulti (ver
-    // PROFISSIONAIS_COMPARATIVO_EMULTI) — profissionais fora dessa lista
-    // não deveriam aparecer aqui (já filtrados antes), mas caso apareçam
-    // ficam ordenados por ordem alfabética no fim.
+    // União dos profissionais que aparecem em qualquer um dos dois
+    // intervalos, ordenada crescente pela mediana de "até a 2ª consulta"
+    // (1ª coluna) — profissional sem dado nessa coluna usa a mediana da
+    // 2ª coluna como critério de desempate e fica ordenado por ela;
+    // sem dado em nenhuma das duas fica por último, em ordem alfabética.
     var mapa12 = {}, mapa23 = {};
     comparativoProf.forEach(function(p){ mapa12[p.profissional] = p; });
     comparativoProf23.forEach(function(p){ mapa23[p.profissional] = p; });
     var nomesSet = {};
     comparativoProf.concat(comparativoProf23).forEach(function(p){ nomesSet[p.profissional] = true; });
+    function valorOrdenacao(n){
+      if(mapa12[n]) return mapa12[n].medianaDias;
+      if(mapa23[n]) return mapa23[n].medianaDias;
+      return null;
+    }
     var nomes = Object.keys(nomesSet).sort(function(a,b){
-      var ia = PROFISSIONAIS_COMPARATIVO_EMULTI.indexOf(normalizeText(a));
-      var ib = PROFISSIONAIS_COMPARATIVO_EMULTI.indexOf(normalizeText(b));
-      if(ia < 0) ia = 999;
-      if(ib < 0) ib = 999;
-      if(ia !== ib) return ia - ib;
+      var va = valorOrdenacao(a), vb = valorOrdenacao(b);
+      if(va == null && vb == null) return a.localeCompare(b, 'pt-BR');
+      if(va == null) return 1;
+      if(vb == null) return -1;
+      if(va !== vb) return va - vb;
       return a.localeCompare(b, 'pt-BR');
     });
     var chart = new Chart(canvas, {
