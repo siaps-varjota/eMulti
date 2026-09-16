@@ -2118,7 +2118,18 @@
     panel.className = 'tab-panel';
     panel.id = 'tabAnalises';
     panel.innerHTML =
-        '<div class="card" style="margin-bottom:16px;">'
+        // Só nesta aba: títulos (h3/h4) +10% e textos secundários
+        // (legendas/observações/contador/label de filtro/campo de busca)
+        // +20%, sobre os tamanhos padrão já usados no resto do painel.
+        '<style>'
+      +   '#tabAnalises h3{font-size:20.6px;}'
+      +   '#tabAnalises h4{font-size:17.6px;}'
+      +   '#tabAnalises .footnote{font-size:14.4px;}'
+      +   '#tabAnalises .list-meta{font-size:14.4px;}'
+      +   '#tabAnalises .list-month-filter-label{font-size:15px;}'
+      +   '#tabAnalises .list-search{font-size:15.6px;}'
+      + '</style>'
+      + '<div class="card" style="margin-bottom:16px;">'
       +   '<h3 style="margin:0 0 4px;">Perfil de pacientes — '+'<span id="analisesTotalPacientes">—</span> pacientes no histórico</h3>'
       +   '<p class="footnote" style="margin:0;">Estas análises olham pro histórico completo de atendimentos da equipe selecionada (não usam o filtro de Quadrimestre/Mês do topo).</p>'
       + '</div>'
@@ -2149,7 +2160,7 @@
       + '</div>'
       + '<div class="card">'
       +   '<h4 style="margin-top:0;">Pacientes em risco de abandono</h4>'
-      +   '<p class="footnote" style="margin-top:0;font-size:14px;line-height:1.5;">Pacientes com 2+ consultas cuja última visita já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível. Quando o paciente tem 2 ou mais profissionais no histórico, o nome em <b>negrito</b> na coluna "Profissional" é de quem realizou a última consulta.</p>'
+      +   '<p class="footnote" style="margin-top:0;line-height:1.5;">Pacientes com 2+ consultas cuja última visita já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível. Quando o paciente tem 2 ou mais profissionais no histórico, o nome em <b>negrito</b> na coluna "Profissional" é de quem realizou a última consulta.</p>'
       +   '<div id="analisesRisco"></div>'
       + '</div>';
     panelRef.parentElement.appendChild(panel);
