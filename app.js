@@ -1571,17 +1571,32 @@
     var iNome = colIndex(header, "nome");
     var iProf = colIndex(header, "profissional");
     if(iData < 0 || iNome < 0) return [];
+    // Com 2+ equipes selecionadas ao mesmo tempo, um mesmo paciente pode
+    // ter atendimentos vindos de equipes diferentes — guarda qual(is)
+    // equipe(s) de fato atenderam cada paciente (coluna "equipe_unidade"),
+    // usado só pra exibir a coluna "Equipe" na lista de risco de
+    // abandono. Com 1 equipe só selecionada não precisa nem olhar a
+    // coluna: já é a mesma pra todo mundo (ver risco.push, mais abaixo).
+    var precisaSepararPorEquipe = currentEquipes.length > 1;
+    var iEquipe = precisaSepararPorEquipe ? equipeColIndex(header) : -1;
     var porPaciente = {};
     rows.slice(1).forEach(function(r){
       var nome = String(r[iNome]||"").trim();
       var d = parseBRDate(r[iData]);
       if(!nome || !d) return;
       var chave = nome.toUpperCase();
-      if(!porPaciente[chave]) porPaciente[chave] = {nome:nome, datas:[], profissionais:{}};
+      if(!porPaciente[chave]) porPaciente[chave] = {nome:nome, datas:[], profissionais:{}, equipes:{}};
       porPaciente[chave].datas.push(d);
       if(iProf >= 0){
         var prof = String(r[iProf]||"").trim();
         if(prof) porPaciente[chave].profissionais[prof] = true;
+      }
+      if(precisaSepararPorEquipe && iEquipe >= 0){
+        var valorEquipe = normalizeText(r[iEquipe]);
+        var equipeDaLinha = EQUIPES.filter(function(eq){
+          return valorEquipe.indexOf(normalizeText(eq.matchKeyword)) !== -1;
+        })[0];
+        if(equipeDaLinha) porPaciente[chave].equipes[equipeDaLinha.label] = true;
       }
     });
     return Object.keys(porPaciente).map(function(k){
@@ -1670,13 +1685,20 @@
     var medianaBase = intervalos[0].stats ? intervalos[0].stats.mediana : null;
     var hoje = new Date();
     var risco = [];
+    var equipeLabelUnica = currentEquipes.length === 1 ? currentEquipes[0].label : null;
     if(medianaBase){
       pacientes.forEach(function(p){
         if(p.datas.length < 2) return;
         var ultima = p.datas[p.datas.length-1];
         var diasDesde = diffDias(ultima, hoje);
         if(diasDesde > medianaBase && diasDesde <= medianaBase*3){
-          risco.push({nome:p.nome, diasDesde:diasDesde, ultima:ultima, totalConsultas:p.datas.length});
+          var profissionalTxt = Object.keys(p.profissionais).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); }).join(', ');
+          var equipeTxt = equipeLabelUnica || Object.keys(p.equipes||{}).sort().join(' + ');
+          risco.push({
+            nome:p.nome, diasDesde:diasDesde, ultima:ultima, totalConsultas:p.datas.length,
+            profissional: profissionalTxt || '—',
+            equipe: equipeTxt || '—'
+          });
         }
       });
       risco.sort(function(a,b){ return b.diasDesde - a.diasDesde; });
@@ -1756,12 +1778,85 @@
   function riscoTableHtml(risco){
     if(!risco.length) return '<p class="footnote">Nenhum paciente na janela de risco no momento (ou ainda não há intervalo histórico suficiente pra calcular).</p>';
     var linhas = risco.slice(0,40).map(function(r){
-      return '<tr><td>'+escapeHtml(r.nome)+'</td><td>'+fmtInt(r.totalConsultas)+'</td><td>'+fmtBRDate(r.ultima)+'</td><td>'+fmtInt(r.diasDesde)+' dias</td></tr>';
+      return '<tr><td>'+escapeHtml(r.nome)+'</td><td>'+escapeHtml(r.profissional)+'</td><td>'+escapeHtml(r.equipe)+'</td><td>'+fmtInt(r.totalConsultas)+'</td><td>'+fmtBRDate(r.ultima)+'</td><td>'+fmtInt(r.diasDesde)+' dias</td></tr>';
     }).join('');
-    return '<div class="table-wrap"><table class="data-table"><thead><tr>'
-      + '<th>Paciente</th><th>Consultas</th><th>Última consulta</th><th>Dias sem voltar</th>'
+    var pdfBtnHtml = '<button type="button" class="pdf-btn" id="btnRiscoPdf">'
+      + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h1a1.5 1.5 0 0 0 0-3H9v5"/><path d="M13 12v5h1a2 2 0 0 0 0-5z"/><path d="M18.5 12H17v5"/><path d="M17 14.5h1.3"/></svg>'
+      + '<span>Gerar PDF</span></button>';
+    return '<div style="display:flex;justify-content:flex-end;margin-bottom:8px;">'+pdfBtnHtml+'</div>'
+      + '<div class="table-wrap"><table class="data-table"><thead><tr>'
+      + '<th>Paciente</th><th>Profissional</th><th>Equipe</th><th>Consultas</th><th>Última consulta</th><th>Dias sem voltar</th>'
       + '</tr></thead><tbody>'+linhas+'</tbody></table></div>'
-      + (risco.length>40 ? '<p class="footnote">Mostrando os 40 pacientes há mais tempo sem voltar (de '+risco.length+' no total).</p>' : '');
+      + (risco.length>40 ? '<p class="footnote">Mostrando os 40 pacientes há mais tempo sem voltar na tela (de '+risco.length+' no total) — o PDF traz a lista completa.</p>' : '');
+  }
+
+  // ---------- Exportar "Pacientes em risco de abandono" em PDF ----------
+  // Mesma linha visual dos outros PDFs do painel (faixa de cabeçalho +
+  // tabela), mas usa a lista COMPLETA de risco (não só os 40 primeiros
+  // mostrados na tela).
+  function gerarPdfRisco(risco){
+    var jspdfNs = window.jspdf;
+    if(!jspdfNs || !jspdfNs.jsPDF){
+      alert('Não foi possível carregar a biblioteca de geração de PDF (verifique a conexão com a internet) — tente novamente.');
+      return;
+    }
+    if(!risco.length){
+      alert('Não há pacientes na janela de risco no momento.');
+      return;
+    }
+    var equipeLabel = currentEquipes.map(function(e){ return e.label; }).join(' + ');
+    var doc = new jspdfNs.jsPDF({orientation:'landscape', unit:'pt', format:'a4'});
+    var pageWidth = doc.internal.pageSize.getWidth();
+    var pageHeight = doc.internal.pageSize.getHeight();
+    var margin = 28;
+
+    doc.setFillColor(21,63,53);
+    doc.rect(0,0,pageWidth,64,'F');
+    doc.setTextColor(238,243,234);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(15);
+    doc.text('Painel eMulti — Indicadores M1 e M2', margin, 26);
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(10);
+    doc.setTextColor(159,192,174);
+    doc.text(equipeLabel, margin, 42);
+    doc.setFontSize(8.5);
+    doc.text('Gerado em '+new Date().toLocaleString('pt-BR'), pageWidth-margin, 26, {align:'right'});
+
+    var y = 84;
+    doc.setTextColor(21,63,53);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(13);
+    doc.text('Pacientes em risco de abandono', margin, y);
+    y += 16;
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(9);
+    doc.setTextColor(81,96,90);
+    doc.text('Pacientes com 2+ consultas cuja última visita já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível.', margin, y, {maxWidth: pageWidth-margin*2});
+    y += 22;
+    doc.text(fmtInt(risco.length)+(risco.length===1?' paciente no total.':' pacientes no total.'), margin, y);
+    y += 10;
+
+    doc.autoTable({
+      startY: y+6,
+      head: [['Paciente','Profissional','Equipe','Consultas','Última consulta','Dias sem voltar']],
+      body: risco.map(function(r){
+        return [r.nome, r.profissional, r.equipe, fmtInt(r.totalConsultas), fmtBRDate(r.ultima), fmtInt(r.diasDesde)+' dias'];
+      }),
+      theme: 'grid',
+      margin: {left:margin, right:margin, bottom:34},
+      styles: {font:'helvetica', fontSize:8.6, cellPadding:4, overflow:'linebreak', textColor:[19,36,31], lineColor:[220,228,214], lineWidth:0.5},
+      headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold'},
+      alternateRowStyles: {fillColor:[241,244,238]},
+      didDrawPage: function(){
+        doc.setFontSize(8);
+        doc.setTextColor(150,158,152);
+        doc.text('Página '+doc.internal.getCurrentPageInfo().pageNumber, pageWidth-margin, pageHeight-14, {align:'right'});
+      }
+    });
+
+    var arquivo = slugifyFileName('Pacientes_risco_abandono')+'__'+slugifyFileName(equipeLabel)+'__'+slugifyFileName(new Date().toLocaleDateString('pt-BR'))+'.pdf';
+    doc.save(arquivo);
   }
 
   function renderAnalises(data){
@@ -1786,7 +1881,11 @@
     if(elTotal) elTotal.textContent = fmtInt(data.totalPacientes);
     if(elIntervalos) elIntervalos.innerHTML = boxplotDiasSvg(data.intervalos);
     if(elFunil) elFunil.innerHTML = funnelHtml(data.funil);
-    if(elRisco) elRisco.innerHTML = riscoTableHtml(data.risco);
+    if(elRisco){
+      elRisco.innerHTML = riscoTableHtml(data.risco);
+      var btnRiscoPdf = document.getElementById('btnRiscoPdf');
+      if(btnRiscoPdf) btnRiscoPdf.addEventListener('click', function(){ gerarPdfRisco(data.risco); });
+    }
 
     var freqEl = document.getElementById('analisesFreqLegenda');
     if(freqEl){
