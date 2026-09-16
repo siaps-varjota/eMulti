@@ -1766,7 +1766,13 @@
             labels: ['Consulta única','Retorno ocasional (2-3)','Vínculo consolidado (4+)'],
             datasets: [{ data: [f.unica,f.ocasional,f.consolidado], backgroundColor: ['#B5474B','#C68A3D','#2F6F5E'], borderWidth: 0 }]
           },
-          options: { cutout: '65%', responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels:{boxWidth:10,font:{size:10}} } } }
+          options: {
+            cutout: '65%', responsive: true, maintainAspectRatio: false,
+            plugins: {
+              legend: { position: 'bottom', labels:{boxWidth:12, font:{size:13}} },
+              tooltip: { bodyFont:{size:13}, titleFont:{size:13} }
+            }
+          }
         }));
       }
       var semanaCanvas = document.getElementById('analisesDiaSemana');
@@ -1779,8 +1785,11 @@
           },
           options: {
             responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: { y: { beginAtZero: true } }
+            plugins: { legend: { display: false }, tooltip: { bodyFont:{size:13}, titleFont:{size:13} } },
+            scales: {
+              y: { beginAtZero: true, ticks: { font:{size:13} } },
+              x: { ticks: { font:{size:13} } }
+            }
           }
         }));
       }
@@ -1798,8 +1807,11 @@
           },
           options: {
             indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: { y: { ticks: { autoSkip:false } } }
+            plugins: { legend: { display: false }, tooltip: { bodyFont:{size:13}, titleFont:{size:13} } },
+            scales: {
+              y: { ticks: { autoSkip:false, font:{size:13} } },
+              x: { ticks: { font:{size:13} } }
+            }
           }
         }));
       } else if(compCanvas){
@@ -1841,16 +1853,18 @@
       +   '<h4 style="margin-top:0;">Funil de abandono</h4>'
       +   '<div id="analisesFunil"></div>'
       + '</div>'
-      + '<div class="card" style="margin-bottom:16px;">'
-      +   '<h4 style="margin-top:0;">Perfil de frequência</h4>'
-      +   '<div class="card-charts-layout">'
-      +     '<div class="chart-box"><canvas id="analisesFreqDonut"></canvas></div>'
-      +     '<div id="analisesFreqLegenda" class="kpi-container" style="flex-direction:column;align-items:stretch;gap:8px;"></div>'
+      + '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;">'
+      +   '<div class="card" style="flex:1;min-width:280px;margin-bottom:0;">'
+      +     '<h4 style="margin-top:0;">Perfil de frequência</h4>'
+      +     '<div class="card-charts-layout">'
+      +       '<div class="chart-box"><canvas id="analisesFreqDonut"></canvas></div>'
+      +       '<div id="analisesFreqLegenda" class="kpi-container" style="flex-direction:column;align-items:stretch;gap:8px;"></div>'
+      +     '</div>'
       +   '</div>'
-      + '</div>'
-      + '<div class="card" style="margin-bottom:16px;">'
-      +   '<h4 style="margin-top:0;">Atendimentos por dia da semana</h4>'
-      +   '<div class="chart-box" style="height:220px;"><canvas id="analisesDiaSemana"></canvas></div>'
+      +   '<div class="card" style="flex:1;min-width:280px;margin-bottom:0;">'
+      +     '<h4 style="margin-top:0;">Atendimentos por dia da semana</h4>'
+      +     '<div class="chart-box" style="height:220px;"><canvas id="analisesDiaSemana"></canvas></div>'
+      +   '</div>'
       + '</div>'
       + '<div class="card" style="margin-bottom:16px;">'
       +   '<h4 style="margin-top:0;">Comparativo por profissional — tempo até a 2ª consulta</h4>'
