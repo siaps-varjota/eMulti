@@ -699,6 +699,16 @@
   .donut-center-text .val{font-size:16px;font-weight:700;display:block;line-height:1;color:var(--ink);}
   .donut-center-text .lbl{font-size:9px;color:var(--ink-soft);}
 
+  /* ---------- Agendamento ---------- */
+  .agendamento-settings{max-width:980px;}
+  .agendamento-form-grid{display:grid;grid-template-columns:repeat(2,minmax(220px,1fr));gap:18px 20px;margin-bottom:18px;}
+  .agendamento-form-grid label{display:flex;flex-direction:column;gap:7px;font-size:13px;font-weight:600;color:var(--ink-soft);}
+  .agendamento-form-grid select,.agendamento-form-grid input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--paper);font:inherit;font-size:13.5px;color:var(--ink);}
+  .agendamento-form-grid select:focus,.agendamento-form-grid input:focus{outline:none;border-color:var(--header-bg);box-shadow:0 0 0 3px rgba(28,109,83,.1);}
+  .agendamento-hint{margin:0 0 18px;font-size:12.5px;color:var(--ink-soft);}
+  .agendamento-table td,.agendamento-table th{min-width:150px;}
+  .agendamento-table td:first-child,.agendamento-table th:first-child{min-width:240px;}
+
   @media (max-width:880px){
     .topbar{padding:14px 20px;}
     .topbar-right{width:100%;justify-content:flex-end;}
