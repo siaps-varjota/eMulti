@@ -2189,10 +2189,10 @@
         var texto = 'Média: ' + Math.round(media) + ' dias';
         ctx.setLineDash([]);
         ctx.font = "600 11px 'Inter', sans-serif";
-        ctx.textAlign = 'right';
+        ctx.textAlign = 'left';
         ctx.textBaseline = 'bottom';
         ctx.fillStyle = cor;
-        ctx.fillText(texto, chart.chartArea.right - 4, y - (datasetIndex ? 4 : 16));
+        ctx.fillText(texto, chart.chartArea.left + 4, y - (datasetIndex ? 4 : 16));
       });
       ctx.restore();
     }
