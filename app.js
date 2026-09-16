@@ -1321,6 +1321,35 @@
     }
   };
 
+  // Desenha uma linha vertical tracejada para a média de cada série colorida.
+  // Como o gráfico é horizontal, a média de cada segmento é projetada no eixo X.
+  var profAverageLinePlugin = {
+    id: 'profAverageLines',
+    beforeDatasetsDraw: function(chart){
+      var area = chart.chartArea;
+      var xScale = chart.scales && chart.scales.x;
+      if(!area || !xScale || !chart.data.datasets.length) return;
+      var ctx = chart.ctx;
+      ctx.save();
+      chart.data.datasets.forEach(function(dataset){
+        var values = (dataset.data || []).map(Number).filter(function(v){ return Number.isFinite(v); });
+        if(!values.length) return;
+        var average = values.reduce(function(sum, value){ return sum + value; }, 0) / values.length;
+        var x = xScale.getPixelForValue(average);
+        if(!Number.isFinite(x) || x < area.left || x > area.right) return;
+        ctx.beginPath();
+        ctx.setLineDash([7, 5]);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = dataset.backgroundColor || '#1C6D53';
+        ctx.globalAlpha = .9;
+        ctx.moveTo(x, area.top);
+        ctx.lineTo(x, area.bottom);
+        ctx.stroke();
+      });
+      ctx.restore();
+    }
+  };
+
   function renderProfMainChart(lista){
     var canvas = document.getElementById('profStackedChart');
     if(!canvas || typeof Chart === 'undefined') return;
@@ -1351,7 +1380,7 @@
           return {label: lbl, data: chartData[i], backgroundColor: colors[i]};
         })
       },
-      plugins: [profTotalLabelPlugin],
+      plugins: [profTotalLabelPlugin, profAverageLinePlugin],
       options: {
         indexAxis: 'y',
         responsive: true,
