@@ -1848,34 +1848,64 @@
         setTimeout(function(){ try{ semanaChart.resize(); }catch(e){} }, 0);
       }
       var compCanvas = document.getElementById('analisesCompProf');
-      renderComparativoProfChart(compCanvas, data.comparativoProf, 'Mediana de dias até a 2ª consulta');
-      var compCanvas23 = document.getElementById('analisesCompProf23');
-      renderComparativoProfChart(compCanvas23, data.comparativoProf23, 'Mediana de dias da 2ª até a 3ª consulta');
+      renderComparativoProfChart(compCanvas, data.comparativoProf, data.comparativoProf23);
     }, 50);
   }
 
-  // Monta o gráfico de barras verticais "Comparativo por profissional"
-  // (usado tanto pro intervalo 1ª→2ª quanto 2ª→3ª) — evita duplicar a
-  // mesma configuração do Chart.js duas vezes.
-  function renderComparativoProfChart(canvas, comparativoProf, datasetLabel){
+  // Monta o gráfico de barras verticais "Comparativo por profissional",
+  // com as barras de tempo até a 2ª consulta e de 2ª até a 3ª consulta
+  // lado a lado (agrupadas) pra cada profissional, num só gráfico.
+  function renderComparativoProfChart(canvas, comparativoProf, comparativoProf23){
     if(!canvas) return;
-    if(!comparativoProf.length){
-      var wrap2 = canvas.parentElement;
-      if(wrap2) wrap2.innerHTML = '<p class="footnote">Sem dados suficientes ainda.</p>';
+    if(!comparativoProf.length && !comparativoProf23.length){
+      var wrapVazio = canvas.parentElement;
+      if(wrapVazio) wrapVazio.innerHTML = '<p class="footnote">Sem dados suficientes ainda.</p>';
       return;
     }
+    // União dos profissionais que aparecem em qualquer um dos dois
+    // intervalos, ordenada pela mesma ordem "oficial" da eMulti (ver
+    // PROFISSIONAIS_COMPARATIVO_EMULTI) — profissionais fora dessa lista
+    // não deveriam aparecer aqui (já filtrados antes), mas caso apareçam
+    // ficam ordenados por ordem alfabética no fim.
+    var mapa12 = {}, mapa23 = {};
+    comparativoProf.forEach(function(p){ mapa12[p.profissional] = p; });
+    comparativoProf23.forEach(function(p){ mapa23[p.profissional] = p; });
+    var nomesSet = {};
+    comparativoProf.concat(comparativoProf23).forEach(function(p){ nomesSet[p.profissional] = true; });
+    var nomes = Object.keys(nomesSet).sort(function(a,b){
+      var ia = PROFISSIONAIS_COMPARATIVO_EMULTI.indexOf(normalizeText(a));
+      var ib = PROFISSIONAIS_COMPARATIVO_EMULTI.indexOf(normalizeText(b));
+      if(ia < 0) ia = 999;
+      if(ib < 0) ib = 999;
+      if(ia !== ib) return ia - ib;
+      return a.localeCompare(b, 'pt-BR');
+    });
     var chart = new Chart(canvas, {
       type: 'bar',
       data: {
-        labels: comparativoProf.map(function(p){ return p.profissional; }),
-        datasets: [{ label: datasetLabel, data: comparativoProf.map(function(p){ return Math.round(p.medianaDias); }), backgroundColor:'#C68A3D', borderRadius:4, categoryPercentage:0.7, barPercentage:0.9 }]
+        labels: nomes,
+        datasets: [
+          {
+            label: 'Até a 2ª consulta',
+            data: nomes.map(function(n){ return mapa12[n] ? Math.round(mapa12[n].medianaDias) : null; }),
+            backgroundColor:'#C68A3D', borderRadius:4, categoryPercentage:0.7, barPercentage:0.9
+          },
+          {
+            label: '2ª até a 3ª consulta',
+            data: nomes.map(function(n){ return mapa23[n] ? Math.round(mapa23[n].medianaDias) : null; }),
+            backgroundColor:'#2F6F5E', borderRadius:4, categoryPercentage:0.7, barPercentage:0.9
+          }
+        ]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: { bodyFont:{size:13}, titleFont:{size:13} } },
+        plugins: {
+          legend: { display: true, position:'top', labels:{boxWidth:12, font:{size:12}} },
+          tooltip: { bodyFont:{size:13}, titleFont:{size:13} }
+        },
         scales: {
           x: { ticks: { autoSkip:false, font:{size:13}, maxRotation:40, minRotation:0 } },
-          y: { beginAtZero: true, ticks: { font:{size:13} } }
+          y: { beginAtZero: true, ticks: { font:{size:13} }, title:{ display:true, text:'Mediana de dias' } }
         }
       }
     });
@@ -1932,12 +1962,8 @@
       +   '</div>'
       + '</div>'
       + '<div class="card" style="margin-bottom:16px;">'
-      +   '<h4 style="margin-top:0;">Comparativo por profissional — tempo até a 2ª consulta</h4>'
-      +   '<div class="chart-box-full" style="height:220px;"><canvas id="analisesCompProf"></canvas></div>'
-      + '</div>'
-      + '<div class="card" style="margin-bottom:16px;">'
-      +   '<h4 style="margin-top:0;">Comparativo por profissional — tempo da 2ª até a 3ª consulta</h4>'
-      +   '<div class="chart-box-full" style="height:220px;"><canvas id="analisesCompProf23"></canvas></div>'
+      +   '<h4 style="margin-top:0;">Comparativo por profissional — tempo até a 2ª e da 2ª até a 3ª consulta</h4>'
+      +   '<div class="chart-box-full" style="height:260px;"><canvas id="analisesCompProf"></canvas></div>'
       + '</div>'
       + '<div class="card">'
       +   '<h4 style="margin-top:0;">Pacientes em risco de abandono</h4>'
