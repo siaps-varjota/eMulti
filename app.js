@@ -956,8 +956,19 @@
     return dateVal && dateVal >= inicio && dateVal <= fim;
   }
   function colIndex(headerRow, name){
+    var aliases = {
+      data_hora: ['data_hora','data','date'],
+      equipe_unidade: ['equipe_unidade','equipe - unidade','equipe  - unidade','equipe/unidade'],
+      qtd_atendimentos: ['qtd_atendimentos','qtd de atendimentos','quantidade de atendimentos','atendimentos']
+    };
+    var wanted = String(name||'').trim().toLowerCase();
+    var candidates = aliases[wanted] || [wanted];
+    function key(v){ return String(v||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[ºª]/g,'').replace(/[-\s]+/g,'_'); }
     for(var i=0;i<headerRow.length;i++){
-      if(String(headerRow[i]||"").trim() === name) return i;
+      var actual = key(headerRow[i]);
+      for(var j=0;j<candidates.length;j++){
+        if(actual === key(candidates[j])) return i;
+      }
     }
     return -1;
   }
@@ -1181,6 +1192,7 @@
     var iData = colIndex(header, "data_hora");
     var iNome = colIndex(header, "nome");
     var iProf = colIndex(header, "profissional");
+    var iQtd = colIndex(header, "qtd_atendimentos");
     // Com 2+ equipes selecionadas ao mesmo tempo, um profissional que
     // atende em ambas apareceria com os atendimentos das duas somados
     // numa linha só (contagem de consultas por paciente ficaria errada,
@@ -1619,8 +1631,11 @@
       if(!nome || !d) return;
       if(!dataDentroDoFiltro(d)) return;
       var chave = nome.toUpperCase();
-      if(!porPaciente[chave]) porPaciente[chave] = {nome:nome, datas:[], profissionais:{}, consultasPorProf:{}, equipes:{}, ultimaData:null, ultimaProfissionais:{}};
+      if(!porPaciente[chave]) porPaciente[chave] = {nome:nome, datas:[], profissionais:{}, consultasPorProf:{}, equipes:{}, ultimaData:null, ultimaProfissionais:{}, totalAtendimentos:0};
       var p = porPaciente[chave];
+      var qtd = iQtd >= 0 ? Number(String(r[iQtd]||'').replace(',', '.')) : 1;
+      if(!isFinite(qtd) || qtd < 0) qtd = 1;
+      p.totalAtendimentos += qtd;
       p.datas.push(d);
       var prof = iProf >= 0 ? String(r[iProf]||"").trim() : "";
       if(prof){
@@ -1692,9 +1707,11 @@
     // médio de retorno ao lado da distribuição por faixa.
     var perfilFreq = {unica:0, ocasional:0, consolidado:0, mediaConsultas:0};
     var totalConsultasFreq = 0;
+    var totalAtendimentos = 0;
     pacientes.forEach(function(p){
-      var n = p.datas.length;
+      var n = p.totalAtendimentos || p.datas.length;
       totalConsultasFreq += n;
+      totalAtendimentos += n;
       if(n===1) perfilFreq.unica++;
       else if(n===2||n===3) perfilFreq.ocasional++;
       else perfilFreq.consolidado++;
@@ -1780,6 +1797,8 @@
 
     return {
       totalPacientes: pacientes.length,
+      totalAtendimentos: totalAtendimentos,
+      intervaloSelecionado: analisesQuads.length ? analisesQuads.map(function(q){ return q.ano + ' — Q' + (q.qIndex+1); }).join(', ') : 'Histórico completo',
       intervalos: intervalos,
       funil: funil,
       perfilFreq: perfilFreq,
@@ -2057,7 +2076,7 @@
       return;
     }
 
-    if(elTotal) elTotal.textContent = fmtInt(data.totalPacientes);
+    if(elTotal) elTotal.textContent = fmtInt(data.totalPacientes) + ' pacientes · ' + fmtInt(data.totalAtendimentos || 0) + ' atendimentos';
     if(elIntervalos) elIntervalos.innerHTML = boxplotDiasSvg(data.intervalos);
     if(elFunil) elFunil.innerHTML = funnelHtml(data.funil);
     if(elRiscoResumo){
@@ -2093,7 +2112,8 @@
         + '<div class="kpi-item"><label>Consulta única</label><span>'+fmtInt(f.unica)+' ('+pct(f.unica)+'%)</span></div>'
         + '<div class="kpi-item"><label>Retorno ocasional (2-3)</label><span>'+fmtInt(f.ocasional)+' ('+pct(f.ocasional)+'%)</span></div>'
         + '<div class="kpi-item"><label>Vínculo consolidado (4+)</label><span>'+fmtInt(f.consolidado)+' ('+pct(f.consolidado)+'%)</span></div>'
-        + '<div class="kpi-item"><label>Média de consultas por paciente</label><span>'+fmtDec(f.mediaConsultas,1)+'</span></div>';
+        + '<div class="kpi-item"><label>Média de atendimentos por paciente</label><span>'+fmtDec(f.mediaConsultas,1)+'</span></div>'
+        + '<div class="kpi-item"><label>Total de atendimentos no período</label><span>'+fmtInt(data.totalAtendimentos || 0)+'</span></div>';
     }
 
     if(typeof Chart === 'undefined') return;
@@ -2297,7 +2317,7 @@
       +   '#tabAnalises .list-search{font-size:15.6px;}'
       + '</style>'
       + '<div class="card" style="margin-bottom:16px;">'
-      +   '<h3 style="margin:0 0 4px;">Perfil de pacientes — '+'<span id="analisesTotalPacientes">—</span> pacientes no histórico</h3>'
+      +   '<h3 style="margin:0 0 4px;">Perfil de pacientes — '+'<span id="analisesTotalPacientes">—</span> pacientes no período</h3>'
       +   '<p class="footnote" style="margin:0 0 12px;">Estas análises usam um filtro de Equipe e Quadrimestre PRÓPRIO desta aba (independente do filtro do topo). Sem nenhum quadrimestre marcado, olham pro histórico completo de atendimentos.</p>'
       +   '<div class="list-filters">'
       +     '<div class="list-month-filter"><label class="list-month-filter-label">Quadrimestre</label><div class="ms-wrap" id="analisesQuadMs"></div></div>'
