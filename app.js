@@ -4321,13 +4321,41 @@
       ocupacao[prev.getTime()] = (ocupacao[prev.getTime()]||0) + 1;
       return prev;
     }
-    return Object.keys(mapa).map(function(k){
-      var p=mapa[k], base=new Date(p.ultima.getTime());
+    // A fila é ordenada pelo maior atraso antes de distribuir os horários.
+    // Assim, quem está há mais dias sem consulta recebe a primeira vaga
+    // disponível, respeitando os dias escolhidos e o limite diário.
+    var fila = Object.keys(mapa).map(function(k){
+      var p=mapa[k];
+      var diasSemConsulta=Math.max(0,Math.floor((hoje-p.ultima)/(24*60*60*1000)));
+      return {
+        nome:p.nome,
+        profissional:p.profissional||agendamentoConfig.profissional||'—',
+        ultima:p.ultima,
+        diasSemConsulta:diasSemConsulta
+      };
+    }).sort(function(a,b){
+      return b.diasSemConsulta-a.diasSemConsulta
+        || a.ultima-b.ultima
+        || a.nome.localeCompare(b.nome,'pt-BR');
+    });
+
+    return fila.map(function(p){
+      var base=new Date(p.ultima.getTime());
       base.setDate(base.getDate()+intervalo);
       var prev=proximaDataPermitida(base);
-      var diasSemConsulta=Math.max(0,Math.floor((hoje-p.ultima)/(24*60*60*1000)));
-      return {nome:p.nome,profissional:p.profissional||agendamentoConfig.profissional||'—',ultima:p.ultima,diasSemConsulta:diasSemConsulta,prevista:prev,intervalo:intervalo};
-    }).sort(function(a,b){return a.prevista-b.prevista||a.nome.localeCompare(b.nome,'pt-BR');});
+      return {
+        nome:p.nome,
+        profissional:p.profissional,
+        ultima:p.ultima,
+        diasSemConsulta:p.diasSemConsulta,
+        prevista:prev,
+        intervalo:intervalo
+      };
+    }).sort(function(a,b){
+      return a.prevista-b.prevista
+        || b.diasSemConsulta-a.diasSemConsulta
+        || a.nome.localeCompare(b.nome,'pt-BR');
+    });
   }
   function renderAgendamentoConfig(){
     var eq=document.getElementById('agendamentoEquipe'), pf=document.getElementById('agendamentoProfissional'); if(!eq||!pf) return;
