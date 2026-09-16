@@ -431,11 +431,10 @@
   var listDateColIdx = {};
   var listMonthFilters = {};
   // Acha a coluna de data de uma lista bruta, testando os nomes usados
-  // nas abas de origem ("data" nas listas, inclusive na aba Atendimentos).
+  // nas abas de origem ("data" na maioria, "data_hora" em Atendimentos).
   function dateColIndexForList(headers){
-    var idx = atendimentoColIndex(headers, "data");
-    if(idx >= 0) return idx;
-    return colIndex(headers, "data");
+    var idx = colIndexAliases(headers, ["Data", "data_hora", "data"]);
+    return idx;
   }
   // Monta as opções de mês (mais recente primeiro) a partir dos valores
   // de data realmente presentes nas linhas da lista.
@@ -936,32 +935,6 @@
     return rows;
   }
 
-  // A aba Atendimentos usa o cabeçalho atual: Tipo de Registro, Data,
-  // Status, Nome, Idade, Tipo de atendimento, Profissional, Equipe -
-  // Unidade, Qtd de atendimentos. Estes helpers aceitam também os nomes
-  // antigos para manter compatibilidade com cópias anteriores da planilha.
-  function atendimentoColIndex(headerRow, tipo){
-    var aliases = {
-      data: ['DATA','DATA_HORA','DATA E HORA'],
-      nome: ['NOME'],
-      profissional: ['PROFISSIONAL'],
-      quantidade: ['QTD DE ATENDIMENTOS','QTD_ATENDIMENTOS','QUANTIDADE DE ATENDIMENTOS','QUANTIDADE_ATENDIMENTOS']
-    };
-    var aceitos = aliases[tipo] || [];
-    for(var i=0;i<headerRow.length;i++){
-      var h = normalizeText(headerRow[i]).replace(/\s+/g,' ').trim();
-      var hUnderscore = h.replace(/ /g,'_');
-      if(aceitos.indexOf(h) >= 0 || aceitos.indexOf(hUnderscore) >= 0) return i;
-    }
-    return -1;
-  }
-  function quantidadeAtendimentos(row, idx){
-    if(idx == null || idx < 0) return 1;
-    var bruto = String(row[idx] == null ? '' : row[idx]).trim().replace(',','.');
-    var n = Number(bruto);
-    return isFinite(n) && n > 0 ? n : 1;
-  }
-
   // Datas nas abas brutas vêm como texto dd/mm/aaaa (é assim que o script
   // de extração grava). Também aceita aaaa-mm-dd como reforço, caso a
   // célula tenha sido digitada nesse formato.
@@ -986,6 +959,22 @@
       if(String(headerRow[i]||"").trim() === name) return i;
     }
     return -1;
+  }
+  // Localiza colunas mesmo quando a planilha usa espaços, acentos,
+  // hífens ou nomes equivalentes entre versões do cabeçalho.
+  function headerKey(v){
+    return normalizeText(v).replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  }
+  function colIndexAliases(headerRow, aliases){
+    var wanted = aliases.map(headerKey);
+    for(var i=0;i<headerRow.length;i++){
+      if(wanted.indexOf(headerKey(headerRow[i])) >= 0) return i;
+    }
+    return -1;
+  }
+  function qtdAtendimentoValue(raw){
+    var n = Number(String(raw===undefined||raw===null?'':raw).trim().replace(',', '.'));
+    return isFinite(n) && n > 0 ? n : 1;
   }
   function toInt(v){
     var n = parseInt(String(v===undefined||v===null?"":v).trim(), 10);
@@ -1051,14 +1040,16 @@
     // ---------- Atendimentos ----------
     var atRows = rowsOf("Atendimentos");
     var atHeader = atRows[0] || [];
-    var iData = atendimentoColIndex(atHeader, "data");
-    var iNome = atendimentoColIndex(atHeader, "nome");
-    var iQtd = atendimentoColIndex(atHeader, "quantidade");
+    var iData = colIndexAliases(atHeader, ["Data", "data_hora", "data"]);
+    var iNome = colIndexAliases(atHeader, ["Nome", "nome"]);
+    var iQtdAt = colIndexAliases(atHeader, ["Qtd de atendimentos", "qtd_atendimentos", "qtd_atendimentos_periodo"]);
     var atFiltradas = atRows.slice(1).filter(function(r){
       var nome = String(r[iNome]||"").trim();
       return nome && withinPeriod(parseBRDate(r[iData]), periodo.inicio, periodo.fim);
     });
-    var atendimentosIndividuais = atFiltradas.reduce(function(total, r){ return total + quantidadeAtendimentos(r, iQtd); }, 0);
+    var atendimentosIndividuais = atFiltradas.reduce(function(total, r){
+      return total + (iQtdAt >= 0 ? qtdAtendimentoValue(r[iQtdAt]) : 1);
+    }, 0);
 
     // ---------- Participantes Ativ. Coletiva ----------
     var partRows = rowsOf("Participantes Ativ. Coletiva");
@@ -1078,7 +1069,7 @@
     atFiltradas.forEach(function(r){
       var chave = String(r[iNome]).trim().toUpperCase();
       if(!pessoasSet[chave]) pessoasSet[chave] = {nome:String(r[iNome]).trim(), at:0, part:0};
-      pessoasSet[chave].at += quantidadeAtendimentos(r, iQtd);
+      pessoasSet[chave].at += iQtdAt >= 0 ? qtdAtendimentoValue(r[iQtdAt]) : 1;
     });
     partFiltradas.forEach(function(r){
       var chave = String(r[iPNome]).trim().toUpperCase();
@@ -1094,10 +1085,10 @@
     // ---------- Resumo Atividade Coletiva ----------
     var racRows = rowsOf("Resumo Atividade Coletiva");
     var racHeader = racRows[0] || [];
-    var iRacData = colIndex(racHeader, "data");
-    var iRacTipo = colIndex(racHeader, "tipo_atividade");
-    var iRacTotalProf = colIndex(racHeader, "qtd_total_profissionais");
-    var iRacProfEnv = colIndex(racHeader, "qtd_profissionais_envolvidos");
+    var iRacData = colIndexAliases(racHeader, ["Data", "data"]);
+    var iRacTipo = colIndexAliases(racHeader, ["Tipo de Atividade", "tipo_atividade"]);
+    var iRacTotalProf = colIndexAliases(racHeader, ["Qtd total de profissionais", "qtd_total_profissionais"]);
+    var iRacProfEnv = colIndexAliases(racHeader, ["Qtd de Profissionais envolvidos", "qtd_profissionais_envolvidos"]);
     // Só estes 4 tipos (códigos 04-07 da Atividade Coletiva) contam como
     // "Atividade Coletiva Compartilhada" pra M2 — reuniões (códigos 01-03)
     // vêm de outra aba (Resumo Reuniões) e têm regra própria.
@@ -1205,10 +1196,10 @@
     var ws = wb.Sheets[suffixedName("Atendimentos")];
     var rows = ws ? sheetToRows(ws) : [];
     var header = rows[0] || [];
-    var iData = atendimentoColIndex(header, "data");
-    var iNome = atendimentoColIndex(header, "nome");
-    var iProf = atendimentoColIndex(header, "profissional");
-    var iQtd = atendimentoColIndex(header, "quantidade");
+    var iData = colIndexAliases(header, ["Data", "data_hora", "data"]);
+    var iNome = colIndexAliases(header, ["Nome", "nome"]);
+    var iProf = colIndexAliases(header, ["Profissional", "profissional"]);
+    var iQtdAt = colIndexAliases(header, ["Qtd de atendimentos", "qtd_atendimentos"]);
     // Com 2+ equipes selecionadas ao mesmo tempo, um profissional que
     // atende em ambas apareceria com os atendimentos das duas somados
     // numa linha só (contagem de consultas por paciente ficaria errada,
@@ -1241,7 +1232,8 @@
         var chaveInterna = normalizeText(prof) + (equipeDaLinha ? '|' + equipeDaLinha.key : '');
         if(!porProfInterno[chaveInterna]) porProfInterno[chaveInterna] = {};
         var chavePac = nome.toUpperCase();
-        porProfInterno[chaveInterna][chavePac] = (porProfInterno[chaveInterna][chavePac]||0) + quantidadeAtendimentos(r, iQtd);
+        porProfInterno[chaveInterna][chavePac] = (porProfInterno[chaveInterna][chavePac]||0)
+          + (iQtdAt >= 0 ? qtdAtendimentoValue(r[iQtdAt]) : 1);
         if(!displayNamePorChaveInterna[chaveInterna]){
           displayNamePorChaveInterna[chaveInterna] = equipeDaLinha ? (prof + ' (' + equipeDaLinha.suffix + ')') : prof;
         }
@@ -1616,10 +1608,9 @@
     var rows = sheetToRows(latestRawSheets["Atendimentos"] || []);
     rows = filtrarLinhasPorEquipe(rows, analisesEquipes);
     var header = rows[0] || [];
-    var iData = atendimentoColIndex(header, "data");
-    var iNome = atendimentoColIndex(header, "nome");
-    var iProf = atendimentoColIndex(header, "profissional");
-    var iQtd = atendimentoColIndex(header, "quantidade");
+    var iData = colIndexAliases(header, ["Data", "data_hora", "data"]);
+    var iNome = colIndexAliases(header, ["Nome", "nome"]);
+    var iProf = colIndex(header, "profissional");
     if(iData < 0 || iNome < 0) return [];
     // Com 2+ equipes selecionadas ao mesmo tempo neste filtro, um mesmo
     // paciente pode ter atendimentos vindos de equipes diferentes —
@@ -1650,12 +1641,11 @@
       var chave = nome.toUpperCase();
       if(!porPaciente[chave]) porPaciente[chave] = {nome:nome, datas:[], profissionais:{}, consultasPorProf:{}, equipes:{}, ultimaData:null, ultimaProfissionais:{}};
       var p = porPaciente[chave];
-      var qtd = Math.max(1, Math.round(quantidadeAtendimentos(r, iQtd)));
-      for(var qi=0; qi<qtd; qi++) p.datas.push(new Date(d.getTime()));
+      p.datas.push(d);
       var prof = iProf >= 0 ? String(r[iProf]||"").trim() : "";
       if(prof){
         p.profissionais[prof] = true;
-        p.consultasPorProf[prof] = (p.consultasPorProf[prof] || 0) + qtd;
+        p.consultasPorProf[prof] = (p.consultasPorProf[prof] || 0) + 1;
       }
       // Guarda o(s) profissional(is) da consulta MAIS RECENTE (por data) de
       // cada paciente, pra poder destacar quem de fato atendeu na última
@@ -2438,8 +2428,8 @@
     }
     var atCached = latestSheets[suffixedName("Atendimentos")];
     if(atCached){
-      var iData = atendimentoColIndex(atCached.headers, "data");
-      var iNome = atendimentoColIndex(atCached.headers, "nome");
+      var iData = colIndexAliases(atCached.headers, ["Data", "data_hora", "data"]);
+      var iNome = colIndexAliases(atCached.headers, ["Nome", "nome"]);
       var iProfAt = profissionalColIndex(atCached.headers);
       if(iData >= 0 && iNome >= 0){
         atCached.rows.forEach(function(r){
@@ -2525,7 +2515,7 @@
         if(!seen[v]){ seen[v] = true; months.push(new Date(d.getFullYear(), d.getMonth(), 1)); }
       });
     }
-    coletar(suffixedName("Atendimentos"), "data");
+    coletar(suffixedName("Atendimentos"), "data_hora");
     coletar(suffixedName("Participantes Ativ. Coletiva"), "data");
     months.sort(function(a,b){ return b-a; });
     return months.map(function(d){ return {value: monthOptionValue(d), label: monthOptionLabel(d)}; });
@@ -2589,10 +2579,9 @@
     var pessoasSet = {}; // nome em maiúsculas -> {nome, countPeriodo, ultima:Date, equipe, profissional}
     var atCached = latestSheets[suffixedName("Atendimentos")];
     if(atCached){
-      var iData = atendimentoColIndex(atCached.headers, "data");
-      var iNome = atendimentoColIndex(atCached.headers, "nome");
-      var iProf = atendimentoColIndex(atCached.headers, "profissional");
-      var iQtd = atendimentoColIndex(atCached.headers, "quantidade");
+      var iData = colIndexAliases(atCached.headers, ["Data", "data_hora", "data"]);
+      var iNome = colIndexAliases(atCached.headers, ["Nome", "nome"]);
+      var iProf = colIndex(atCached.headers, "profissional");
       var iEquipe = equipeColIndex(atCached.headers);
       if(iData >= 0 && iNome >= 0){
         atCached.rows.forEach(function(r){
@@ -2606,7 +2595,7 @@
           // quantos dias a pessoa está sem atendimento) continua olhando
           // TODO o histórico, não só a janela.
           if(withinPeriod(d, janelaPeriodo.inicio, janelaPeriodo.fim)){
-            pessoasSet[chave].countPeriodo += quantidadeAtendimentos(r, iQtd);
+            pessoasSet[chave].countPeriodo++;
           }
           // Equipe/Profissional guardados são sempre os da ÚLTIMA consulta
           // (a mesma que aparece na coluna "Última Consulta"), não os do
@@ -2681,15 +2670,20 @@
       hasTable = true;
       var dateColIdx = dateColIndexForList(cached.headers);
       listDateColIdx[name] = dateColIdx;
-      var theadHtml = '<tr>'+cached.headers.map(function(h){ return '<th>'+escapeHtml(h)+'</th>'; }).join('')+'</tr>';
+      // Status permanece disponível na origem para compatibilidade, mas não
+      // é exibido em nenhuma tabela da plataforma.
+      var colunasVisiveis = cached.headers.map(function(h,i){
+        return {header:h, rawIndex:i};
+      }).filter(function(c){ return headerKey(c.header) !== 'STATUS'; });
+      var theadHtml = '<tr>'+colunasVisiveis.map(function(c){ return '<th data-raw-col="'+c.rawIndex+'">'+escapeHtml(c.header)+'</th>'; }).join('')+'</tr>';
       var bodyHtml = cached.rows.map(function(r){
-        return '<tr>'+cached.headers.map(function(h,i){
-          var v = r[i];
-          return '<td>'+escapeHtml(v===undefined||v===null?'':v)+'</td>';
+        return '<tr>'+colunasVisiveis.map(function(c){
+          var v = r[c.rawIndex];
+          return '<td data-raw-col="'+c.rawIndex+'">'+escapeHtml(v===undefined||v===null?'':v)+'</td>';
         }).join('')+'</tr>';
       }).join('');
       var colOptionsHtml = '<option value="">Filtrar por coluna…</option>'
-        + cached.headers.map(function(h,i){ return '<option value="'+i+'">'+escapeHtml(h)+'</option>'; }).join('');
+        + colunasVisiveis.map(function(c){ return '<option value="'+c.rawIndex+'">'+escapeHtml(c.header)+'</option>'; }).join('');
       var filterPairsHtml = [0,1,2].map(function(idx){
         return '<div class="filter-pair">'
           + '<select class="filter-col">'+colOptionsHtml+'</select>'
@@ -2697,7 +2691,7 @@
           + '</div>';
       }).join('');
       // Filtro de mês (multisseleção) — aparece quando a lista tem uma
-      // coluna de data reconhecível ("Data"), ou é a
+      // coluna de data reconhecível ("data" ou "data_hora"), ou é a
       // "Pessoas atendidas" calculada (filtro próprio, ver acima). Fica
       // na MESMA linha dos filtros de coluna (dentro de .list-filters),
       // como o primeiro item da fileira.
@@ -2796,7 +2790,7 @@
       card.querySelectorAll('tbody tr').forEach(function(tr, rowIdx){
         var matchesText = !term || tr.textContent.toLowerCase().indexOf(term) !== -1;
         var matchesCols = activeFilters.every(function(f){
-          var cell = tr.children[f.colIdx];
+          var cell = tr.querySelector('td[data-raw-col="'+f.colIdx+'"]');
           if(!cell) return false;
           var headerName = (cached && cached.headers) ? cached.headers[f.colIdx] : '';
           if(headerName === DIAS_SEM_ATENDIMENTO_HEADER){
@@ -2843,18 +2837,18 @@
         var countsPorNomeQtd = {};
         card.querySelectorAll('tbody tr').forEach(function(tr){
           if(tr.style.display === 'none') return;
-          var nomeCell = tr.children[nomeIdxQtd];
+          var nomeCell = tr.querySelector('td[data-raw-col="'+nomeIdxQtd+'"]');
           var nomeVal = nomeCell ? nomeCell.textContent.trim().toUpperCase() : '';
           if(!nomeVal) return;
           countsPorNomeQtd[nomeVal] = (countsPorNomeQtd[nomeVal] || 0) + 1;
         });
         card.querySelectorAll('tbody tr').forEach(function(tr){
           if(tr.style.display === 'none') return;
-          var nomeCell = tr.children[nomeIdxQtd];
+          var nomeCell = tr.querySelector('td[data-raw-col="'+nomeIdxQtd+'"]');
           var nomeVal = nomeCell ? nomeCell.textContent.trim().toUpperCase() : '';
           var count = nomeVal ? (countsPorNomeQtd[nomeVal] || 0) : 0;
           qtdColIdxs.forEach(function(ci){
-            var cell = tr.children[ci];
+            var cell = tr.querySelector('td[data-raw-col="'+ci+'"]');
             if(cell) cell.textContent = fmtInt(count);
           });
         });
@@ -4288,151 +4282,8 @@
     });
   }
 
-  // ---------- Agendamento ----------
-  var agendamentoConfig = {equipe:'todas', profissional:'', diasSemana:[1], intervaloDias:30, consultasPorDia:8};
-  // Compatibilidade com configurações antigas que guardavam apenas um dia.
-  try {
-    var configAntiga = JSON.parse(localStorage.getItem('painelAgendamentoConfig') || 'null');
-    if(configAntiga && !Array.isArray(configAntiga.diasSemana) && configAntiga.diaSemana !== undefined){
-      configAntiga.diasSemana = [Number(configAntiga.diaSemana)];
-    }
-  } catch(e){}
-  function diasAgendamentoSelecionados(){
-    var dias = Array.isArray(agendamentoConfig.diasSemana) ? agendamentoConfig.diasSemana : [];
-    dias = dias.map(Number).filter(function(d){ return d >= 0 && d <= 6; });
-    return dias.length ? dias : [1];
-  }
-  function sincronizarPillsDias(){
-    var selecionados = diasAgendamentoSelecionados();
-    document.querySelectorAll('#agendamentoDias .weekday-pill').forEach(function(btn){
-      var ativo = selecionados.indexOf(Number(btn.getAttribute('data-day'))) >= 0;
-      btn.classList.toggle('active', ativo);
-      btn.setAttribute('aria-pressed', ativo ? 'true' : 'false');
-    });
-  }
-  try {
-    var salvo = JSON.parse(localStorage.getItem('painelAgendamentoConfig') || 'null');
-    if(salvo) Object.assign(agendamentoConfig, salvo);
-    if(!Array.isArray(agendamentoConfig.diasSemana)){
-      agendamentoConfig.diasSemana = agendamentoConfig.diaSemana !== undefined ? [Number(agendamentoConfig.diaSemana)] : [1];
-    }
-    agendamentoConfig.consultasPorDia = Math.max(1, Math.min(100, parseInt(agendamentoConfig.consultasPorDia, 10) || 8));
-  } catch(e){}
-  var DIAS_SEMANA_AGENDAMENTO = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
-  function salvarAgendamentoConfig(){ try{ localStorage.setItem('painelAgendamentoConfig', JSON.stringify(agendamentoConfig)); }catch(e){} }
-  function nomesProfissionaisAgendamento(){
-    var nomes={}; profissionaisRoster.forEach(function(p){ if(p && p.nome) nomes[p.nome]=true; });
-    var rows=sheetToRows(latestRawSheets['Atendimentos']||[]), h=rows[0]||[], idx=profissionalColIndex(h);
-    if(idx>=0) rows.slice(1).forEach(function(r){ var n=String(r[idx]||'').trim(); if(n) nomes[n]=true; });
-    return Object.keys(nomes).sort(function(a,b){return a.localeCompare(b,'pt-BR');});
-  }
-  function dadosAgendamento(){
-    var rows=sheetToRows(latestRawSheets['Atendimentos']||[]), h=rows[0]||[];
-    var iData=atendimentoColIndex(h,'data'), iNome=atendimentoColIndex(h,'nome'), iProf=atendimentoColIndex(h,'profissional'), iEquipe=equipeColIndex(h);
-    if(iData<0||iNome<0) return [];
-    var eqs=agendamentoConfig.equipe==='todas'?EQUIPES:EQUIPES.filter(function(e){return e.key===agendamentoConfig.equipe;});
-    var pf=normalizeText(agendamentoConfig.profissional), mapa={};
-    rows.slice(1).forEach(function(r){
-      var nome=String(r[iNome]||'').trim(), d=parseBRDate(r[iData]), prof=iProf>=0?String(r[iProf]||'').trim():'';
-      if(!nome||!d) return;
-      if(iEquipe>=0 && eqs.length && !eqs.some(function(e){return normalizeText(r[iEquipe]).indexOf(normalizeText(e.matchKeyword))!==-1;})) return;
-      if(pf && normalizeText(prof)!==pf) return;
-      var k=nome.toUpperCase(); if(!mapa[k]||d>mapa[k].ultima) mapa[k]={nome:nome,ultima:d,profissional:prof};
-    });
-    var intervalo=Math.max(1,Math.min(365,parseInt(agendamentoConfig.intervaloDias,10)||30));
-    var limiteDia=Math.max(1,Math.min(100,parseInt(agendamentoConfig.consultasPorDia,10)||8));
-    var diasSelecionados = diasAgendamentoSelecionados();
-    var hoje=new Date(); hoje.setHours(0,0,0,0);
-    var ocupacao={};
-    function proximaDataPermitida(base){
-      var prev=new Date(base.getTime()); prev.setHours(0,0,0,0);
-      while(prev <= hoje || diasSelecionados.indexOf(prev.getDay()) < 0 || (ocupacao[prev.getTime()]||0) >= limiteDia){
-        prev.setDate(prev.getDate()+1);
-      }
-      ocupacao[prev.getTime()] = (ocupacao[prev.getTime()]||0) + 1;
-      return prev;
-    }
-    // A fila é ordenada pelo maior atraso antes de distribuir os horários.
-    // Assim, quem está há mais dias sem consulta recebe a primeira vaga
-    // disponível, respeitando os dias escolhidos e o limite diário.
-    var fila = Object.keys(mapa).map(function(k){
-      var p=mapa[k];
-      var diasSemConsulta=Math.max(0,Math.floor((hoje-p.ultima)/(24*60*60*1000)));
-      return {
-        nome:p.nome,
-        profissional:p.profissional||agendamentoConfig.profissional||'—',
-        ultima:p.ultima,
-        diasSemConsulta:diasSemConsulta
-      };
-    }).sort(function(a,b){
-      return b.diasSemConsulta-a.diasSemConsulta
-        || a.ultima-b.ultima
-        || a.nome.localeCompare(b.nome,'pt-BR');
-    });
-
-    return fila.map(function(p){
-      var base=new Date(p.ultima.getTime());
-      base.setDate(base.getDate()+intervalo);
-      var prev=proximaDataPermitida(base);
-      return {
-        nome:p.nome,
-        profissional:p.profissional,
-        ultima:p.ultima,
-        diasSemConsulta:p.diasSemConsulta,
-        prevista:prev,
-        intervalo:intervalo
-      };
-    }).sort(function(a,b){
-      return a.prevista-b.prevista
-        || b.diasSemConsulta-a.diasSemConsulta
-        || a.nome.localeCompare(b.nome,'pt-BR');
-    });
-  }
-  function renderAgendamentoConfig(){
-    var eq=document.getElementById('agendamentoEquipe'), pf=document.getElementById('agendamentoProfissional'); if(!eq||!pf) return;
-    eq.innerHTML=EQUIPES.map(function(e){return '<option value="'+escapeHtml(e.key)+'">'+escapeHtml(e.label)+'</option>';}).join('')+'<option value="todas">Todas</option>';
-    pf.innerHTML='<option value="">Todos os profissionais</option>'+nomesProfissionaisAgendamento().map(function(n){return '<option value="'+escapeHtml(n)+'">'+escapeHtml(n)+'</option>';}).join('');
-    eq.value=agendamentoConfig.equipe;
-    pf.value=agendamentoConfig.profissional;
-    sincronizarPillsDias();
-    document.getElementById('agendamentoIntervalo').value=agendamentoConfig.intervaloDias;
-    document.getElementById('agendamentoConsultasDia').value=agendamentoConfig.consultasPorDia || 8;
-  }
-  function renderAgendamento(){
-    var el=document.getElementById('agendamentoTabela'), resumo=document.getElementById('agendamentoResumo'); if(!el||!resumo) return;
-    var rows=dadosAgendamento();
-    var nomesDias = diasAgendamentoSelecionados().map(function(d){ return DIAS_SEMANA_AGENDAMENTO[d]; }).join(', ');
-    resumo.textContent=rows.length+' paciente'+(rows.length===1?'':'s')+' na agenda · '+nomesDias+' · intervalo de '+agendamentoConfig.intervaloDias+' dia'+(Number(agendamentoConfig.intervaloDias)===1?'':'s')+' · máximo de '+(agendamentoConfig.consultasPorDia||8)+' por dia';
-    if(!rows.length){el.innerHTML='<div class="list-placeholder">Nenhum paciente encontrado para os filtros atuais.</div>';return;}
-    el.innerHTML='<div class="table-wrap"><table class="data-table agendamento-table"><thead><tr><th>Paciente</th><th>Profissional</th><th>Dias sem consulta</th><th>Última consulta</th><th>Próximo agendamento</th><th>Intervalo</th></tr></thead><tbody>'+rows.map(function(r){return '<tr><td>'+escapeHtml(r.nome)+'</td><td>'+escapeHtml(r.profissional)+'</td><td>'+r.diasSemConsulta+' dias</td><td>'+fmtBRDate(r.ultima)+'</td><td><b>'+fmtBRDate(r.prevista)+'</b></td><td>'+r.intervalo+' dias</td></tr>';}).join('')+'</tbody></table></div>';
-  }
-  var agendamentoBtn=document.querySelector('.tab[data-tab="agendamento"]');
-  var configuracoesBtn=document.querySelector('.tab[data-tab="configuracoes"]');
-  document.querySelectorAll('#agendamentoDias .weekday-pill').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      var dia = Number(btn.getAttribute('data-day'));
-      var atuais = diasAgendamentoSelecionados();
-      if(atuais.indexOf(dia) >= 0){
-        if(atuais.length === 1) return;
-        agendamentoConfig.diasSemana = atuais.filter(function(d){ return d !== dia; });
-      } else {
-        agendamentoConfig.diasSemana = atuais.concat([dia]).sort(function(a,b){ return a-b; });
-      }
-      sincronizarPillsDias();
-    });
-  });
-  var salvarAgendamentoBtn=document.getElementById('salvarAgendamento');
-  if(salvarAgendamentoBtn) salvarAgendamentoBtn.addEventListener('click',function(){
-    agendamentoConfig.equipe=document.getElementById('agendamentoEquipe').value;
-    agendamentoConfig.profissional=document.getElementById('agendamentoProfissional').value;
-    agendamentoConfig.diasSemana=diasAgendamentoSelecionados();
-    agendamentoConfig.intervaloDias=Math.max(1,Math.min(365,Number(document.getElementById('agendamentoIntervalo').value)||30));
-    agendamentoConfig.consultasPorDia=Math.max(1,Math.min(100,Number(document.getElementById('agendamentoConsultasDia').value)||8));
-    salvarAgendamentoConfig();renderAgendamento();this.textContent='Configurações salvas';var b=this;setTimeout(function(){b.textContent='Salvar configurações';},1600);
-  });
-
   // ---------- Tabs ----------
-  var FILTER_BAR_TABS = {geral:true, m1:true, m2:true, tendencia:true, profissionais:true, analises:false, agendamento:false, configuracoes:false};
+  var FILTER_BAR_TABS = {geral:true, m1:true, m2:true, tendencia:true, profissionais:true};
   document.querySelectorAll('.tab').forEach(function(btn){
     btn.addEventListener('click', function(){
       document.querySelectorAll('.tab').forEach(function(b){ b.classList.toggle('active', b===btn); });
@@ -4450,13 +4301,6 @@
       if(target === 'analises'){
         renderAnalises(analisesDataAtual);
       }
-      if(target === 'agendamento'){
-        renderAgendamentoConfig();
-        renderAgendamento();
-      }
-      if(target === 'configuracoes'){
-        renderAgendamentoConfig();
-      }
     });
   });
 
@@ -4468,8 +4312,6 @@
     // recalculada quando vem de aplicarMesReferencia (ver chamadas abaixo).
     renderPerformanceProfissionais(performanceProfissionais || []);
     renderAnalises(analisesData || null);
-    renderAgendamentoConfig();
-    renderAgendamento();
     document.getElementById('statusState').style.display = 'none';
     populateQuadSelect();
     document.getElementById('topEquipe').textContent = record.equipe || '—';
