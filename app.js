@@ -96,6 +96,15 @@
     var fim = new Date(d.getFullYear(), d.getMonth()+1, 0, 23,59,59,999);
     return {inicio: inicio, fim: fim};
   }
+  // Um mês é "futuro" (ainda não fechou) quando seu último dia ainda não
+  // chegou — usado pra marcar, no gráfico de Tendência, os pontos que na
+  // verdade são projeção (o mês âncora pode ir até o fim do quadrimestre
+  // selecionado, mesmo que ele ainda não tenha terminado — ver
+  // anchorMonthDate logo abaixo).
+  function isMesFuturo(d){
+    var fimMes = new Date(d.getFullYear(), d.getMonth()+1, 0, 23,59,59,999);
+    return fimMes > new Date();
+  }
   // Mês "âncora" usado pela aba Tendência: o mais recente dos meses
   // escolhidos, se houver algum, ou o último mês do quadrimestre
   // selecionado.
@@ -1500,6 +1509,361 @@
       });
     }, 50);
   }
+
+  // ---------- Aba "Análises" (perfil de paciente / tempo entre consultas) ----------
+  // Diferente das outras abas, aqui NÃO se aplica o filtro de Quadrimestre/
+  // Mês do topo: intervalo entre consultas, funil de abandono etc. olham
+  // pro HISTÓRICO INTEIRO do paciente na equipe selecionada (wb.Sheets já
+  // vem filtrado por equipe — ver fetchAndLoad/filtrarLinhasPorEquipe —,
+  // só não filtramos mais por período aqui).
+  var DIA_MS = 24*60*60*1000;
+  function diffDias(a,b){ return Math.round((b-a)/DIA_MS); }
+  function mediana(arr){
+    if(!arr || !arr.length) return null;
+    var s = arr.slice().sort(function(a,b){ return a-b; });
+    var mid = Math.floor(s.length/2);
+    return s.length%2 ? s[mid] : (s[mid-1]+s[mid])/2;
+  }
+  function percentil(arr, p){
+    if(!arr || !arr.length) return null;
+    var s = arr.slice().sort(function(a,b){ return a-b; });
+    var idx = (s.length-1)*p;
+    var lo = Math.floor(idx), hi = Math.ceil(idx);
+    if(lo===hi) return s[lo];
+    return s[lo] + (s[hi]-s[lo])*(idx-lo);
+  }
+  var analisesChartInstances = [];
+  var analisesDataAtual = null;
+
+  // Monta, por paciente (nome em maiúsculas), a lista ORDENADA de datas de
+  // atendimento e o conjunto de profissionais que o atenderam — base pra
+  // todas as análises abaixo. Usa a aba Atendimentos inteira (sem filtro
+  // de período), já filtrada por equipe.
+  function construirHistoricosPacientes(wb){
+    var ws = wb && wb.Sheets ? wb.Sheets[suffixedName("Atendimentos")] : null;
+    var rows = ws ? sheetToRows(ws) : [];
+    var header = rows[0] || [];
+    var iData = colIndex(header, "data_hora");
+    var iNome = colIndex(header, "nome");
+    var iProf = colIndex(header, "profissional");
+    if(iData < 0 || iNome < 0) return [];
+    var porPaciente = {};
+    rows.slice(1).forEach(function(r){
+      var nome = String(r[iNome]||"").trim();
+      var d = parseBRDate(r[iData]);
+      if(!nome || !d) return;
+      var chave = nome.toUpperCase();
+      if(!porPaciente[chave]) porPaciente[chave] = {nome:nome, datas:[], profissionais:{}};
+      porPaciente[chave].datas.push(d);
+      if(iProf >= 0){
+        var prof = String(r[iProf]||"").trim();
+        if(prof) porPaciente[chave].profissionais[prof] = true;
+      }
+    });
+    return Object.keys(porPaciente).map(function(k){
+      var p = porPaciente[k];
+      p.datas.sort(function(a,b){ return a-b; });
+      return p;
+    });
+  }
+
+  function calcularAnalises(wb){
+    var pacientes = construirHistoricosPacientes(wb);
+    if(!pacientes.length) return {totalPacientes:0, pacientes:[]};
+
+    // Intervalo (em dias) entre 1ª→2ª, 2ª→3ª, 3ª→4ª consulta de cada
+    // paciente que já teve consultas suficientes pra cada transição.
+    var brutos = {t12:[], t23:[], t34:[]};
+    pacientes.forEach(function(p){
+      var d = p.datas;
+      if(d.length>=2) brutos.t12.push(diffDias(d[0], d[1]));
+      if(d.length>=3) brutos.t23.push(diffDias(d[1], d[2]));
+      if(d.length>=4) brutos.t34.push(diffDias(d[2], d[3]));
+    });
+    function resumo(arr){
+      if(!arr.length) return null;
+      return {n:arr.length, min:Math.min.apply(null,arr), p25:percentil(arr,0.25), mediana:mediana(arr), p75:percentil(arr,0.75), max:Math.max.apply(null,arr)};
+    }
+    var intervalos = [
+      {chave:'t12', label:'1ª → 2ª consulta', stats: resumo(brutos.t12)},
+      {chave:'t23', label:'2ª → 3ª consulta', stats: resumo(brutos.t23)},
+      {chave:'t34', label:'3ª → 4ª consulta', stats: resumo(brutos.t34)}
+    ];
+
+    // Funil de abandono: quantos pacientes chegam a cada "degrau".
+    var funil = [
+      {label:'1ª consulta', n: pacientes.length},
+      {label:'2ª consulta', n: pacientes.filter(function(p){return p.datas.length>=2;}).length},
+      {label:'3ª consulta', n: pacientes.filter(function(p){return p.datas.length>=3;}).length},
+      {label:'4ª+ consulta', n: pacientes.filter(function(p){return p.datas.length>=4;}).length}
+    ];
+
+    // Perfil de frequência: única / ocasional (2-3) / consolidado (4+).
+    var perfilFreq = {unica:0, ocasional:0, consolidado:0};
+    pacientes.forEach(function(p){
+      var n = p.datas.length;
+      if(n===1) perfilFreq.unica++;
+      else if(n===2||n===3) perfilFreq.ocasional++;
+      else perfilFreq.consolidado++;
+    });
+
+    // Sazonalidade: nº de atendimentos por dia da semana (todas as datas,
+    // não só a 1ª consulta).
+    var DIAS_SEMANA = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+    var porDiaSemana = [0,0,0,0,0,0,0];
+    pacientes.forEach(function(p){ p.datas.forEach(function(d){ porDiaSemana[d.getDay()]++; }); });
+
+    // Comparativo por profissional: mediana de dias até a 2ª consulta,
+    // atribuída a cada profissional que atendeu o paciente (aproximação —
+    // a aba não diz qual profissional fez qual consulta específica).
+    var porProf = {};
+    pacientes.forEach(function(p){
+      if(p.datas.length < 2) return;
+      var dias = diffDias(p.datas[0], p.datas[1]);
+      Object.keys(p.profissionais).forEach(function(prof){
+        if(!porProf[prof]) porProf[prof] = [];
+        porProf[prof].push(dias);
+      });
+    });
+    var comparativoProf = Object.keys(porProf).map(function(prof){
+      return {profissional:prof, n:porProf[prof].length, medianaDias: mediana(porProf[prof])};
+    }).sort(function(a,b){ return a.medianaDias - b.medianaDias; });
+
+    // Pacientes em risco de abandono: já romperam o "silêncio" normal (mais
+    // tempo sem voltar do que a mediana histórica de 1ª→2ª consulta) mas
+    // ainda dentro de uma janela em que o retorno é plausível (até 3x essa
+    // mediana) — depois disso, tratamos como provável abandono já
+    // consumado, não mais "risco".
+    var medianaBase = intervalos[0].stats ? intervalos[0].stats.mediana : null;
+    var hoje = new Date();
+    var risco = [];
+    if(medianaBase){
+      pacientes.forEach(function(p){
+        if(p.datas.length < 2) return;
+        var ultima = p.datas[p.datas.length-1];
+        var diasDesde = diffDias(ultima, hoje);
+        if(diasDesde > medianaBase && diasDesde <= medianaBase*3){
+          risco.push({nome:p.nome, diasDesde:diasDesde, ultima:ultima, totalConsultas:p.datas.length});
+        }
+      });
+      risco.sort(function(a,b){ return b.diasDesde - a.diasDesde; });
+    }
+
+    return {
+      totalPacientes: pacientes.length,
+      intervalos: intervalos,
+      funil: funil,
+      perfilFreq: perfilFreq,
+      diasSemanaLabels: DIAS_SEMANA,
+      porDiaSemana: porDiaSemana,
+      comparativoProf: comparativoProf,
+      medianaBase: medianaBase,
+      risco: risco
+    };
+  }
+
+  // "Boxplot" simplificado em SVG (min/p25/mediana/p75/max) pros 3
+  // intervalos — sem depender de nenhuma lib de gráfico nova.
+  function boxplotDiasSvg(intervalos){
+    var comDados = intervalos.filter(function(it){ return it.stats; });
+    var W = 640, rowH = 56, padTop = 16, padLeft = 128, padRight = 60;
+    var H = padTop*2 + rowH*intervalos.length;
+    var maxVal = comDados.length ? Math.max.apply(null, comDados.map(function(it){ return it.stats.max; })) : 1;
+    if(maxVal <= 0) maxVal = 1;
+    var plotW = W - padLeft - padRight;
+    function x(v){ return padLeft + (v/maxVal)*plotW; }
+    var rows = intervalos.map(function(it,i){
+      var cy = padTop + rowH*i + rowH/2;
+      var label = '<text x="6" y="'+cy+'" font-size="11.5" font-weight="600" fill="var(--ink)" dominant-baseline="middle">'+escapeHtml(it.label)+'</text>';
+      if(!it.stats){
+        return '<g>'+label+'<text x="'+padLeft+'" y="'+cy+'" font-size="10.5" fill="var(--ink-soft)" dominant-baseline="middle">Sem pacientes suficientes ainda</text></g>';
+      }
+      var s = it.stats, boxH = 18;
+      var whisker = '<line x1="'+x(s.min)+'" y1="'+cy+'" x2="'+x(s.max)+'" y2="'+cy+'" stroke="var(--ink-soft)" stroke-width="1.4"/>'
+        + '<line x1="'+x(s.min)+'" y1="'+(cy-6)+'" x2="'+x(s.min)+'" y2="'+(cy+6)+'" stroke="var(--ink-soft)" stroke-width="1.4"/>'
+        + '<line x1="'+x(s.max)+'" y1="'+(cy-6)+'" x2="'+x(s.max)+'" y2="'+(cy+6)+'" stroke="var(--ink-soft)" stroke-width="1.4"/>';
+      var boxX = x(s.p25), boxW = Math.max(2, x(s.p75)-x(s.p25));
+      var box = '<rect x="'+boxX+'" y="'+(cy-boxH/2)+'" width="'+boxW+'" height="'+boxH+'" fill="#2F6F5E" opacity="0.25" stroke="#2F6F5E" stroke-width="1.2"/>';
+      var medLine = '<line x1="'+x(s.mediana)+'" y1="'+(cy-boxH/2)+'" x2="'+x(s.mediana)+'" y2="'+(cy+boxH/2)+'" stroke="#2F6F5E" stroke-width="2.6"/>';
+      var valTxt = '<text x="'+(W-padRight+8)+'" y="'+(cy-3)+'" font-size="11" font-weight="700" fill="var(--ink)">'+fmtInt(Math.round(s.mediana))+' dias</text>'
+        + '<text x="'+(W-padRight+8)+'" y="'+(cy+11)+'" font-size="8.5" fill="var(--ink-soft)">mediana · n='+s.n+'</text>';
+      return '<g>'+label+whisker+box+medLine+valTxt+'</g>';
+    }).join('');
+    return '<svg class="spark-svg" viewBox="0 0 '+W+' '+H+'">'+rows+'</svg>';
+  }
+
+  // Funil de abandono: barras horizontais de largura proporcional ao 1º
+  // degrau (1ª consulta = 100%).
+  function funnelHtml(funil){
+    var base = (funil[0] && funil[0].n) || 0;
+    var cores = ['#2F6F5E','#6B8F71','#C68A3D','#B5474B'];
+    return '<div>' + funil.map(function(f,i){
+      var pct = base ? Math.round(f.n/base*100) : 0;
+      return '<div style="margin-bottom:11px;">'
+        + '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">'
+        +   '<span>'+escapeHtml(f.label)+'</span><span><b>'+fmtInt(f.n)+'</b> pacientes · '+pct+'%</span>'
+        + '</div>'
+        + '<div style="background:#EAEAE3;border-radius:6px;height:14px;overflow:hidden;">'
+        +   '<div style="width:'+pct+'%;height:100%;background:'+(cores[i]||'#2F6F5E')+';"></div>'
+        + '</div>'
+        + '</div>';
+    }).join('') + '</div>';
+  }
+
+  function riscoTableHtml(risco){
+    if(!risco.length) return '<p class="footnote">Nenhum paciente na janela de risco no momento (ou ainda não há intervalo histórico suficiente pra calcular).</p>';
+    var linhas = risco.slice(0,40).map(function(r){
+      return '<tr><td>'+escapeHtml(r.nome)+'</td><td>'+fmtInt(r.totalConsultas)+'</td><td>'+fmtBRDate(r.ultima)+'</td><td>'+fmtInt(r.diasDesde)+' dias</td></tr>';
+    }).join('');
+    return '<div class="table-wrap"><table class="data-table"><thead><tr>'
+      + '<th>Paciente</th><th>Consultas</th><th>Última consulta</th><th>Dias sem voltar</th>'
+      + '</tr></thead><tbody>'+linhas+'</tbody></table></div>'
+      + (risco.length>40 ? '<p class="footnote">Mostrando os 40 pacientes há mais tempo sem voltar (de '+risco.length+' no total).</p>' : '');
+  }
+
+  function renderAnalises(data){
+    analisesDataAtual = data;
+    analisesChartInstances.forEach(function(c){ try{ c.destroy(); }catch(e){} });
+    analisesChartInstances = [];
+
+    var elIntervalos = document.getElementById('analisesIntervalos');
+    var elFunil = document.getElementById('analisesFunil');
+    var elRisco = document.getElementById('analisesRisco');
+    var elTotal = document.getElementById('analisesTotalPacientes');
+    if(!elIntervalos && !elFunil) return; // painel ainda não injetado no DOM
+
+    if(!data || !data.totalPacientes){
+      if(elTotal) elTotal.textContent = '—';
+      if(elIntervalos) elIntervalos.innerHTML = '<p class="footnote">Ainda não há dados suficientes pra esta equipe/período.</p>';
+      if(elFunil) elFunil.innerHTML = '';
+      if(elRisco) elRisco.innerHTML = '';
+      return;
+    }
+
+    if(elTotal) elTotal.textContent = fmtInt(data.totalPacientes);
+    if(elIntervalos) elIntervalos.innerHTML = boxplotDiasSvg(data.intervalos);
+    if(elFunil) elFunil.innerHTML = funnelHtml(data.funil);
+    if(elRisco) elRisco.innerHTML = riscoTableHtml(data.risco);
+
+    var freqEl = document.getElementById('analisesFreqLegenda');
+    if(freqEl){
+      var f = data.perfilFreq, tot = f.unica+f.ocasional+f.consolidado;
+      function pct(n){ return tot ? Math.round(n/tot*100) : 0; }
+      freqEl.innerHTML = ''
+        + '<div class="kpi-item"><label>Consulta única</label><span>'+fmtInt(f.unica)+' ('+pct(f.unica)+'%)</span></div>'
+        + '<div class="kpi-item"><label>Retorno ocasional (2-3)</label><span>'+fmtInt(f.ocasional)+' ('+pct(f.ocasional)+'%)</span></div>'
+        + '<div class="kpi-item"><label>Vínculo consolidado (4+)</label><span>'+fmtInt(f.consolidado)+' ('+pct(f.consolidado)+'%)</span></div>';
+    }
+
+    if(typeof Chart === 'undefined') return;
+    setTimeout(function(){
+      var freqCanvas = document.getElementById('analisesFreqDonut');
+      if(freqCanvas){
+        var f = data.perfilFreq;
+        analisesChartInstances.push(new Chart(freqCanvas, {
+          type: 'doughnut',
+          data: {
+            labels: ['Consulta única','Retorno ocasional (2-3)','Vínculo consolidado (4+)'],
+            datasets: [{ data: [f.unica,f.ocasional,f.consolidado], backgroundColor: ['#B5474B','#C68A3D','#2F6F5E'], borderWidth: 0 }]
+          },
+          options: { cutout: '65%', responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels:{boxWidth:10,font:{size:10}} } } }
+        }));
+      }
+      var semanaCanvas = document.getElementById('analisesDiaSemana');
+      if(semanaCanvas){
+        analisesChartInstances.push(new Chart(semanaCanvas, {
+          type: 'bar',
+          data: {
+            labels: data.diasSemanaLabels,
+            datasets: [{ data: data.porDiaSemana, backgroundColor: '#2F6F5E', borderRadius: 4 }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true } }
+          }
+        }));
+      }
+      var compCanvas = document.getElementById('analisesCompProf');
+      if(compCanvas && data.comparativoProf.length){
+        var compH = Math.max(160, data.comparativoProf.length*36 + 40);
+        var wrap = compCanvas.parentElement;
+        if(wrap) wrap.style.height = compH+'px';
+        compCanvas.style.height = compH+'px';
+        analisesChartInstances.push(new Chart(compCanvas, {
+          type: 'bar',
+          data: {
+            labels: data.comparativoProf.map(function(p){ return p.profissional; }),
+            datasets: [{ label:'Mediana de dias até a 2ª consulta', data: data.comparativoProf.map(function(p){ return Math.round(p.medianaDias); }), backgroundColor:'#C68A3D', borderRadius:4 }]
+          },
+          options: {
+            indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { ticks: { autoSkip:false } } }
+          }
+        }));
+      } else if(compCanvas){
+        var wrap2 = compCanvas.parentElement;
+        if(wrap2) wrap2.innerHTML = '<p class="footnote">Sem dados suficientes ainda.</p>';
+      }
+    }, 50);
+  }
+
+  // Injeta o botão da aba e o painel "Análises" no DOM (o HTML base do
+  // painel não precisa ser editado — a estrutura é montada aqui e
+  // aproveita as mesmas classes .tab/.tab-panel/.card já usadas nas
+  // outras abas, então herda o mesmo visual sem precisar de CSS extra).
+  function injetarAbaAnalises(){
+    var tabRef = document.querySelector('.tab');
+    var panelRef = document.querySelector('.tab-panel');
+    if(!tabRef || !panelRef || document.getElementById('tabAnalises')) return;
+
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'tab';
+    btn.setAttribute('data-tab', 'analises');
+    btn.textContent = 'Análises';
+    tabRef.parentElement.appendChild(btn);
+
+    var panel = document.createElement('div');
+    panel.className = 'tab-panel';
+    panel.id = 'tabAnalises';
+    panel.innerHTML =
+        '<div class="card" style="margin-bottom:16px;">'
+      +   '<h3 style="margin:0 0 4px;">Perfil de pacientes — '+'<span id="analisesTotalPacientes">—</span> pacientes no histórico</h3>'
+      +   '<p class="footnote" style="margin:0;">Estas análises olham pro histórico completo de atendimentos da equipe selecionada (não usam o filtro de Quadrimestre/Mês do topo).</p>'
+      + '</div>'
+      + '<div class="card" style="margin-bottom:16px;">'
+      +   '<h4 style="margin-top:0;">Tempo entre consultas</h4>'
+      +   '<div id="analisesIntervalos"></div>'
+      + '</div>'
+      + '<div class="card" style="margin-bottom:16px;">'
+      +   '<h4 style="margin-top:0;">Funil de abandono</h4>'
+      +   '<div id="analisesFunil"></div>'
+      + '</div>'
+      + '<div class="card" style="margin-bottom:16px;">'
+      +   '<h4 style="margin-top:0;">Perfil de frequência</h4>'
+      +   '<div class="card-charts-layout">'
+      +     '<div class="chart-box"><canvas id="analisesFreqDonut"></canvas></div>'
+      +     '<div id="analisesFreqLegenda" class="kpi-container" style="flex-direction:column;align-items:stretch;gap:8px;"></div>'
+      +   '</div>'
+      + '</div>'
+      + '<div class="card" style="margin-bottom:16px;">'
+      +   '<h4 style="margin-top:0;">Atendimentos por dia da semana</h4>'
+      +   '<div class="chart-box" style="height:220px;"><canvas id="analisesDiaSemana"></canvas></div>'
+      + '</div>'
+      + '<div class="card" style="margin-bottom:16px;">'
+      +   '<h4 style="margin-top:0;">Comparativo por profissional — tempo até a 2ª consulta</h4>'
+      +   '<div class="chart-box" style="height:220px;"><canvas id="analisesCompProf"></canvas></div>'
+      + '</div>'
+      + '<div class="card">'
+      +   '<h4 style="margin-top:0;">Pacientes em risco de abandono</h4>'
+      +   '<p class="footnote" style="margin-top:0;">Pacientes com 2+ consultas cuja última visita já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível.</p>'
+      +   '<div id="analisesRisco"></div>'
+      + '</div>';
+    panelRef.parentElement.appendChild(panel);
+  }
+  injetarAbaAnalises();
 
   // ---------- Listas ----------
   // "Pessoas atendidas" com filtro de mês PRÓPRIO (independente do filtro
@@ -3168,7 +3532,20 @@
       var y = plotBottom - ((p.y-min)/(max-min))*(plotBottom-padTop);
       return {x:x,y:y};
     });
-    var path = coords.map(function(c,i){ return (i===0?"M ":"L ")+c.x+" "+c.y; }).join(" ");
+    // Meses "futuros" (ver isMesFuturo) são projeção, não dado real — a
+    // linha principal ("oficial") vira tracejada a partir do primeiro
+    // deles. Como a série é sempre cronológica, os futuros só aparecem
+    // no fim; separa em dois trechos (sólido até o último mês real,
+    // tracejado dali em diante) que se conectam no mesmo ponto pra não
+    // deixar um buraco na linha.
+    var firstFutureIdx = -1;
+    for(var fi=0; fi<points.length; fi++){ if(points[fi].futuro){ firstFutureIdx = fi; break; } }
+    var coordsSolid = firstFutureIdx === -1 ? coords : coords.slice(0, firstFutureIdx+1);
+    var coordsProjecao = (firstFutureIdx > 0) ? coords.slice(firstFutureIdx) : [];
+    var path = coordsSolid.map(function(c,i){ return (i===0?"M ":"L ")+c.x+" "+c.y; }).join(" ");
+    var pathProjecao = coordsProjecao.length >= 2
+      ? coordsProjecao.map(function(c,i){ return (i===0?"M ":"L ")+c.x+" "+c.y; }).join(" ")
+      : '';
     // Pontos e rótulo numérico de cada mês: coloridos pela classificação
     // (Regular/Suficiente/Bom/Ótimo) DAQUELE valor específico — a linha
     // que os conecta continua na cor original do gráfico (só os valores
@@ -3260,9 +3637,13 @@
         + '</g>';
     }
 
+    var projecaoSvg = pathProjecao
+      ? '<path d="'+pathProjecao+'" fill="none" stroke="'+color+'" stroke-width="2" stroke-dasharray="7 5" stroke-linecap="round"/>'
+      : '';
+
     return '<svg class="spark-svg trend-interactive" viewBox="0 0 '+W+' '+(H+14)+'">'
       + avgAreaSvg
-      + '<path d="'+path+'" fill="none" stroke="'+color+'" stroke-width="2"/>' + pointsSvg
+      + '<path d="'+path+'" fill="none" stroke="'+color+'" stroke-width="2"/>' + projecaoSvg + pointsSvg
       + avgLineSvg + trendLineSvg + '</svg>';
   }
 
@@ -3345,16 +3726,20 @@
       if(target === 'profissionais'){
         renderPerformanceProfissionais(profListaAtual);
       }
+      if(target === 'analises'){
+        renderAnalises(analisesDataAtual);
+      }
     });
   });
 
   // ---------- Render ----------
-  function renderDashboard(record, serieTendencia, performanceProfissionais){
+  function renderDashboard(record, serieTendencia, performanceProfissionais, analisesData){
     serieTendencia = serieTendencia || [];
     // Ao reabrir uma leitura antiga do histórico (sem recalcular a partir
     // do cache bruto), a aba de Desempenho Profissional fica vazia — só é
     // recalculada quando vem de aplicarMesReferencia (ver chamadas abaixo).
     renderPerformanceProfissionais(performanceProfissionais || []);
+    renderAnalises(analisesData || null);
     document.getElementById('statusState').style.display = 'none';
     populateQuadSelect();
     document.getElementById('topEquipe').textContent = record.equipe || '—';
@@ -3486,13 +3871,13 @@
       + '<button type="button" id="trendPreliminarToggle" class="trend-preliminar-toggle" title="Mostrar a linha calculada só com os dados da planilha (tabela nominal), sem o override da aba Q2-26"><i></i>Preliminar</button>'
       + '<div class="trend-sub"><h4>M1 mês a mês</h4>'
         + '<p class="cur">Mês de referência ('+refMonthLabel()+'): '+fmtDec(d.m1,2)+'</p>'
-        + sparkline(serieTendencia.map(function(p){ return {y:p.m1, label:monthShortLabel(p.mes), value:fmtDec(p.m1,2), quadKey:quadKeyOfDate(p.mes), quadLabel:quadCode(p.mes), oficial:!!p.m1Oficial, yAlt:p.m1Calculado}; }).filter(function(p){return p.y!=null;}), '#153F35', {quadAvg:true, classify:classificarM1, hideAxis:true})
+        + sparkline(serieTendencia.map(function(p){ return {y:p.m1, label:monthShortLabel(p.mes), value:fmtDec(p.m1,2), quadKey:quadKeyOfDate(p.mes), quadLabel:quadCode(p.mes), oficial:!!p.m1Oficial, yAlt:p.m1Calculado, futuro:isMesFuturo(p.mes)}; }).filter(function(p){return p.y!=null;}), '#153F35', {quadAvg:true, classify:classificarM1, hideAxis:true})
         + '</div>'
       + '<div class="trend-sub"><h4>M2 (%) mês a mês</h4>'
         + '<p class="cur">Mês de referência ('+refMonthLabel()+'): '+fmtDec(d.m2,2)+'%</p>'
-        + sparkline(serieTendencia.map(function(p){ return {y:p.m2, label:monthShortLabel(p.mes), value:fmtDec(p.m2,2)+'%', quadKey:quadKeyOfDate(p.mes), quadLabel:quadCode(p.mes), oficial:!!p.m2Oficial, yAlt:p.m2Calculado}; }).filter(function(p){return p.y!=null;}), '#C68A3D', {quadAvg:true, suffix:'%', classify:classificarM2})
+        + sparkline(serieTendencia.map(function(p){ return {y:p.m2, label:monthShortLabel(p.mes), value:fmtDec(p.m2,2)+'%', quadKey:quadKeyOfDate(p.mes), quadLabel:quadCode(p.mes), oficial:!!p.m2Oficial, yAlt:p.m2Calculado, futuro:isMesFuturo(p.mes)}; }).filter(function(p){return p.y!=null;}), '#C68A3D', {quadAvg:true, suffix:'%', classify:classificarM2})
         + '</div>'
-      + '<p class="footnote">Cada ponto já é a janela de '+JANELA_MESES+' meses terminando naquele mês. Linha tracejada = média do quadrimestre no período exibido. O pill "Preliminar" (canto superior direito) mostra/esconde a linha calculada só com os dados da planilha (tabela nominal), sem o override da aba Q2-26 — os pontinhos marcam os meses em que ela diverge da linha oficial.</p>'
+      + '<p class="footnote">Cada ponto já é a janela de '+JANELA_MESES+' meses terminando naquele mês. Linha tracejada fina = média do quadrimestre no período exibido; o trecho tracejado mais grosso no final da linha principal = meses que ainda não terminaram (projeção). O pill "Preliminar" (canto superior direito) mostra/esconde a linha calculada só com os dados da planilha (tabela nominal), sem o override da aba Q2-26 — os pontinhos marcam os meses em que ela diverge da linha oficial.</p>'
       + '</div>';
     document.getElementById('trendRow').innerHTML = trend;
     setupTrendInteractivity();
@@ -3745,6 +4130,7 @@
     }
 
     var performanceProfissionais = calcularPerformanceProfissionais(latestWb, periodoDatas);
+    var analisesData = calcularAnalises(latestWb);
 
     populateSheetsCache(latestWb);
     // "Pessoas atendidas" agora NÃO usa mais extracted.pessoasAtendidas
@@ -3773,7 +4159,7 @@
         notes: extracted.notes,
         periodo: periodo
       };
-      renderDashboard(record, serie, performanceProfissionais);
+      renderDashboard(record, serie, performanceProfissionais, analisesData);
       return;
     }
 
@@ -3787,7 +4173,7 @@
     if(lastForEquipe && sameData(lastForEquipe.data, extracted.data)){
       currentRecordId = lastForEquipe.id;
       fetchStatusEl.textContent = 'Dados sem alterações desde a última leitura.';
-      renderDashboard(lastForEquipe, serie, performanceProfissionais);
+      renderDashboard(lastForEquipe, serie, performanceProfissionais, analisesData);
       return;
     }
 
@@ -3804,7 +4190,7 @@
     saveHistoryArray(arr).then(function(){
       currentRecordId = record.id;
       fetchStatusEl.textContent = 'Planilha lida e calculada com sucesso.';
-      renderDashboard(record, serie, performanceProfissionais);
+      renderDashboard(record, serie, performanceProfissionais, analisesData);
     });
   }
 
