@@ -1760,7 +1760,7 @@
       var freqCanvas = document.getElementById('analisesFreqDonut');
       if(freqCanvas){
         var f = data.perfilFreq;
-        analisesChartInstances.push(new Chart(freqCanvas, {
+        var freqChart = new Chart(freqCanvas, {
           type: 'doughnut',
           data: {
             labels: ['Consulta única','Retorno ocasional (2-3)','Vínculo consolidado (4+)'],
@@ -1773,15 +1773,17 @@
               tooltip: { bodyFont:{size:13}, titleFont:{size:13} }
             }
           }
-        }));
+        });
+        analisesChartInstances.push(freqChart);
+        setTimeout(function(){ try{ freqChart.resize(); }catch(e){} }, 0);
       }
       var semanaCanvas = document.getElementById('analisesDiaSemana');
       if(semanaCanvas){
-        analisesChartInstances.push(new Chart(semanaCanvas, {
+        var semanaChart = new Chart(semanaCanvas, {
           type: 'bar',
           data: {
             labels: data.diasSemanaLabels,
-            datasets: [{ data: data.porDiaSemana, backgroundColor: '#2F6F5E', borderRadius: 4 }]
+            datasets: [{ data: data.porDiaSemana, backgroundColor: '#2F6F5E', borderRadius: 4, categoryPercentage:0.7, barPercentage:0.9 }]
           },
           options: {
             responsive: true, maintainAspectRatio: false,
@@ -1791,14 +1793,19 @@
               x: { ticks: { font:{size:13} } }
             }
           }
-        }));
+        });
+        analisesChartInstances.push(semanaChart);
+        // Mesmo ajuste do gráfico de comparativo por profissional logo
+        // abaixo: se o canvas é criado com o card ainda "recuado" (ex.: a
+        // aba Análises acabou de ficar visível e o layout do card vizinho
+        // ainda não assentou), o Chart.js às vezes trava com a largura
+        // antiga e as barras ficam espremidas do lado esquerdo, sobrando
+        // espaço vazio à direita. Forçar um resize() explícito no próximo
+        // tick corrige isso.
+        setTimeout(function(){ try{ semanaChart.resize(); }catch(e){} }, 0);
       }
       var compCanvas = document.getElementById('analisesCompProf');
       if(compCanvas && data.comparativoProf.length){
-        var compH = Math.max(160, data.comparativoProf.length*36 + 40);
-        var wrap = compCanvas.parentElement;
-        if(wrap) wrap.style.height = compH+'px';
-        compCanvas.style.height = compH+'px';
         var compChart = new Chart(compCanvas, {
           type: 'bar',
           data: {
@@ -1806,19 +1813,19 @@
             datasets: [{ label:'Mediana de dias até a 2ª consulta', data: data.comparativoProf.map(function(p){ return Math.round(p.medianaDias); }), backgroundColor:'#C68A3D', borderRadius:4, categoryPercentage:0.7, barPercentage:0.9 }]
           },
           options: {
-            indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+            responsive: true, maintainAspectRatio: false,
             plugins: { legend: { display: false }, tooltip: { bodyFont:{size:13}, titleFont:{size:13} } },
             scales: {
-              y: { ticks: { autoSkip:false, font:{size:13} } },
-              x: { ticks: { font:{size:13} } }
+              x: { ticks: { autoSkip:false, font:{size:13}, maxRotation:40, minRotation:0 } },
+              y: { beginAtZero: true, ticks: { font:{size:13} } }
             }
           }
         });
         analisesChartInstances.push(compChart);
-        // Redimensiona explicitamente depois que a altura do container já
-        // foi ajustada acima — em alguns navegadores o Chart.js não pega
-        // o novo tamanho sozinho se a altura mudou no mesmo instante em
-        // que o gráfico foi criado.
+        // Redimensiona explicitamente no próximo tick — em alguns
+        // navegadores o Chart.js não pega o tamanho certo do container se
+        // o gráfico foi criado no mesmo instante em que a aba ficou
+        // visível.
         setTimeout(function(){ try{ compChart.resize(); }catch(e){} }, 0);
       } else if(compCanvas){
         var wrap2 = compCanvas.parentElement;
