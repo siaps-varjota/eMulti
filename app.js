@@ -1603,6 +1603,7 @@
     var iData = colIndex(header, "data_hora");
     var iNome = colIndex(header, "nome");
     var iProf = colIndex(header, "profissional");
+    var iQtd = colIndex(header, "qtd_atendimentos");
     if(iData < 0 || iNome < 0) return [];
     // Com 2+ equipes selecionadas ao mesmo tempo neste filtro, um mesmo
     // paciente pode ter atendimentos vindos de equipes diferentes —
