@@ -211,6 +211,8 @@
         // (ou não) override oficial aplicado — ver aplicarOverrideOficial.
         m1Oficial: !!res.data.m1Oficial, m2Oficial: !!res.data.m2Oficial,
         numeradorM1Calculado: res.data.numeradorM1Calculado, denominadorM1Calculado: res.data.denominadorM1Calculado, m1Calculado: res.data.m1Calculado,
+        numeradorM2Calculado: res.data.numeradorM2Calculado, denominadorM2Calculado: res.data.denominadorM2Calculado, m2Calculado: res.data.m2Calculado,
+        // Componentes calculados usados nas colunas detalhadas do PDF.
         atendimentosIndividuaisCalculado: res.data.atendimentosIndividuais,
         participacoesColetivasCalculado: res.data.participacoesColetivas,
         pessoasDistintasCalculado: res.data.denominadorM1,
@@ -218,7 +220,6 @@
         atividadesCompartilhadasCalculado: res.data.atividadesCompartilhadas,
         reunioesTotaisCalculado: res.data.reunioesTotais,
         reunioesCompartilhadasCalculado: res.data.reunioesCompartilhadas,
-        numeradorM2Calculado: res.data.numeradorM2Calculado, denominadorM2Calculado: res.data.denominadorM2Calculado, m2Calculado: res.data.m2Calculado,
         janela:janela
       });
     }
@@ -438,9 +439,9 @@
   var listDateColIdx = {};
   var listMonthFilters = {};
   // Acha a coluna de data de uma lista bruta, testando os nomes usados
-  // nas abas de origem ("data" na maioria, "data_hora" em Atendimentos).
+  // nas abas de origem ("data" nas listas, inclusive na aba Atendimentos).
   function dateColIndexForList(headers){
-    var idx = colIndex(headers, "data_hora");
+    var idx = atendimentoColIndex(headers, "data");
     if(idx >= 0) return idx;
     return colIndex(headers, "data");
   }
@@ -678,7 +679,6 @@
     "MARCILENE ALVES DA SILVA",
     "HANNA LUIZA OLIVEIRA GOMES",
     "KARISE SANTOS VASCONCELOS",
-    "LETÍCIA EMILLY MESQUITA DE SOUSA",
     "ANNA MAEVILLY LIRA LOPES MARTINS"
   ].map(normalizeText);
   function ehProfissionalComparativoEmulti(nome){
@@ -944,6 +944,32 @@
     return rows;
   }
 
+  // A aba Atendimentos usa o cabeçalho atual: Tipo de Registro, Data,
+  // Status, Nome, Idade, Tipo de atendimento, Profissional, Equipe -
+  // Unidade, Qtd de atendimentos. Estes helpers aceitam também os nomes
+  // antigos para manter compatibilidade com cópias anteriores da planilha.
+  function atendimentoColIndex(headerRow, tipo){
+    var aliases = {
+      data: ['DATA','DATA_HORA','DATA E HORA'],
+      nome: ['NOME'],
+      profissional: ['PROFISSIONAL'],
+      quantidade: ['QTD DE ATENDIMENTOS','QTD_ATENDIMENTOS','QUANTIDADE DE ATENDIMENTOS','QUANTIDADE_ATENDIMENTOS']
+    };
+    var aceitos = aliases[tipo] || [];
+    for(var i=0;i<headerRow.length;i++){
+      var h = normalizeText(headerRow[i]).replace(/\s+/g,' ').trim();
+      var hUnderscore = h.replace(/ /g,'_');
+      if(aceitos.indexOf(h) >= 0 || aceitos.indexOf(hUnderscore) >= 0) return i;
+    }
+    return -1;
+  }
+  function quantidadeAtendimentos(row, idx){
+    if(idx == null || idx < 0) return 1;
+    var bruto = String(row[idx] == null ? '' : row[idx]).trim().replace(',','.');
+    var n = Number(bruto);
+    return isFinite(n) && n > 0 ? n : 1;
+  }
+
   // Datas nas abas brutas vêm como texto dd/mm/aaaa (é assim que o script
   // de extração grava). Também aceita aaaa-mm-dd como reforço, caso a
   // célula tenha sido digitada nesse formato.
@@ -964,19 +990,8 @@
     return dateVal && dateVal >= inicio && dateVal <= fim;
   }
   function colIndex(headerRow, name){
-    var aliases = {
-      data_hora: ['data_hora','data','date'],
-      equipe_unidade: ['equipe_unidade','equipe - unidade','equipe  - unidade','equipe/unidade'],
-      qtd_atendimentos: ['qtd_atendimentos','qtd de atendimentos','quantidade de atendimentos','atendimentos']
-    };
-    var wanted = String(name||'').trim().toLowerCase();
-    var candidates = aliases[wanted] || [wanted];
-    function key(v){ return String(v||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[ºª]/g,'').replace(/[-\s]+/g,'_'); }
     for(var i=0;i<headerRow.length;i++){
-      var actual = key(headerRow[i]);
-      for(var j=0;j<candidates.length;j++){
-        if(actual === key(candidates[j])) return i;
-      }
+      if(String(headerRow[i]||"").trim() === name) return i;
     }
     return -1;
   }
@@ -1027,10 +1042,7 @@
     "Atendimentos individuais compartilhados e compartilhamento de cuidado (PEC) NÃO entram no numerador do M2 aqui (a Lista de Atendimentos do e-SUS não indica se um atendimento individual teve mais de um profissional) — por isso o M2 calculado aqui tende a ficar ABAIXO do valor oficial do indicador.",
     "Atividade Coletiva só conta como 'compartilhada' aqui quando o tipo_atividade é Educação em saúde, Atendimento em grupo, Avaliação/Procedimento coletivo ou Mobilização social (códigos 04-07) E tem 2+ profissionais envolvidos — sem CBO/CNS de cada um, não dá pra confirmar que um deles é de fato cadastrado em eMulti, então ainda é uma aproximação.",
     "Reuniões (Resumo Reuniões) só contam oficialmente pra M2 quando são dos tipos 'Reunião de equipe', 'Reunião com outras equipes de saúde' ou 'Reunião intersetorial' (códigos 01-03) E registradas com o tema 'Discussão de Caso/Projeto Terapêutico Singular' — como a aba de reuniões não tem uma coluna de tema, esta extração conta qualquer reunião com 2+ profissionais, o que pode puxar o M2 um pouco PRA CIMA nesse componente específico.",
-    "'Desempenho quadrimestral' NÃO é uma fórmula oficial do Ministério da Saúde — é uma síntese própria: Nota final = pontos M1 × 6 + pontos M2 × 4 (pontos por classificação: Regular=0,25, Suficiente=0,5, Bom=0,75, Ótimo=1), classificada como Regular < 2,6, Suficiente 2,6 a 4,9, Bom 5 a 7,5, Ótimo > 7,5 — pra dar uma visão geral rápida; os indicadores oficiais continuam sendo M1 e M2 separados.",
-    "Abandono consumado: o paciente precisa ter pelo menos 2 consultas. O painel calcula a mediana histórica do intervalo entre a 1ª e a 2ª consulta dos pacientes analisados e mede os dias desde a última consulta de cada paciente. Quando esse intervalo é maior que 3 vezes a mediana histórica, o paciente é classificado como abandono consumado.",
-    "Classificação do acompanhamento: Em dia = dias desde a última consulta ≤ mediana; Em risco = dias desde a última consulta > mediana e ≤ 3 × mediana; Abandono consumado = dias desde a última consulta > 3 × mediana. O painel não usa um número fixo de dias: o limite é calculado dinamicamente com base no comportamento histórico dos pacientes incluídos nos filtros da aba Análises.",
-    "Na aba Análises, a classificação considera o histórico inteiro ou os quadrimestres selecionados na própria aba Análises, e não necessariamente o filtro global de período."
+    "'Desempenho quadrimestral' NÃO é uma fórmula oficial do Ministério da Saúde — é uma síntese própria: Nota final = pontos M1 × 6 + pontos M2 × 4 (pontos por classificação: Regular=0,25, Suficiente=0,5, Bom=0,75, Ótimo=1), classificada como Regular < 2,6, Suficiente 2,6 a 4,9, Bom 5 a 7,5, Ótimo > 7,5 — pra dar uma visão geral rápida; os indicadores oficiais continuam sendo M1 e M2 separados."
   ];
 
   // Motor de cálculo: recebe o "workbook" (abas já em formato de matriz de
@@ -1047,13 +1059,14 @@
     // ---------- Atendimentos ----------
     var atRows = rowsOf("Atendimentos");
     var atHeader = atRows[0] || [];
-    var iData = colIndex(atHeader, "data_hora");
-    var iNome = colIndex(atHeader, "nome");
+    var iData = atendimentoColIndex(atHeader, "data");
+    var iNome = atendimentoColIndex(atHeader, "nome");
+    var iQtd = atendimentoColIndex(atHeader, "quantidade");
     var atFiltradas = atRows.slice(1).filter(function(r){
       var nome = String(r[iNome]||"").trim();
       return nome && withinPeriod(parseBRDate(r[iData]), periodo.inicio, periodo.fim);
     });
-    var atendimentosIndividuais = atFiltradas.length;
+    var atendimentosIndividuais = atFiltradas.reduce(function(total, r){ return total + quantidadeAtendimentos(r, iQtd); }, 0);
 
     // ---------- Participantes Ativ. Coletiva ----------
     var partRows = rowsOf("Participantes Ativ. Coletiva");
@@ -1073,7 +1086,7 @@
     atFiltradas.forEach(function(r){
       var chave = String(r[iNome]).trim().toUpperCase();
       if(!pessoasSet[chave]) pessoasSet[chave] = {nome:String(r[iNome]).trim(), at:0, part:0};
-      pessoasSet[chave].at++;
+      pessoasSet[chave].at += quantidadeAtendimentos(r, iQtd);
     });
     partFiltradas.forEach(function(r){
       var chave = String(r[iPNome]).trim().toUpperCase();
@@ -1200,10 +1213,10 @@
     var ws = wb.Sheets[suffixedName("Atendimentos")];
     var rows = ws ? sheetToRows(ws) : [];
     var header = rows[0] || [];
-    var iData = colIndex(header, "data_hora");
-    var iNome = colIndex(header, "nome");
-    var iProf = colIndex(header, "profissional");
-    var iQtd = colIndex(header, "qtd_atendimentos");
+    var iData = atendimentoColIndex(header, "data");
+    var iNome = atendimentoColIndex(header, "nome");
+    var iProf = atendimentoColIndex(header, "profissional");
+    var iQtd = atendimentoColIndex(header, "quantidade");
     // Com 2+ equipes selecionadas ao mesmo tempo, um profissional que
     // atende em ambas apareceria com os atendimentos das duas somados
     // numa linha só (contagem de consultas por paciente ficaria errada,
@@ -1236,7 +1249,7 @@
         var chaveInterna = normalizeText(prof) + (equipeDaLinha ? '|' + equipeDaLinha.key : '');
         if(!porProfInterno[chaveInterna]) porProfInterno[chaveInterna] = {};
         var chavePac = nome.toUpperCase();
-        porProfInterno[chaveInterna][chavePac] = (porProfInterno[chaveInterna][chavePac]||0) + 1;
+        porProfInterno[chaveInterna][chavePac] = (porProfInterno[chaveInterna][chavePac]||0) + quantidadeAtendimentos(r, iQtd);
         if(!displayNamePorChaveInterna[chaveInterna]){
           displayNamePorChaveInterna[chaveInterna] = equipeDaLinha ? (prof + ' (' + equipeDaLinha.suffix + ')') : prof;
         }
@@ -1611,10 +1624,10 @@
     var rows = sheetToRows(latestRawSheets["Atendimentos"] || []);
     rows = filtrarLinhasPorEquipe(rows, analisesEquipes);
     var header = rows[0] || [];
-    var iData = colIndex(header, "data_hora");
-    var iNome = colIndex(header, "nome");
-    var iProf = colIndex(header, "profissional");
-    var iQtd = colIndex(header, "qtd_atendimentos");
+    var iData = atendimentoColIndex(header, "data");
+    var iNome = atendimentoColIndex(header, "nome");
+    var iProf = atendimentoColIndex(header, "profissional");
+    var iQtd = atendimentoColIndex(header, "quantidade");
     if(iData < 0 || iNome < 0) return [];
     // Com 2+ equipes selecionadas ao mesmo tempo neste filtro, um mesmo
     // paciente pode ter atendimentos vindos de equipes diferentes —
@@ -1643,16 +1656,14 @@
       if(!nome || !d) return;
       if(!dataDentroDoFiltro(d)) return;
       var chave = nome.toUpperCase();
-      if(!porPaciente[chave]) porPaciente[chave] = {nome:nome, datas:[], profissionais:{}, consultasPorProf:{}, equipes:{}, ultimaData:null, ultimaProfissionais:{}, totalAtendimentos:0};
+      if(!porPaciente[chave]) porPaciente[chave] = {nome:nome, datas:[], profissionais:{}, consultasPorProf:{}, equipes:{}, ultimaData:null, ultimaProfissionais:{}};
       var p = porPaciente[chave];
-      var qtd = iQtd >= 0 ? Number(String(r[iQtd]||'').replace(',', '.')) : 1;
-      if(!isFinite(qtd) || qtd < 0) qtd = 1;
-      p.totalAtendimentos += qtd;
-      p.datas.push(d);
+      var qtd = Math.max(1, Math.round(quantidadeAtendimentos(r, iQtd)));
+      for(var qi=0; qi<qtd; qi++) p.datas.push(new Date(d.getTime()));
       var prof = iProf >= 0 ? String(r[iProf]||"").trim() : "";
       if(prof){
         p.profissionais[prof] = true;
-        p.consultasPorProf[prof] = (p.consultasPorProf[prof] || 0) + 1;
+        p.consultasPorProf[prof] = (p.consultasPorProf[prof] || 0) + qtd;
       }
       // Guarda o(s) profissional(is) da consulta MAIS RECENTE (por data) de
       // cada paciente, pra poder destacar quem de fato atendeu na última
@@ -1719,11 +1730,9 @@
     // médio de retorno ao lado da distribuição por faixa.
     var perfilFreq = {unica:0, ocasional:0, consolidado:0, mediaConsultas:0};
     var totalConsultasFreq = 0;
-    var totalAtendimentos = 0;
     pacientes.forEach(function(p){
-      var n = p.totalAtendimentos || p.datas.length;
+      var n = p.datas.length;
       totalConsultasFreq += n;
-      totalAtendimentos += n;
       if(n===1) perfilFreq.unica++;
       else if(n===2||n===3) perfilFreq.ocasional++;
       else perfilFreq.consolidado++;
@@ -1809,8 +1818,6 @@
 
     return {
       totalPacientes: pacientes.length,
-      totalAtendimentos: totalAtendimentos,
-      intervaloSelecionado: analisesQuads.length ? analisesQuads.map(function(q){ return q.ano + ' — Q' + (q.qIndex+1); }).join(', ') : 'Histórico completo',
       intervalos: intervalos,
       funil: funil,
       perfilFreq: perfilFreq,
@@ -1831,66 +1838,39 @@
   // grade (2 colunas) pra caber os 4 intervalos (1ª→2ª, 2ª→3ª, 3ª→4ª,
   // 4ª→5ª) em 4 quadrantes, em vez de 4 linhas empilhadas ocupando altura
   // desnecessária.
-  // Waterfall (cascata incremental) do tempo entre consultas: cada barra
-  // "flutua" a partir de onde a anterior parou, representando quantos dias
-  // aquele intervalo ACRESCENTA ao tempo acumulado desde a 1ª consulta.
-  // Só entram no acumulado os intervalos com dados suficientes (it.stats);
-  // os que ainda não têm dado aparecem como aviso, sem quebrar a cascata.
-  function waterfallDiasSvg(intervalos){
+  function boxplotDiasSvg(intervalos){
     var comDados = intervalos.filter(function(it){ return it.stats; });
-    if(!comDados.length){
-      return '<p class="footnote">Ainda não há dados suficientes pra montar a cascata.</p>';
-    }
-
-    var W = 640, H = 250;
-    var padLeft = 14, padRight = 14, padTop = 40, padBottom = 44;
-    var plotW = W - padLeft - padRight;
-    var plotH = H - padTop - padBottom;
-    var n = comDados.length;
-    var gap = 26;
-    var barW = (plotW - gap*(n-1)) / n;
-
-    var cumulative = 0;
-    var steps = comDados.map(function(it){
-      var incremento = Math.round(it.stats.mediana);
-      var inicio = cumulative;
-      cumulative += incremento;
-      return {label: it.label, incremento: incremento, inicio: inicio, fim: cumulative, n: it.stats.n};
-    });
-
-    var maxTotal = cumulative || 1;
-    function y(v){ return padTop + plotH - (v/maxTotal)*plotH; }
-
-    var cores = ['#2F6F5E','#3E8571','#57A088','#7CB89F','#A3CFBB'];
-    var baseline = '<line x1="'+padLeft+'" y1="'+y(0)+'" x2="'+(padLeft+plotW)+'" y2="'+y(0)+'" stroke="var(--ink-soft)" stroke-width="1"/>';
-
-    var bars = steps.map(function(s, i){
-      var xPos = padLeft + i*(barW+gap);
-      var yTop = y(s.fim), yBottom = y(s.inicio);
-      var barH = Math.max(2, yBottom - yTop);
-      var cor = cores[i % cores.length];
-
-      var connector = '';
-      if(i > 0){
-        var prevX = padLeft + (i-1)*(barW+gap) + barW;
-        var yLevel = y(s.inicio);
-        connector = '<line x1="'+prevX+'" y1="'+yLevel+'" x2="'+xPos+'" y2="'+yLevel+'" stroke="var(--ink-soft)" stroke-width="1" stroke-dasharray="3,3"/>';
+    var W = 640, cols = 2;
+    var rows = Math.ceil(intervalos.length/cols);
+    var outerPad = 12, gapX = 18, gapY = 10, cellH = 68;
+    var cellW = (W - outerPad*2 - gapX*(cols-1)) / cols;
+    var H = outerPad*2 + cellH*rows + gapY*(rows-1);
+    var maxVal = comDados.length ? Math.max.apply(null, comDados.map(function(it){ return it.stats.max; })) : 1;
+    if(maxVal <= 0) maxVal = 1;
+    var barPad = 4, plotW = cellW - barPad*2;
+    function x(cellX, v){ return cellX + barPad + (v/maxVal)*plotW; }
+    var cells = intervalos.map(function(it,i){
+      var col = i % cols, row = Math.floor(i/cols);
+      var cellX = outerPad + col*(cellW+gapX);
+      var cellY = outerPad + row*(cellH+gapY);
+      var labelY = cellY + 11;
+      var label = '<text x="'+cellX+'" y="'+labelY+'" font-size="10.5" font-weight="700" fill="var(--ink)">'+escapeHtml(it.label)+'</text>';
+      if(!it.stats){
+        return '<g>'+label+'<text x="'+cellX+'" y="'+(cellY+cellH/2)+'" font-size="9.5" fill="var(--ink-soft)">Sem pacientes suficientes ainda</text></g>';
       }
-
-      var barRect = '<rect x="'+xPos+'" y="'+yTop+'" width="'+barW+'" height="'+barH+'" fill="'+cor+'" rx="4"/>';
-      var incLabel = '<text x="'+(xPos+barW/2)+'" y="'+(yTop-8)+'" font-size="11" font-weight="700" fill="var(--ink)" text-anchor="middle">+'+fmtInt(s.incremento)+' dias</text>';
-      var catLabel = '<text x="'+(xPos+barW/2)+'" y="'+(padTop+plotH+18)+'" font-size="10.5" font-weight="700" fill="var(--ink)" text-anchor="middle">'+escapeHtml(s.label)+'</text>';
-      var nSub = '<text x="'+(xPos+barW/2)+'" y="'+(padTop+plotH+31)+'" font-size="8.5" fill="var(--ink-soft)" text-anchor="middle">mediana · n='+s.n+'</text>';
-
-      return connector + barRect + incLabel + catLabel + nSub;
+      var s = it.stats, boxH = 13, cy = cellY + 44;
+      var valTxt = '<text x="'+(cellX+cellW)+'" y="'+labelY+'" font-size="10.5" font-weight="700" fill="var(--ink)" text-anchor="end">'+fmtInt(Math.round(s.mediana))+' dias</text>'
+        + '<text x="'+(cellX+cellW)+'" y="'+(labelY+11)+'" font-size="8" fill="var(--ink-soft)" text-anchor="end">mediana · n='+s.n+'</text>';
+      var whisker = '<line x1="'+x(cellX,s.min)+'" y1="'+cy+'" x2="'+x(cellX,s.max)+'" y2="'+cy+'" stroke="var(--ink-soft)" stroke-width="1.4"/>'
+        + '<line x1="'+x(cellX,s.min)+'" y1="'+(cy-6)+'" x2="'+x(cellX,s.min)+'" y2="'+(cy+6)+'" stroke="var(--ink-soft)" stroke-width="1.4"/>'
+        + '<line x1="'+x(cellX,s.max)+'" y1="'+(cy-6)+'" x2="'+x(cellX,s.max)+'" y2="'+(cy+6)+'" stroke="var(--ink-soft)" stroke-width="1.4"/>';
+      var boxX = x(cellX,s.p25), boxW = Math.max(2, x(cellX,s.p75)-x(cellX,s.p25));
+      var box = '<rect x="'+boxX+'" y="'+(cy-boxH/2)+'" width="'+boxW+'" height="'+boxH+'" fill="#2F6F5E" opacity="0.25" stroke="#2F6F5E" stroke-width="1.2"/>';
+      var medLine = '<line x1="'+x(cellX,s.mediana)+'" y1="'+(cy-boxH/2)+'" x2="'+x(cellX,s.mediana)+'" y2="'+(cy+boxH/2)+'" stroke="#2F6F5E" stroke-width="2.6"/>';
+      return '<g>'+label+valTxt+whisker+box+medLine+'</g>';
     }).join('');
-
-    var totalLabel = '<text x="'+(padLeft+plotW)+'" y="18" font-size="11" font-weight="700" fill="var(--ink)" text-anchor="end">Total acumulado: '+fmtInt(cumulative)+' dias</text>';
-
-    return '<svg class="spark-svg" viewBox="0 0 '+W+' '+H+'">'+baseline+bars+totalLabel+'</svg>';
+    return '<svg class="spark-svg" viewBox="0 0 '+W+' '+H+'">'+cells+'</svg>';
   }
-
-
 
   // Funil de abandono: barras horizontais de largura proporcional ao 1º
   // degrau (1ª consulta = 100%).
@@ -2115,8 +2095,8 @@
       return;
     }
 
-    if(elTotal) elTotal.textContent = fmtInt(data.totalPacientes) + ' pacientes · ' + fmtInt(data.totalAtendimentos || 0) + ' atendimentos';
-    if(elIntervalos) elIntervalos.innerHTML = waterfallDiasSvg(data.intervalos);
+    if(elTotal) elTotal.textContent = fmtInt(data.totalPacientes);
+    if(elIntervalos) elIntervalos.innerHTML = boxplotDiasSvg(data.intervalos);
     if(elFunil) elFunil.innerHTML = funnelHtml(data.funil);
     if(elRiscoResumo){
       if(!data.medianaBase){
@@ -2151,8 +2131,7 @@
         + '<div class="kpi-item"><label>Consulta única</label><span>'+fmtInt(f.unica)+' ('+pct(f.unica)+'%)</span></div>'
         + '<div class="kpi-item"><label>Retorno ocasional (2-3)</label><span>'+fmtInt(f.ocasional)+' ('+pct(f.ocasional)+'%)</span></div>'
         + '<div class="kpi-item"><label>Vínculo consolidado (4+)</label><span>'+fmtInt(f.consolidado)+' ('+pct(f.consolidado)+'%)</span></div>'
-        + '<div class="kpi-item"><label>Média de atendimentos por paciente</label><span>'+fmtDec(f.mediaConsultas,1)+'</span></div>'
-        + '<div class="kpi-item"><label>Total de atendimentos no período</label><span>'+fmtInt(data.totalAtendimentos || 0)+'</span></div>';
+        + '<div class="kpi-item"><label>Média de consultas por paciente</label><span>'+fmtDec(f.mediaConsultas,1)+'</span></div>';
     }
 
     if(typeof Chart === 'undefined') return;
@@ -2222,26 +2201,14 @@
       var yScale = chart.scales && chart.scales.y;
       if(!yScale) return;
 
-      // Primeiro calcula a média de cada dataset, pra saber qual é a
-      // menor e qual é a maior — o rótulo da menor média fica abaixo
-      // da própria linha e o da maior fica acima dela, não importa
-      // a ordem dos datasets no gráfico.
-      var medias = chart.data.datasets.map(function(dataset){
+      ctx.save();
+      chart.data.datasets.forEach(function(dataset, datasetIndex){
         var valores = (dataset.data || []).filter(function(v){
           return typeof v === 'number' && isFinite(v);
         });
-        if(!valores.length) return null;
-        return valores.reduce(function(total, valor){ return total + valor; }, 0) / valores.length;
-      });
-      var valoresValidos = medias.filter(function(m){ return m != null; });
-      var mediaMin = valoresValidos.length ? Math.min.apply(null, valoresValidos) : null;
-      var mediaMax = valoresValidos.length ? Math.max.apply(null, valoresValidos) : null;
+        if(!valores.length) return;
 
-      ctx.save();
-      chart.data.datasets.forEach(function(dataset, datasetIndex){
-        var media = medias[datasetIndex];
-        if(media == null) return;
-
+        var media = valores.reduce(function(total, valor){ return total + valor; }, 0) / valores.length;
         var y = yScale.getPixelForValue(media);
         var cor = Array.isArray(dataset.backgroundColor)
           ? dataset.backgroundColor[0]
@@ -2256,18 +2223,13 @@
         ctx.lineTo(chart.chartArea.right, y);
         ctx.stroke();
 
-        // Média menor: rótulo abaixo da linha. Média maior: rótulo
-        // acima da linha. (Se as duas médias forem iguais, cai no
-        // caso "maior" — fica acima.)
-        var ehMenor = media === mediaMin && media !== mediaMax;
-
         var texto = 'Média: ' + Math.round(media) + ' dias';
         ctx.setLineDash([]);
         ctx.font = "600 11px 'Inter', sans-serif";
-        ctx.textAlign = 'left';
-        ctx.textBaseline = ehMenor ? 'top' : 'bottom';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'bottom';
         ctx.fillStyle = cor;
-        ctx.fillText(texto, chart.chartArea.left + 4, y + (ehMenor ? 4 : -4));
+        ctx.fillText(texto, chart.chartArea.right - 4, y - (datasetIndex ? 4 : 16));
       });
       ctx.restore();
     }
@@ -2371,14 +2333,9 @@
       +   '#tabAnalises .list-meta{font-size:14.4px;}'
       +   '#tabAnalises .list-month-filter-label{font-size:15px;}'
       +   '#tabAnalises .list-search{font-size:15.6px;}'
-      +   '#tabAnalises #analisesFreqLegenda.kpi-item{min-width:0;}'
-      +   '#tabAnalises #analisesFreqLegenda{min-width:0;flex:1 1 160px;box-sizing:border-box;}'
-      +   '#tabAnalises #analisesFreqLegenda .kpi-item{min-width:0;max-width:100%;box-sizing:border-box;gap:2px;}'
-      +   '#tabAnalises #analisesFreqLegenda .kpi-item label{font-size:12.5px;white-space:normal;margin:0;line-height:1.2;}'
-      +   '#tabAnalises #analisesFreqLegenda .kpi-item span{font-size:15.6px;word-break:break-word;margin:0;line-height:1.2;}'
       + '</style>'
       + '<div class="card" style="margin-bottom:16px;">'
-      +   '<h3 style="margin:0 0 4px;">Perfil de pacientes — '+'<span id="analisesTotalPacientes">—</span> pacientes no período</h3>'
+      +   '<h3 style="margin:0 0 4px;">Perfil de pacientes — '+'<span id="analisesTotalPacientes">—</span> pacientes no histórico</h3>'
       +   '<p class="footnote" style="margin:0 0 12px;">Estas análises usam um filtro de Equipe e Quadrimestre PRÓPRIO desta aba (independente do filtro do topo). Sem nenhum quadrimestre marcado, olham pro histórico completo de atendimentos.</p>'
       +   '<div class="list-filters">'
       +     '<div class="list-month-filter"><label class="list-month-filter-label">Quadrimestre</label><div class="ms-wrap" id="analisesQuadMs"></div></div>'
@@ -2398,7 +2355,7 @@
       +     '<h4 style="margin-top:0;">Perfil de frequência</h4>'
       +     '<div class="card-charts-layout card-charts-layout--lg">'
       +       '<div class="chart-box"><canvas id="analisesFreqDonut"></canvas></div>'
-      +       '<div id="analisesFreqLegenda" class="kpi-container kpi-legend-vertical" style="flex-direction:column;align-items:stretch;gap:6px;"></div>'
+      +       '<div id="analisesFreqLegenda" class="kpi-container kpi-legend-vertical" style="flex-direction:column;align-items:stretch;gap:14px;"></div>'
       +     '</div>'
       +   '</div>'
       +   '<div class="card" style="flex:1;min-width:280px;margin-bottom:0;">'
@@ -2489,8 +2446,8 @@
     }
     var atCached = latestSheets[suffixedName("Atendimentos")];
     if(atCached){
-      var iData = colIndex(atCached.headers, "data_hora");
-      var iNome = colIndex(atCached.headers, "nome");
+      var iData = atendimentoColIndex(atCached.headers, "data");
+      var iNome = atendimentoColIndex(atCached.headers, "nome");
       var iProfAt = profissionalColIndex(atCached.headers);
       if(iData >= 0 && iNome >= 0){
         atCached.rows.forEach(function(r){
@@ -2576,7 +2533,7 @@
         if(!seen[v]){ seen[v] = true; months.push(new Date(d.getFullYear(), d.getMonth(), 1)); }
       });
     }
-    coletar(suffixedName("Atendimentos"), "data_hora");
+    coletar(suffixedName("Atendimentos"), "data");
     coletar(suffixedName("Participantes Ativ. Coletiva"), "data");
     months.sort(function(a,b){ return b-a; });
     return months.map(function(d){ return {value: monthOptionValue(d), label: monthOptionLabel(d)}; });
@@ -2640,9 +2597,10 @@
     var pessoasSet = {}; // nome em maiúsculas -> {nome, countPeriodo, ultima:Date, equipe, profissional}
     var atCached = latestSheets[suffixedName("Atendimentos")];
     if(atCached){
-      var iData = colIndex(atCached.headers, "data_hora");
-      var iNome = colIndex(atCached.headers, "nome");
-      var iProf = colIndex(atCached.headers, "profissional");
+      var iData = atendimentoColIndex(atCached.headers, "data");
+      var iNome = atendimentoColIndex(atCached.headers, "nome");
+      var iProf = atendimentoColIndex(atCached.headers, "profissional");
+      var iQtd = atendimentoColIndex(atCached.headers, "quantidade");
       var iEquipe = equipeColIndex(atCached.headers);
       if(iData >= 0 && iNome >= 0){
         atCached.rows.forEach(function(r){
@@ -2656,7 +2614,7 @@
           // quantos dias a pessoa está sem atendimento) continua olhando
           // TODO o histórico, não só a janela.
           if(withinPeriod(d, janelaPeriodo.inicio, janelaPeriodo.fim)){
-            pessoasSet[chave].countPeriodo++;
+            pessoasSet[chave].countPeriodo += quantidadeAtendimentos(r, iQtd);
           }
           // Equipe/Profissional guardados são sempre os da ÚLTIMA consulta
           // (a mesma que aparece na coluna "Última Consulta"), não os do
@@ -2699,23 +2657,7 @@
       });
       if(!rows.length) return;
       var headers = rows[0].map(function(h){ return String(h||"").trim() || "—"; });
-      var dataRows = rows.slice(1);
-      // A coluna "Status" da lista "Atendimentos" não deve aparecer nas
-      // tabelas das abas M1 e M2 (pedido explícito) — removida aqui, só
-      // deste cache de EXIBIÇÃO das listas, então nenhum cálculo (que lê
-      // direto de wb.Sheets/latestWb) é afetado.
-      if(displayListName(name) === "Atendimentos"){
-        var statusIdx = colIndex(headers, "status");
-        if(statusIdx >= 0){
-          headers.splice(statusIdx, 1);
-          dataRows = dataRows.map(function(r){
-            var novaLinha = r.slice();
-            novaLinha.splice(statusIdx, 1);
-            return novaLinha;
-          });
-        }
-      }
-      latestSheets[name] = {headers: headers, rows: dataRows};
+      latestSheets[name] = {headers: headers, rows: rows.slice(1)};
     });
   }
 
@@ -2763,7 +2705,7 @@
           + '</div>';
       }).join('');
       // Filtro de mês (multisseleção) — aparece quando a lista tem uma
-      // coluna de data reconhecível ("data" ou "data_hora"), ou é a
+      // coluna de data reconhecível ("Data"), ou é a
       // "Pessoas atendidas" calculada (filtro próprio, ver acima). Fica
       // na MESMA linha dos filtros de coluna (dentro de .list-filters),
       // como o primeiro item da fileira.
@@ -2903,15 +2845,7 @@
       var qtdColIdxs = [];
       headersForQtd.forEach(function(h, i){
         var hn = normalizeText(h);
-        var ehPeriodoPattern = hn.indexOf('QTD_') === 0 && hn.indexOf('PER') !== -1;
-        // "Qtd de atendimentos"/"qtd_atendimentos"/"Quantidade de
-        // atendimentos" (ex.: coluna homônima na lista "Atendimentos")
-        // também entram no recálculo por filtro — sem isso a coluna fica
-        // sempre com o valor bruto (ou vazio) da planilha, em vez de
-        // refletir o período/filtros ativos na lista.
-        var chaveQtd = hn.replace(/[-\s]+/g, '_');
-        var ehQtdAtendimentos = ['QTD_ATENDIMENTOS','QTD_DE_ATENDIMENTOS','QUANTIDADE_DE_ATENDIMENTOS'].indexOf(chaveQtd) !== -1;
-        if(ehPeriodoPattern || ehQtdAtendimentos) qtdColIdxs.push(i);
+        if(hn.indexOf('QTD_') === 0 && hn.indexOf('PER') !== -1) qtdColIdxs.push(i);
       });
       if(nomeIdxQtd >= 0 && qtdColIdxs.length){
         var countsPorNomeQtd = {};
@@ -3191,14 +3125,33 @@
       return;
     }
     var linhas = [];
-    // Componentes calculados ficam em colunas próprias. As colunas com
-    // dados da aba Q2-26 são as únicas identificadas com "(Oficial)".
     function valor(v, percentual){
       if(v===null || v===undefined || isNaN(v)) return '—';
       return percentual ? fmtDec(v,2)+'%' : fmtInt(v);
     }
     function diferenca(v){
       return v!=null ? (v>=0?'+':'')+fmtDec(v,2) : '—';
+    }
+    // Estatísticas de divergência por indicador — usadas no comentário
+    // logo abaixo da tabela (qual indicador diverge mais vezes, a
+    // divergência média de cada um, e o detalhamento de quantas dessas
+    // divergências foram "para mais" — oficial acima do calculado — e
+    // quantas foram "para menos"). Um mês só conta como "divergente" se a
+    // diferença (oficial - calculado), já arredondada nas 2 casas
+    // exibidas na tabela, for diferente de zero — assim o comentário bate
+    // exatamente com o que a coluna "Diferença" mostra.
+    function novoStat(){ return {meses:0, divergentes:0, somaAbs:0, paraMais:{n:0,soma:0}, paraMenos:{n:0,soma:0}, itensPareto:[]}; }
+    var statM1 = novoStat();
+    var statM2 = novoStat();
+    function registrarDivergencia(stat, dif, mesLabel){
+      if(dif==null) return;
+      stat.meses++;
+      stat.somaAbs += Math.abs(dif);
+      if(fmtDec(Math.abs(dif),2) === fmtDec(0,2)) return; // sem divergência (bateu na 2ª casa exibida)
+      stat.divergentes++;
+      stat.itensPareto.push({label:mesLabel, valor:Math.abs(dif)});
+      if(dif > 0){ stat.paraMais.n++; stat.paraMais.soma += dif; }
+      else { stat.paraMenos.n++; stat.paraMenos.soma += Math.abs(dif); }
     }
     // Mais recente primeiro, mesma ordem da tabela de Série histórica.
     serieTendencia.slice().reverse().forEach(function(p){
@@ -3211,7 +3164,7 @@
           valor(p.atendimentosIndividuaisCalculado),
           valor(p.participacoesColetivasCalculado),
           valor(p.pessoasDistintasCalculado),
-          '', '', '', '',
+          '—', '—', '—', '—',
           valor(p.numeradorM1Calculado),
           valor(p.denominadorM1Calculado),
           valor(p.m1Calculado),
@@ -3227,8 +3180,7 @@
         linhas.push([
           mesLabel, 'M2',
           valor(p.atendimentosIndividuaisCalculado),
-          '',
-          '',
+          '—', '—',
           valor(p.atividadesTotaisCalculado),
           valor(p.atividadesCompartilhadasCalculado),
           valor(p.reunioesTotaisCalculado),
@@ -3250,6 +3202,10 @@
 
     var equipeLabel = currentEquipes.map(function(e){ return e.label; }).join(' + ');
     var doc = new jspdfNs.jsPDF({orientation:'landscape', unit:'pt', format:'a4'});
+    if(typeof doc.autoTable !== 'function'){
+      alert('Não foi possível carregar o componente de tabela do PDF. Recarregue a página e tente novamente.');
+      return;
+    }
     var pageWidth = doc.internal.pageSize.getWidth();
     var pageHeight = doc.internal.pageSize.getHeight();
     var margin = 28;
@@ -4385,8 +4341,151 @@
     });
   }
 
+  // ---------- Agendamento ----------
+  var agendamentoConfig = {equipe:'todas', profissional:'', diasSemana:[1], intervaloDias:30, consultasPorDia:8};
+  // Compatibilidade com configurações antigas que guardavam apenas um dia.
+  try {
+    var configAntiga = JSON.parse(localStorage.getItem('painelAgendamentoConfig') || 'null');
+    if(configAntiga && !Array.isArray(configAntiga.diasSemana) && configAntiga.diaSemana !== undefined){
+      configAntiga.diasSemana = [Number(configAntiga.diaSemana)];
+    }
+  } catch(e){}
+  function diasAgendamentoSelecionados(){
+    var dias = Array.isArray(agendamentoConfig.diasSemana) ? agendamentoConfig.diasSemana : [];
+    dias = dias.map(Number).filter(function(d){ return d >= 0 && d <= 6; });
+    return dias.length ? dias : [1];
+  }
+  function sincronizarPillsDias(){
+    var selecionados = diasAgendamentoSelecionados();
+    document.querySelectorAll('#agendamentoDias .weekday-pill').forEach(function(btn){
+      var ativo = selecionados.indexOf(Number(btn.getAttribute('data-day'))) >= 0;
+      btn.classList.toggle('active', ativo);
+      btn.setAttribute('aria-pressed', ativo ? 'true' : 'false');
+    });
+  }
+  try {
+    var salvo = JSON.parse(localStorage.getItem('painelAgendamentoConfig') || 'null');
+    if(salvo) Object.assign(agendamentoConfig, salvo);
+    if(!Array.isArray(agendamentoConfig.diasSemana)){
+      agendamentoConfig.diasSemana = agendamentoConfig.diaSemana !== undefined ? [Number(agendamentoConfig.diaSemana)] : [1];
+    }
+    agendamentoConfig.consultasPorDia = Math.max(1, Math.min(100, parseInt(agendamentoConfig.consultasPorDia, 10) || 8));
+  } catch(e){}
+  var DIAS_SEMANA_AGENDAMENTO = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
+  function salvarAgendamentoConfig(){ try{ localStorage.setItem('painelAgendamentoConfig', JSON.stringify(agendamentoConfig)); }catch(e){} }
+  function nomesProfissionaisAgendamento(){
+    var nomes={}; profissionaisRoster.forEach(function(p){ if(p && p.nome) nomes[p.nome]=true; });
+    var rows=sheetToRows(latestRawSheets['Atendimentos']||[]), h=rows[0]||[], idx=profissionalColIndex(h);
+    if(idx>=0) rows.slice(1).forEach(function(r){ var n=String(r[idx]||'').trim(); if(n) nomes[n]=true; });
+    return Object.keys(nomes).sort(function(a,b){return a.localeCompare(b,'pt-BR');});
+  }
+  function dadosAgendamento(){
+    var rows=sheetToRows(latestRawSheets['Atendimentos']||[]), h=rows[0]||[];
+    var iData=atendimentoColIndex(h,'data'), iNome=atendimentoColIndex(h,'nome'), iProf=atendimentoColIndex(h,'profissional'), iEquipe=equipeColIndex(h);
+    if(iData<0||iNome<0) return [];
+    var eqs=agendamentoConfig.equipe==='todas'?EQUIPES:EQUIPES.filter(function(e){return e.key===agendamentoConfig.equipe;});
+    var pf=normalizeText(agendamentoConfig.profissional), mapa={};
+    rows.slice(1).forEach(function(r){
+      var nome=String(r[iNome]||'').trim(), d=parseBRDate(r[iData]), prof=iProf>=0?String(r[iProf]||'').trim():'';
+      if(!nome||!d) return;
+      if(iEquipe>=0 && eqs.length && !eqs.some(function(e){return normalizeText(r[iEquipe]).indexOf(normalizeText(e.matchKeyword))!==-1;})) return;
+      if(pf && normalizeText(prof)!==pf) return;
+      var k=nome.toUpperCase(); if(!mapa[k]||d>mapa[k].ultima) mapa[k]={nome:nome,ultima:d,profissional:prof};
+    });
+    var intervalo=Math.max(1,Math.min(365,parseInt(agendamentoConfig.intervaloDias,10)||30));
+    var limiteDia=Math.max(1,Math.min(100,parseInt(agendamentoConfig.consultasPorDia,10)||8));
+    var diasSelecionados = diasAgendamentoSelecionados();
+    var hoje=new Date(); hoje.setHours(0,0,0,0);
+    var ocupacao={};
+    function proximaDataPermitida(base){
+      var prev=new Date(base.getTime()); prev.setHours(0,0,0,0);
+      while(prev <= hoje || diasSelecionados.indexOf(prev.getDay()) < 0 || (ocupacao[prev.getTime()]||0) >= limiteDia){
+        prev.setDate(prev.getDate()+1);
+      }
+      ocupacao[prev.getTime()] = (ocupacao[prev.getTime()]||0) + 1;
+      return prev;
+    }
+    // A fila é ordenada pelo maior atraso antes de distribuir os horários.
+    // Assim, quem está há mais dias sem consulta recebe a primeira vaga
+    // disponível, respeitando os dias escolhidos e o limite diário.
+    var fila = Object.keys(mapa).map(function(k){
+      var p=mapa[k];
+      var diasSemConsulta=Math.max(0,Math.floor((hoje-p.ultima)/(24*60*60*1000)));
+      return {
+        nome:p.nome,
+        profissional:p.profissional||agendamentoConfig.profissional||'—',
+        ultima:p.ultima,
+        diasSemConsulta:diasSemConsulta
+      };
+    }).sort(function(a,b){
+      return b.diasSemConsulta-a.diasSemConsulta
+        || a.ultima-b.ultima
+        || a.nome.localeCompare(b.nome,'pt-BR');
+    });
+
+    return fila.map(function(p){
+      var base=new Date(p.ultima.getTime());
+      base.setDate(base.getDate()+intervalo);
+      var prev=proximaDataPermitida(base);
+      return {
+        nome:p.nome,
+        profissional:p.profissional,
+        ultima:p.ultima,
+        diasSemConsulta:p.diasSemConsulta,
+        prevista:prev,
+        intervalo:intervalo
+      };
+    }).sort(function(a,b){
+      return a.prevista-b.prevista
+        || b.diasSemConsulta-a.diasSemConsulta
+        || a.nome.localeCompare(b.nome,'pt-BR');
+    });
+  }
+  function renderAgendamentoConfig(){
+    var eq=document.getElementById('agendamentoEquipe'), pf=document.getElementById('agendamentoProfissional'); if(!eq||!pf) return;
+    eq.innerHTML=EQUIPES.map(function(e){return '<option value="'+escapeHtml(e.key)+'">'+escapeHtml(e.label)+'</option>';}).join('')+'<option value="todas">Todas</option>';
+    pf.innerHTML='<option value="">Todos os profissionais</option>'+nomesProfissionaisAgendamento().map(function(n){return '<option value="'+escapeHtml(n)+'">'+escapeHtml(n)+'</option>';}).join('');
+    eq.value=agendamentoConfig.equipe;
+    pf.value=agendamentoConfig.profissional;
+    sincronizarPillsDias();
+    document.getElementById('agendamentoIntervalo').value=agendamentoConfig.intervaloDias;
+    document.getElementById('agendamentoConsultasDia').value=agendamentoConfig.consultasPorDia || 8;
+  }
+  function renderAgendamento(){
+    var el=document.getElementById('agendamentoTabela'), resumo=document.getElementById('agendamentoResumo'); if(!el||!resumo) return;
+    var rows=dadosAgendamento();
+    var nomesDias = diasAgendamentoSelecionados().map(function(d){ return DIAS_SEMANA_AGENDAMENTO[d]; }).join(', ');
+    resumo.textContent=rows.length+' paciente'+(rows.length===1?'':'s')+' na agenda · '+nomesDias+' · intervalo de '+agendamentoConfig.intervaloDias+' dia'+(Number(agendamentoConfig.intervaloDias)===1?'':'s')+' · máximo de '+(agendamentoConfig.consultasPorDia||8)+' por dia';
+    if(!rows.length){el.innerHTML='<div class="list-placeholder">Nenhum paciente encontrado para os filtros atuais.</div>';return;}
+    el.innerHTML='<div class="table-wrap"><table class="data-table agendamento-table"><thead><tr><th>Paciente</th><th>Profissional</th><th>Dias sem consulta</th><th>Última consulta</th><th>Próximo agendamento</th><th>Intervalo</th></tr></thead><tbody>'+rows.map(function(r){return '<tr><td>'+escapeHtml(r.nome)+'</td><td>'+escapeHtml(r.profissional)+'</td><td>'+r.diasSemConsulta+' dias</td><td>'+fmtBRDate(r.ultima)+'</td><td><b>'+fmtBRDate(r.prevista)+'</b></td><td>'+r.intervalo+' dias</td></tr>';}).join('')+'</tbody></table></div>';
+  }
+  var agendamentoBtn=document.querySelector('.tab[data-tab="agendamento"]');
+  var configuracoesBtn=document.querySelector('.tab[data-tab="configuracoes"]');
+  document.querySelectorAll('#agendamentoDias .weekday-pill').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var dia = Number(btn.getAttribute('data-day'));
+      var atuais = diasAgendamentoSelecionados();
+      if(atuais.indexOf(dia) >= 0){
+        if(atuais.length === 1) return;
+        agendamentoConfig.diasSemana = atuais.filter(function(d){ return d !== dia; });
+      } else {
+        agendamentoConfig.diasSemana = atuais.concat([dia]).sort(function(a,b){ return a-b; });
+      }
+      sincronizarPillsDias();
+    });
+  });
+  var salvarAgendamentoBtn=document.getElementById('salvarAgendamento');
+  if(salvarAgendamentoBtn) salvarAgendamentoBtn.addEventListener('click',function(){
+    agendamentoConfig.equipe=document.getElementById('agendamentoEquipe').value;
+    agendamentoConfig.profissional=document.getElementById('agendamentoProfissional').value;
+    agendamentoConfig.diasSemana=diasAgendamentoSelecionados();
+    agendamentoConfig.intervaloDias=Math.max(1,Math.min(365,Number(document.getElementById('agendamentoIntervalo').value)||30));
+    agendamentoConfig.consultasPorDia=Math.max(1,Math.min(100,Number(document.getElementById('agendamentoConsultasDia').value)||8));
+    salvarAgendamentoConfig();renderAgendamento();this.textContent='Configurações salvas';var b=this;setTimeout(function(){b.textContent='Salvar configurações';},1600);
+  });
+
   // ---------- Tabs ----------
-  var FILTER_BAR_TABS = {geral:true, m1:true, m2:true, tendencia:true, profissionais:true};
+  var FILTER_BAR_TABS = {geral:true, m1:true, m2:true, tendencia:true, profissionais:true, analises:false, agendamento:false, configuracoes:false};
   document.querySelectorAll('.tab').forEach(function(btn){
     btn.addEventListener('click', function(){
       document.querySelectorAll('.tab').forEach(function(b){ b.classList.toggle('active', b===btn); });
@@ -4404,6 +4503,13 @@
       if(target === 'analises'){
         renderAnalises(analisesDataAtual);
       }
+      if(target === 'agendamento'){
+        renderAgendamentoConfig();
+        renderAgendamento();
+      }
+      if(target === 'configuracoes'){
+        renderAgendamentoConfig();
+      }
     });
   });
 
@@ -4415,6 +4521,8 @@
     // recalculada quando vem de aplicarMesReferencia (ver chamadas abaixo).
     renderPerformanceProfissionais(performanceProfissionais || []);
     renderAnalises(analisesData || null);
+    renderAgendamentoConfig();
+    renderAgendamento();
     document.getElementById('statusState').style.display = 'none';
     populateQuadSelect();
     document.getElementById('topEquipe').textContent = record.equipe || '—';
