@@ -2185,14 +2185,26 @@
       var yScale = chart.scales && chart.scales.y;
       if(!yScale) return;
 
-      ctx.save();
-      chart.data.datasets.forEach(function(dataset, datasetIndex){
+      // Primeiro calcula a média de cada dataset, pra saber qual é a
+      // menor e qual é a maior — o rótulo da menor média fica abaixo
+      // da própria linha e o da maior fica acima dela, não importa
+      // a ordem dos datasets no gráfico.
+      var medias = chart.data.datasets.map(function(dataset){
         var valores = (dataset.data || []).filter(function(v){
           return typeof v === 'number' && isFinite(v);
         });
-        if(!valores.length) return;
+        if(!valores.length) return null;
+        return valores.reduce(function(total, valor){ return total + valor; }, 0) / valores.length;
+      });
+      var valoresValidos = medias.filter(function(m){ return m != null; });
+      var mediaMin = valoresValidos.length ? Math.min.apply(null, valoresValidos) : null;
+      var mediaMax = valoresValidos.length ? Math.max.apply(null, valoresValidos) : null;
 
-        var media = valores.reduce(function(total, valor){ return total + valor; }, 0) / valores.length;
+      ctx.save();
+      chart.data.datasets.forEach(function(dataset, datasetIndex){
+        var media = medias[datasetIndex];
+        if(media == null) return;
+
         var y = yScale.getPixelForValue(media);
         var cor = Array.isArray(dataset.backgroundColor)
           ? dataset.backgroundColor[0]
@@ -2207,13 +2219,18 @@
         ctx.lineTo(chart.chartArea.right, y);
         ctx.stroke();
 
+        // Média menor: rótulo abaixo da linha. Média maior: rótulo
+        // acima da linha. (Se as duas médias forem iguais, cai no
+        // caso "maior" — fica acima.)
+        var ehMenor = media === mediaMin && media !== mediaMax;
+
         var texto = 'Média: ' + Math.round(media) + ' dias';
         ctx.setLineDash([]);
         ctx.font = "600 11px 'Inter', sans-serif";
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'bottom';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = ehMenor ? 'top' : 'bottom';
         ctx.fillStyle = cor;
-        ctx.fillText(texto, chart.chartArea.right - 4, y - (datasetIndex ? 4 : 16));
+        ctx.fillText(texto, chart.chartArea.left + 4, y + (ehMenor ? 4 : -4));
       });
       ctx.restore();
     }
