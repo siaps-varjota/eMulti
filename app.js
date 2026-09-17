@@ -1099,26 +1099,33 @@
     var racFiltradas = racRows.slice(1).filter(function(r){
       return withinPeriod(parseBRDate(r[iRacData]), periodo.inicio, periodo.fim);
     });
-    // ---------- TOTAL RELATÓRIO AC (cálculo preliminar mensal) ----------
-    // Esta aba traz o total mensal por equipe. Ela não substitui o cálculo
-    // detalhado do Resumo Atividade Coletiva: só é usada quando o total
-    // mensal informado nela for maior que a contagem das listas detalhadas.
+    // ---------- TOTAL RELATÓRIO AC (janela móvel já consolidada) ----------
+    // A tabela TOTAL RELATÓRIO AC já traz, em cada linha mensal, o total
+    // correspondente à janela móvel de 4 meses terminada naquele mês.
+    // Portanto, não se deve somar as linhas que caem dentro do período.
+    // Selecionamos apenas o mês âncora do período e filtramos as equipes
+    // escolhidas; o valor só substitui a contagem detalhada quando for maior.
     var acRows = rowsOf("TOTAL RELATÓRIO AC");
     var acHeader = acRows[0] || [];
     var iAcEquipe = colIndex(acHeader, "equipe");
     var iAcTotal = colIndex(acHeader, "total_de_atividades_coletivas");
     var iAcMesAno = colIndex(acHeader, "mes/ano");
+    if(iAcEquipe < 0){ iAcEquipe = equipeColIndex(acHeader); }
     if(iAcTotal < 0){ iAcTotal = colIndex(acHeader, "total de atividades coletivas"); }
     if(iAcMesAno < 0){ iAcMesAno = colIndex(acHeader, "mes_ano"); }
+    var anchorAc = anchorMonthDate();
+    var anchorAcAno = anchorAc.getFullYear();
+    var anchorAcMes = anchorAc.getMonth();
+    var equipesSelecionadasAc = {};
+    currentEquipes.forEach(function(eq){ equipesSelecionadasAc[eq.key] = true; });
     var totalRelatorioAc = 0;
     acRows.slice(1).forEach(function(r){
-      var mesAc = iAcMesAno >= 0 ? parseMesAbrevPt(r[iAcMesAno]) : null;
-      if(!mesAc || iAcTotal < 0) return;
-      var inicioMesAc = new Date(mesAc.ano, mesAc.mesIdx, 1, 0,0,0,0);
-      var fimMesAc = new Date(mesAc.ano, mesAc.mesIdx+1, 0, 23,59,59,999);
-      if(fimMesAc >= periodo.inicio && inicioMesAc <= periodo.fim){
-        totalRelatorioAc += toInt(r[iAcTotal]);
-      }
+      if(iAcTotal < 0 || iAcMesAno < 0) return;
+      var mesAc = parseMesAbrevPt(r[iAcMesAno]);
+      if(!mesAc || mesAc.ano !== anchorAcAno || mesAc.mesIdx !== anchorAcMes) return;
+      var equipeAc = iAcEquipe >= 0 ? equipeKeyFromNomeOficial(r[iAcEquipe]) : null;
+      if(Object.keys(equipesSelecionadasAc).length && !equipesSelecionadasAc[equipeAc]) return;
+      totalRelatorioAc += toInt(r[iAcTotal]);
     });
     var atividadesTotaisListas = racFiltradas.length;
     var atividadesTotais = Math.max(atividadesTotaisListas, totalRelatorioAc);
