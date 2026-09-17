@@ -2639,7 +2639,23 @@
       });
       if(!rows.length) return;
       var headers = rows[0].map(function(h){ return String(h||"").trim() || "—"; });
-      latestSheets[name] = {headers: headers, rows: rows.slice(1)};
+      var dataRows = rows.slice(1);
+      // A coluna "Status" da lista "Atendimentos" não deve aparecer nas
+      // tabelas das abas M1 e M2 (pedido explícito) — removida aqui, só
+      // deste cache de EXIBIÇÃO das listas, então nenhum cálculo (que lê
+      // direto de wb.Sheets/latestWb) é afetado.
+      if(displayListName(name) === "Atendimentos"){
+        var statusIdx = colIndex(headers, "status");
+        if(statusIdx >= 0){
+          headers.splice(statusIdx, 1);
+          dataRows = dataRows.map(function(r){
+            var novaLinha = r.slice();
+            novaLinha.splice(statusIdx, 1);
+            return novaLinha;
+          });
+        }
+      }
+      latestSheets[name] = {headers: headers, rows: dataRows};
     });
   }
 
@@ -2827,7 +2843,15 @@
       var qtdColIdxs = [];
       headersForQtd.forEach(function(h, i){
         var hn = normalizeText(h);
-        if(hn.indexOf('QTD_') === 0 && hn.indexOf('PER') !== -1) qtdColIdxs.push(i);
+        var ehPeriodoPattern = hn.indexOf('QTD_') === 0 && hn.indexOf('PER') !== -1;
+        // "Qtd de atendimentos"/"qtd_atendimentos"/"Quantidade de
+        // atendimentos" (ex.: coluna homônima na lista "Atendimentos")
+        // também entram no recálculo por filtro — sem isso a coluna fica
+        // sempre com o valor bruto (ou vazio) da planilha, em vez de
+        // refletir o período/filtros ativos na lista.
+        var chaveQtd = hn.replace(/[-\s]+/g, '_');
+        var ehQtdAtendimentos = ['QTD_ATENDIMENTOS','QTD_DE_ATENDIMENTOS','QUANTIDADE_DE_ATENDIMENTOS'].indexOf(chaveQtd) !== -1;
+        if(ehPeriodoPattern || ehQtdAtendimentos) qtdColIdxs.push(i);
       });
       if(nomeIdxQtd >= 0 && qtdColIdxs.length){
         var countsPorNomeQtd = {};
