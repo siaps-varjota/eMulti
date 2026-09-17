@@ -1016,8 +1016,8 @@
   var NOTAS_METODOLOGICAS = [
     "Cálculo feito pelo próprio painel, direto dos dados brutos extraídos do e-SUS PEC (Atendimentos + Registro Tardio + Atividade Coletiva + Reuniões) para esta equipe/EMULTI, seguindo as fórmulas das Notas Metodológicas M1 (NT 43/2026-CGIAD/DEAPS/SAPS/MS) e M2 (NT 44/2026-CGIAD/DEAPS/SAPS/MS), na janela dos últimos 4 meses (ver 'Período' no topo da página) — não um quadrimestre fixo do calendário.",
     "M1 usa NOME da pessoa (a nota oficial usa CPF/CNS) — pessoas diferentes com o mesmo nome seriam contadas como se fossem uma só.",
-    "M2 oficial soma 3 componentes: atendimentos individuais compartilhados, atividades coletivas compartilhadas e compartilhamento de cuidado (PEC). Esta extração só consegue aproximar as parcelas de 'atividades coletivas' e 'reuniões', usando 'nº de profissionais envolvidos ≥ 2' como indício de ação compartilhada — não há como checar CBO/CNS de cada profissional (principal/secundário) pra aplicar a regra oficial à risca.",
-    "Atendimentos individuais compartilhados e compartilhamento de cuidado (PEC) NÃO entram no numerador do M2 aqui (a Lista de Atendimentos do e-SUS não indica se um atendimento individual teve mais de um profissional) — por isso o M2 calculado aqui tende a ficar ABAIXO do valor oficial do indicador.",
+    "M2: numerador = ações compartilhadas; denominador = todas as ações realizadas pela eMulti, incluindo atendimentos individuais e atividades coletivas específicas e compartilhadas. Esta extração aproxima as ações compartilhadas de atividades coletivas e reuniões usando 'nº de profissionais envolvidos ≥ 2' — não há como checar CBO/CNS de cada profissional (principal/secundário) para aplicar a regra oficial à risca.",
+    "Atendimentos individuais compartilhados e compartilhamento de cuidado (PEC) não podem ser identificados com segurança nesta extração: a Lista de Atendimentos não informa todos os profissionais participantes e não há aba de solicitações PEC. Por isso o numerador calculado é uma aproximação e pode ficar abaixo do oficial; o denominador agora inclui as ações coletivas específicas disponíveis.",
     "Atividade Coletiva só conta como 'compartilhada' aqui quando o tipo_atividade é Educação em saúde, Atendimento em grupo, Avaliação/Procedimento coletivo ou Mobilização social (códigos 04-07) E tem 2+ profissionais envolvidos — sem CBO/CNS de cada um, não dá pra confirmar que um deles é de fato cadastrado em eMulti, então ainda é uma aproximação.",
     "Reuniões (Resumo Reuniões) só contam oficialmente pra M2 quando são dos tipos 'Reunião de equipe', 'Reunião com outras equipes de saúde' ou 'Reunião intersetorial' (códigos 01-03) E registradas com o tema 'Discussão de Caso/Projeto Terapêutico Singular' — como a aba de reuniões não tem uma coluna de tema, esta extração conta qualquer reunião com 2+ profissionais, o que pode puxar o M2 um pouco PRA CIMA nesse componente específico.",
     "'Desempenho quadrimestral' NÃO é uma fórmula oficial do Ministério da Saúde — é uma síntese própria: Nota final = pontos M1 × 6 + pontos M2 × 4 (pontos por classificação: Regular=0,25, Suficiente=0,5, Bom=0,75, Ótimo=1), classificada como Regular < 2,6, Suficiente 2,6 a 4,9, Bom 5 a 7,5, Ótimo > 7,5 — pra dar uma visão geral rápida; os indicadores oficiais continuam sendo M1 e M2 separados.",
@@ -1115,8 +1115,16 @@
     var reunioesCompartilhadas = rrFiltradas.filter(function(r){ return toInt(r[iRrQtd]) >= 2; }).length;
 
     // ---------- M2 ----------
+    // ---------- M2 ----------
+    // Nota Metodológica M2 (NT 44/2026):
+    // Numerador = ações compartilhadas realizadas pela eMulti.
+    // Denominador = TODAS as ações realizadas pela eMulti, incluindo
+    // atendimentos individuais e atividades coletivas específicas e
+    // compartilhadas. O cálculo anterior usava apenas atendimentos
+    // individuais + numerador, excluindo as ações específicas e inflando
+    // artificialmente o percentual.
     var numeradorM2 = atividadesCompartilhadas + reunioesCompartilhadas;
-    var denominadorM2 = atendimentosIndividuais + numeradorM2;
+    var denominadorM2 = atendimentosIndividuais + atividadesTotais + reunioesTotais;
     var m2 = denominadorM2 ? (numeradorM2/denominadorM2*100) : null;
     var classificacaoM2 = classificarM2(m2);
 
