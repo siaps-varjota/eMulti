@@ -209,6 +209,17 @@
         numeradorM1: res.data.numeradorM1, denominadorM1: res.data.denominadorM1,
         numeradorM2: res.data.numeradorM2, denominadorM2: res.data.denominadorM2,
         notaFinal: res.data.notaFinal,
+        // Debug: de onde veio "atividades coletivas compartilhadas" NESTE
+        // mês — da contagem detalhada (Resumo Atividade Coletiva) ou do
+        // total mensal já consolidado (TOTAL RELATÓRIO AC), e os dois
+        // valores brutos, pra dar visibilidade quando o painel mostrar um
+        // número menor do que o esperado (ver comentário em
+        // calcularIndicadoresDoPeriodo sobre atividadesCompartilhadasFonte).
+        atividadesCompartilhadasFonte: res.data.atividadesCompartilhadasFonte,
+        atividadesCompartilhadasListas: res.data.atividadesCompartilhadasListas,
+        atividadesTotaisFonte: res.data.atividadesTotaisFonte,
+        atividadesTotaisListas: res.data.atividadesTotaisListas,
+        totalRelatorioAc: res.data.totalRelatorioAc,
         // Campos usados só pelo relatório de divergência oficial: valor
         // que o painel calcularia sem o override, e se este ponto teve
         // (ou não) override oficial aplicado — ver aplicarOverrideOficial.
@@ -1126,6 +1137,16 @@
     if(iAcEquipe < 0){ iAcEquipe = equipeColIndex(acHeader); }
     if(iAcTotal < 0){ iAcTotal = colIndex(acHeader, "total de atividades coletivas"); }
     if(iAcMesAno < 0){ iAcMesAno = colIndex(acHeader, "mes_ano"); }
+    // Se nenhuma das variações de nome bateu com o cabeçalho real da aba,
+    // totalRelatorioAc fica sempre 0 silenciosamente (o "return" logo
+    // abaixo, dentro do forEach) e o Math.max nunca vai escolher a AC —
+    // sintoma idêntico ao "27 em vez de pelo menos 89". Deixa um aviso no
+    // console só nesse caso, pra não precisar adivinhar às cegas.
+    if(iAcTotal < 0 || iAcMesAno < 0){
+      console.warn('[TOTAL RELATÓRIO AC] coluna não encontrada — cabeçalho real da aba:', acHeader,
+        '| esperado "total_de_atividades_coletivas" e "mes/ano" (ou "mes_ano")',
+        '| iAcTotal='+iAcTotal, 'iAcMesAno='+iAcMesAno);
+    }
     var anchorAc = periodo.fim;
     var anchorAcAno = anchorAc.getFullYear();
     var anchorAcMes = anchorAc.getMonth();
@@ -4606,6 +4627,21 @@
       // o dado da aba Q2-26 em vez do calculado pelo painel (ver
       // aplicarOverrideOficial) — só um lembrete visual, não muda o valor.
       function oficialTag(ehOficial){ return ehOficial ? ' <span class="pill" style="background:#3B7DDD;font-size:9.5px;">Oficial</span>' : ''; }
+      // Etiqueta de depuração: de onde veio o número de "atividades
+      // coletivas compartilhadas" usado no numerador do M2 deste mês —
+      // da contagem detalhada (Resumo Atividade Coletiva) ou do total
+      // mensal já consolidado (TOTAL RELATÓRIO AC) — com os dois valores
+      // brutos no title (hover), pra flagrar quando o valor esperado da
+      // aba AC não estiver realmente entrando na conta (ver comentário em
+      // calcularIndicadoresDoPeriodo).
+      var fonteAc = p.atividadesCompartilhadasFonte;
+      var fonteAcCurta = fonteAc === 'TOTAL RELATÓRIO AC' ? 'AC' : 'Lista';
+      var fonteAcCor = fonteAc === 'TOTAL RELATÓRIO AC' ? '#3B7DDD' : '#7A8A82';
+      var fonteAcTitle = 'Lista (Resumo Atividade Coletiva): '+fmtInt(p.atividadesCompartilhadasListas)
+        +' · TOTAL RELATÓRIO AC (mês âncora): '+fmtInt(p.totalRelatorioAc);
+      var fonteAcTag = fonteAc
+        ? ' <span class="pill" style="background:'+fonteAcCor+';font-size:9.5px;" title="'+escapeHtml(fonteAcTitle)+'">'+fonteAcCurta+'</span>'
+        : '';
       return '<tr>'
         + '<td>'+escapeHtml(monthShortLabel(p.mes))+'</td>'
         + '<td>'+fmtInt(p.numeradorM1)+'</td>'
@@ -4614,7 +4650,7 @@
         + '<td>'+pill(classeM1)+'</td>'
         + '<td>'+fmtInt(p.numeradorM2)+'</td>'
         + '<td>'+fmtInt(p.denominadorM2)+'</td>'
-        + '<td>'+(p.m2!=null ? fmtDec(p.m2,2)+'%' : '—')+oficialTag(p.m2Oficial)+'</td>'
+        + '<td>'+(p.m2!=null ? fmtDec(p.m2,2)+'%' : '—')+oficialTag(p.m2Oficial)+fonteAcTag+'</td>'
         + '<td>'+pill(classeM2)+'</td>'
         + '<td>'+(p.notaFinal!=null ? fmtDec(p.notaFinal,2) : '—')+'</td>'
         + '<td>'+pill(desemp)+'</td>'
@@ -4628,7 +4664,7 @@
       : '';
     document.getElementById('trendHistoryWrap').innerHTML =
         '<div class="card"><div class="list-card-head"><h4 style="margin:0;font-size:14.5px;font-weight:500;">Série histórica — numerador, denominador e desempenho quadrimestral</h4>'+divergenciaBtnHtml+'</div>'
-      + '<p class="footnote" style="margin:4px 0 12px;">Um mês por linha (mais recente primeiro), cada um com sua própria janela móvel de '+JANELA_MESES+' meses terminando naquele mês (mesmos pontos dos gráficos acima). "Desempenho quadrimestral" é a síntese própria M1×6 + M2×4 — ver Notas Metodológicas. O selo "Oficial" marca meses em que o valor veio da aba Q2-26 em vez do cálculo do painel.</p>'
+      + '<p class="footnote" style="margin:4px 0 12px;">Um mês por linha (mais recente primeiro), cada um com sua própria janela móvel de '+JANELA_MESES+' meses terminando naquele mês (mesmos pontos dos gráficos acima). "Desempenho quadrimestral" é a síntese própria M1×6 + M2×4 — ver Notas Metodológicas. O selo "Oficial" marca meses em que o valor veio da aba Q2-26 em vez do cálculo do painel. Na coluna M2, o selo "AC"/"Lista" mostra se o número de atividades coletivas compartilhadas daquele mês veio da aba TOTAL RELATÓRIO AC ou da contagem detalhada (Resumo Atividade Coletiva) — passe o mouse pra ver os dois valores brutos comparados.</p>'
       + '<div class="table-wrap"><table class="data-table"><thead><tr>'
       +   '<th>Mês</th><th>Numerador M1</th><th>Denominador M1</th><th>M1</th><th>Classe M1</th>'
       +   '<th>Numerador M2</th><th>Denominador M2</th><th>M2 (%)</th><th>Classe M2</th><th>Nota do desempenho</th><th>Desempenho quadrimestral</th>'
