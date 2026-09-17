@@ -1103,8 +1103,21 @@
     // A tabela TOTAL RELATÓRIO AC já traz, em cada linha mensal, o total
     // correspondente à janela móvel de 4 meses terminada naquele mês.
     // Portanto, não se deve somar as linhas que caem dentro do período.
-    // Selecionamos apenas o mês âncora do período e filtramos as equipes
-    // escolhidas; o valor só substitui a contagem detalhada quando for maior.
+    // Selecionamos apenas o mês âncora DESTE período e filtramos as
+    // equipes escolhidas; o valor só substitui a contagem detalhada
+    // quando for maior.
+    // IMPORTANTE: o mês-âncora aqui é o do PERÍODO recebido por esta
+    // chamada (periodo.fim) — não o anchorMonthDate() global da seleção
+    // do painel. Os pontos que chamam esta função sempre passam um
+    // período cujo fim já cai no mês certo pra essa chamada específica:
+    // - calcularJanelaComOverride(wb, refMonth) → calcularJanelaPeriodo
+    //   termina no último dia de refMonth;
+    // - os loops de resultadosMensais/resultadosJanela e a série de
+    //   Tendência (calcularSerieTendencia) chamam isso uma vez por mês,
+    //   cada vez com o refMonth/periodo daquele mês específico.
+    // Usar o anchorMonthDate() global aqui faria o mesmo valor da AC se
+    // repetir em todos os meses de uma série (ex.: gráfico de Tendência),
+    // em vez de trazer o dado mês a mês como pedido.
     var acRows = rowsOf("TOTAL RELATÓRIO AC");
     var acHeader = acRows[0] || [];
     var iAcEquipe = colIndex(acHeader, "equipe");
@@ -1113,7 +1126,7 @@
     if(iAcEquipe < 0){ iAcEquipe = equipeColIndex(acHeader); }
     if(iAcTotal < 0){ iAcTotal = colIndex(acHeader, "total de atividades coletivas"); }
     if(iAcMesAno < 0){ iAcMesAno = colIndex(acHeader, "mes_ano"); }
-    var anchorAc = anchorMonthDate();
+    var anchorAc = periodo.fim;
     var anchorAcAno = anchorAc.getFullYear();
     var anchorAcMes = anchorAc.getMonth();
     var equipesSelecionadasAc = {};
