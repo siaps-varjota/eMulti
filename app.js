@@ -1821,39 +1821,66 @@
   // grade (2 colunas) pra caber os 4 intervalos (1ª→2ª, 2ª→3ª, 3ª→4ª,
   // 4ª→5ª) em 4 quadrantes, em vez de 4 linhas empilhadas ocupando altura
   // desnecessária.
-  function boxplotDiasSvg(intervalos){
+  // Waterfall (cascata incremental) do tempo entre consultas: cada barra
+  // "flutua" a partir de onde a anterior parou, representando quantos dias
+  // aquele intervalo ACRESCENTA ao tempo acumulado desde a 1ª consulta.
+  // Só entram no acumulado os intervalos com dados suficientes (it.stats);
+  // os que ainda não têm dado aparecem como aviso, sem quebrar a cascata.
+  function waterfallDiasSvg(intervalos){
     var comDados = intervalos.filter(function(it){ return it.stats; });
-    var W = 640, cols = 2;
-    var rows = Math.ceil(intervalos.length/cols);
-    var outerPad = 12, gapX = 18, gapY = 10, cellH = 68;
-    var cellW = (W - outerPad*2 - gapX*(cols-1)) / cols;
-    var H = outerPad*2 + cellH*rows + gapY*(rows-1);
-    var maxVal = comDados.length ? Math.max.apply(null, comDados.map(function(it){ return it.stats.max; })) : 1;
-    if(maxVal <= 0) maxVal = 1;
-    var barPad = 4, plotW = cellW - barPad*2;
-    function x(cellX, v){ return cellX + barPad + (v/maxVal)*plotW; }
-    var cells = intervalos.map(function(it,i){
-      var col = i % cols, row = Math.floor(i/cols);
-      var cellX = outerPad + col*(cellW+gapX);
-      var cellY = outerPad + row*(cellH+gapY);
-      var labelY = cellY + 11;
-      var label = '<text x="'+cellX+'" y="'+labelY+'" font-size="10.5" font-weight="700" fill="var(--ink)">'+escapeHtml(it.label)+'</text>';
-      if(!it.stats){
-        return '<g>'+label+'<text x="'+cellX+'" y="'+(cellY+cellH/2)+'" font-size="9.5" fill="var(--ink-soft)">Sem pacientes suficientes ainda</text></g>';
+    if(!comDados.length){
+      return '<p class="footnote">Ainda não há dados suficientes pra montar a cascata.</p>';
+    }
+
+    var W = 640, H = 250;
+    var padLeft = 14, padRight = 14, padTop = 40, padBottom = 44;
+    var plotW = W - padLeft - padRight;
+    var plotH = H - padTop - padBottom;
+    var n = comDados.length;
+    var gap = 26;
+    var barW = (plotW - gap*(n-1)) / n;
+
+    var cumulative = 0;
+    var steps = comDados.map(function(it){
+      var incremento = Math.round(it.stats.mediana);
+      var inicio = cumulative;
+      cumulative += incremento;
+      return {label: it.label, incremento: incremento, inicio: inicio, fim: cumulative, n: it.stats.n};
+    });
+
+    var maxTotal = cumulative || 1;
+    function y(v){ return padTop + plotH - (v/maxTotal)*plotH; }
+
+    var cores = ['#2F6F5E','#3E8571','#57A088','#7CB89F','#A3CFBB'];
+    var baseline = '<line x1="'+padLeft+'" y1="'+y(0)+'" x2="'+(padLeft+plotW)+'" y2="'+y(0)+'" stroke="var(--ink-soft)" stroke-width="1"/>';
+
+    var bars = steps.map(function(s, i){
+      var xPos = padLeft + i*(barW+gap);
+      var yTop = y(s.fim), yBottom = y(s.inicio);
+      var barH = Math.max(2, yBottom - yTop);
+      var cor = cores[i % cores.length];
+
+      var connector = '';
+      if(i > 0){
+        var prevX = padLeft + (i-1)*(barW+gap) + barW;
+        var yLevel = y(s.inicio);
+        connector = '<line x1="'+prevX+'" y1="'+yLevel+'" x2="'+xPos+'" y2="'+yLevel+'" stroke="var(--ink-soft)" stroke-width="1" stroke-dasharray="3,3"/>';
       }
-      var s = it.stats, boxH = 13, cy = cellY + 44;
-      var valTxt = '<text x="'+(cellX+cellW)+'" y="'+labelY+'" font-size="10.5" font-weight="700" fill="var(--ink)" text-anchor="end">'+fmtInt(Math.round(s.mediana))+' dias</text>'
-        + '<text x="'+(cellX+cellW)+'" y="'+(labelY+11)+'" font-size="8" fill="var(--ink-soft)" text-anchor="end">mediana · n='+s.n+'</text>';
-      var whisker = '<line x1="'+x(cellX,s.min)+'" y1="'+cy+'" x2="'+x(cellX,s.max)+'" y2="'+cy+'" stroke="var(--ink-soft)" stroke-width="1.4"/>'
-        + '<line x1="'+x(cellX,s.min)+'" y1="'+(cy-6)+'" x2="'+x(cellX,s.min)+'" y2="'+(cy+6)+'" stroke="var(--ink-soft)" stroke-width="1.4"/>'
-        + '<line x1="'+x(cellX,s.max)+'" y1="'+(cy-6)+'" x2="'+x(cellX,s.max)+'" y2="'+(cy+6)+'" stroke="var(--ink-soft)" stroke-width="1.4"/>';
-      var boxX = x(cellX,s.p25), boxW = Math.max(2, x(cellX,s.p75)-x(cellX,s.p25));
-      var box = '<rect x="'+boxX+'" y="'+(cy-boxH/2)+'" width="'+boxW+'" height="'+boxH+'" fill="#2F6F5E" opacity="0.25" stroke="#2F6F5E" stroke-width="1.2"/>';
-      var medLine = '<line x1="'+x(cellX,s.mediana)+'" y1="'+(cy-boxH/2)+'" x2="'+x(cellX,s.mediana)+'" y2="'+(cy+boxH/2)+'" stroke="#2F6F5E" stroke-width="2.6"/>';
-      return '<g>'+label+valTxt+whisker+box+medLine+'</g>';
+
+      var barRect = '<rect x="'+xPos+'" y="'+yTop+'" width="'+barW+'" height="'+barH+'" fill="'+cor+'" rx="4"/>';
+      var incLabel = '<text x="'+(xPos+barW/2)+'" y="'+(yTop-8)+'" font-size="11" font-weight="700" fill="var(--ink)" text-anchor="middle">+'+fmtInt(s.incremento)+' dias</text>';
+      var catLabel = '<text x="'+(xPos+barW/2)+'" y="'+(padTop+plotH+18)+'" font-size="10.5" font-weight="700" fill="var(--ink)" text-anchor="middle">'+escapeHtml(s.label)+'</text>';
+      var nSub = '<text x="'+(xPos+barW/2)+'" y="'+(padTop+plotH+31)+'" font-size="8.5" fill="var(--ink-soft)" text-anchor="middle">mediana · n='+s.n+'</text>';
+
+      return connector + barRect + incLabel + catLabel + nSub;
     }).join('');
-    return '<svg class="spark-svg" viewBox="0 0 '+W+' '+H+'">'+cells+'</svg>';
+
+    var totalLabel = '<text x="'+(padLeft+plotW)+'" y="18" font-size="11" font-weight="700" fill="var(--ink)" text-anchor="end">Total acumulado: '+fmtInt(cumulative)+' dias</text>';
+
+    return '<svg class="spark-svg" viewBox="0 0 '+W+' '+H+'">'+baseline+bars+totalLabel+'</svg>';
   }
+
+
 
   // Funil de abandono: barras horizontais de largura proporcional ao 1º
   // degrau (1ª consulta = 100%).
@@ -2079,7 +2106,7 @@
     }
 
     if(elTotal) elTotal.textContent = fmtInt(data.totalPacientes) + ' pacientes · ' + fmtInt(data.totalAtendimentos || 0) + ' atendimentos';
-    if(elIntervalos) elIntervalos.innerHTML = boxplotDiasSvg(data.intervalos);
+    if(elIntervalos) elIntervalos.innerHTML = waterfallDiasSvg(data.intervalos);
     if(elFunil) elFunil.innerHTML = funnelHtml(data.funil);
     if(elRiscoResumo){
       if(!data.medianaBase){
