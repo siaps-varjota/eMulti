@@ -3132,6 +3132,11 @@
     function diferenca(v){
       return v!=null ? (v>=0?'+':'')+fmtDec(v,2) : '—';
     }
+    function diferencaInteira(oficial, calculado){
+      if(oficial===null || oficial===undefined || calculado===null || calculado===undefined || isNaN(oficial) || isNaN(calculado)) return '—';
+      var d = oficial - calculado;
+      return (d>=0?'+':'')+fmtInt(d);
+    }
     // Estatísticas de divergência por indicador — usadas no comentário
     // logo abaixo da tabela (qual indicador diverge mais vezes, a
     // divergência média de cada um, e o detalhamento de quantas dessas
@@ -3161,17 +3166,13 @@
         registrarDivergencia(statM1, difM1, mesLabel);
         linhas.push([
           mesLabel, 'M1',
-          valor(p.atendimentosIndividuaisCalculado),
-          valor(p.participacoesColetivasCalculado),
-          valor(p.pessoasDistintasCalculado),
-          '—', '—', '—', '—',
-          valor(p.numeradorM1Calculado),
-          valor(p.denominadorM1Calculado),
+          valor(p.numeradorM1Calculado)+' / '+valor(p.denominadorM1Calculado),
           valor(p.m1Calculado),
-          valor(p.numeradorM1),
-          valor(p.denominadorM1),
+          valor(p.numeradorM1)+' / '+valor(p.denominadorM1),
           valor(p.m1),
-          diferenca(difM1)
+          diferenca(difM1),
+          diferencaInteira(p.numeradorM1, p.numeradorM1Calculado),
+          diferencaInteira(p.denominadorM1, p.denominadorM1Calculado)
         ]);
       }
       if(p.m2Oficial){
@@ -3179,19 +3180,13 @@
         registrarDivergencia(statM2, difM2, mesLabel);
         linhas.push([
           mesLabel, 'M2',
-          valor(p.atendimentosIndividuaisCalculado),
-          '—', '—',
-          valor(p.atividadesTotaisCalculado),
-          valor(p.atividadesCompartilhadasCalculado),
-          valor(p.reunioesTotaisCalculado),
-          valor(p.reunioesCompartilhadasCalculado),
-          valor(p.numeradorM2Calculado),
-          valor(p.denominadorM2Calculado),
+          valor(p.numeradorM2Calculado)+' / '+valor(p.denominadorM2Calculado),
           valor(p.m2Calculado, true),
-          valor(p.numeradorM2),
-          valor(p.denominadorM2),
+          valor(p.numeradorM2)+' / '+valor(p.denominadorM2),
           valor(p.m2, true),
-          diferenca(difM2)+'%'
+          diferenca(difM2)+'%',
+          diferencaInteira(p.numeradorM2, p.numeradorM2Calculado),
+          diferencaInteira(p.denominadorM2, p.denominadorM2Calculado)
         ]);
       }
     });
@@ -3239,20 +3234,13 @@
       startY: y,
       head: [[
         'Mês','Indicador',
-        'Atendimentos\nindividuais',
-        'Participações em\natividade coletiva',
-        'Pessoas\ndistintas',
-        'Atividades\ncoletivas totais',
-        'Atividades coletivas\ncompartilhadas',
-        'Reuniões\ntotais',
-        'Reuniões\ncompartilhadas',
-        'Numerador',
-        'Denominador',
-        'Valor',
-        'Numerador\n(Oficial)',
-        'Denominador\n(Oficial)',
+        'Calculado\n(Numerador / Denominador)',
+        'Valor\nCalculado',
+        'Oficial\n(Numerador / Denominador)',
         'Valor\n(Oficial)',
-        'Diferença'
+        'Diferença\nValor',
+        'Diferença\nNumerador',
+        'Diferença\nDenominador'
       ]],
       body: linhas,
       theme: 'grid',
