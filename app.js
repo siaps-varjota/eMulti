@@ -206,17 +206,18 @@
         numeradorM1: res.data.numeradorM1, denominadorM1: res.data.denominadorM1,
         numeradorM2: res.data.numeradorM2, denominadorM2: res.data.denominadorM2,
         notaFinal: res.data.notaFinal,
-        atendimentosIndividuaisCalculado: res.data.atendimentosIndividuais,
-        participacoesColetivasCalculado: res.data.participacoesColetivas,
-        atividadesTotaisCalculado: res.data.atividadesTotais,
-        atividadesCompartilhadasCalculado: res.data.atividadesCompartilhadas,
-        reunioesTotaisCalculado: res.data.reunioesTotais,
-        reunioesCompartilhadasCalculado: res.data.reunioesCompartilhadas,
         // Campos usados só pelo relatório de divergência oficial: valor
         // que o painel calcularia sem o override, e se este ponto teve
         // (ou não) override oficial aplicado — ver aplicarOverrideOficial.
         m1Oficial: !!res.data.m1Oficial, m2Oficial: !!res.data.m2Oficial,
         numeradorM1Calculado: res.data.numeradorM1Calculado, denominadorM1Calculado: res.data.denominadorM1Calculado, m1Calculado: res.data.m1Calculado,
+        atendimentosIndividuaisCalculado: res.data.atendimentosIndividuais,
+        participacoesColetivasCalculado: res.data.participacoesColetivas,
+        pessoasDistintasCalculado: res.data.denominadorM1,
+        atividadesTotaisCalculado: res.data.atividadesTotais,
+        atividadesCompartilhadasCalculado: res.data.atividadesCompartilhadas,
+        reunioesTotaisCalculado: res.data.reunioesTotais,
+        reunioesCompartilhadasCalculado: res.data.reunioesCompartilhadas,
         numeradorM2Calculado: res.data.numeradorM2Calculado, denominadorM2Calculado: res.data.denominadorM2Calculado, m2Calculado: res.data.m2Calculado,
         janela:janela
       });
@@ -2079,8 +2080,8 @@
       }),
       theme: 'grid',
       margin: {left:margin, right:margin, bottom:34},
-      styles: {font:'helvetica', fontSize:7.4, cellPadding:3, overflow:'linebreak', valign:'top', textColor:[19,36,31], lineColor:[220,228,214], lineWidth:0.5},
-      headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold', halign:'center', valign:'middle'},
+      styles: {font:'helvetica', fontSize:8.6, cellPadding:4, overflow:'linebreak', textColor:[19,36,31], lineColor:[220,228,214], lineWidth:0.5},
+      headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold'},
       alternateRowStyles: {fillColor:[241,244,238]},
       didDrawPage: function(){
         doc.setFontSize(8);
@@ -3163,7 +3164,7 @@
       theme: 'grid',
       margin: {left:margin, right:margin, bottom:34},
       styles: {font:'helvetica', fontSize: headers.length > 9 ? 7 : (headers.length > 6 ? 7.8 : 8.6), cellPadding:4, overflow:'linebreak', textColor:[19,36,31], lineColor:[220,228,214], lineWidth:0.5},
-      headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold', halign:'center', valign:'middle'},
+      headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold'},
       alternateRowStyles: {fillColor:[241,244,238]},
       didDrawPage: function(){
         doc.setFontSize(8);
@@ -3190,53 +3191,15 @@
       return;
     }
     var linhas = [];
-    // Estatísticas de divergência por indicador — usadas no comentário
-    // logo abaixo da tabela (qual indicador diverge mais vezes, a
-    // divergência média de cada um, e o detalhamento de quantas dessas
-    // divergências foram "para mais" — oficial acima do calculado — e
-    // quantas foram "para menos"). Um mês só conta como "divergente" se a
-    // diferença (oficial - calculado), já arredondada nas 2 casas
-    // exibidas na tabela, for diferente de zero — assim o comentário bate
-    // exatamente com o que a coluna "Diferença" mostra.
-    function novoStat(){ return {meses:0, divergentes:0, somaAbs:0, paraMais:{n:0,soma:0}, paraMenos:{n:0,soma:0}, itensPareto:[]}; }
-    var statM1 = novoStat();
-    var statM2 = novoStat();
-    function registrarDivergencia(stat, dif, mesLabel){
-      if(dif==null) return;
-      stat.meses++;
-      stat.somaAbs += Math.abs(dif);
-      if(fmtDec(Math.abs(dif),2) === fmtDec(0,2)) return; // sem divergência (bateu na 2ª casa exibida)
-      stat.divergentes++;
-      stat.itensPareto.push({label:mesLabel, valor:Math.abs(dif)});
-      if(dif > 0){ stat.paraMais.n++; stat.paraMais.soma += dif; }
-      else { stat.paraMenos.n++; stat.paraMenos.soma += Math.abs(dif); }
+    // Componentes calculados ficam em colunas próprias. As colunas com
+    // dados da aba Q2-26 são as únicas identificadas com "(Oficial)".
+    function valor(v, percentual){
+      if(v===null || v===undefined || isNaN(v)) return '—';
+      return percentual ? fmtDec(v,2)+'%' : fmtInt(v);
     }
-    // Mostra, no PDF, todos os componentes que entram no valor Calculado
-    // e identifica a aba de origem de cada componente. O Oficial permanece
-    // apenas com numerador/denominador e valor, pois não há detalhamento
-    // equivalente disponível na aba Q2-26.
-    function detalhamentoCalculado(indicador, p){
-      if(indicador === 'M1'){
-        return [
-          'Atend. individuais (Atendimentos): '+fmtInt(p.atendimentosIndividuaisCalculado),
-          'Partic. atividades coletivas (Participantes Ativ. Coletiva): '+fmtInt(p.participacoesColetivasCalculado),
-          'Numerador = atend. individuais + participações: '+fmtInt(p.numeradorM1Calculado),
-          'Denominador = pessoas distintas por nome (Atendimentos + Participantes Ativ. Coletiva): '+fmtInt(p.denominadorM1Calculado),
-          'Fórmula: numerador / denominador = '+(p.m1Calculado!=null ? fmtDec(p.m1Calculado,2) : '—')
-        ].join('\n');
-      }
-      return [
-        'Atend. individuais (Atendimentos): '+fmtInt(p.atendimentosIndividuaisCalculado),
-        'Ativ. coletivas totais (Resumo Atividade Coletiva): '+fmtInt(p.atividadesTotaisCalculado),
-        'Ativ. coletivas compartilhadas (Resumo Atividade Coletiva): '+fmtInt(p.atividadesCompartilhadasCalculado),
-        'Reuniões totais (Resumo Reuniões): '+fmtInt(p.reunioesTotaisCalculado),
-        'Reuniões compartilhadas (Resumo Reuniões): '+fmtInt(p.reunioesCompartilhadasCalculado),
-        'Numerador = ativ. compartilhadas + reuniões compartilhadas: '+fmtInt(p.numeradorM2Calculado),
-        'Denominador = atend. individuais + numerador: '+fmtInt(p.denominadorM2Calculado),
-        'Fórmula: numerador / denominador × 100 = '+(p.m2Calculado!=null ? fmtDec(p.m2Calculado,2)+'%' : '—')
-      ].join('\n');
+    function diferenca(v){
+      return v!=null ? (v>=0?'+':'')+fmtDec(v,2) : '—';
     }
-
     // Mais recente primeiro, mesma ordem da tabela de Série histórica.
     serieTendencia.slice().reverse().forEach(function(p){
       var mesLabel = monthShortLabel(p.mes);
@@ -3245,9 +3208,17 @@
         registrarDivergencia(statM1, difM1, mesLabel);
         linhas.push([
           mesLabel, 'M1',
-          detalhamentoCalculado('M1', p), p.m1Calculado!=null ? fmtDec(p.m1Calculado,2) : '—',
-          fmtInt(p.numeradorM1)+' / '+fmtInt(p.denominadorM1), p.m1!=null ? fmtDec(p.m1,2) : '—',
-          difM1!=null ? (difM1>=0?'+':'')+fmtDec(difM1,2) : '—'
+          valor(p.atendimentosIndividuaisCalculado),
+          valor(p.participacoesColetivasCalculado),
+          valor(p.pessoasDistintasCalculado),
+          '', '', '', '',
+          valor(p.numeradorM1Calculado),
+          valor(p.denominadorM1Calculado),
+          valor(p.m1Calculado),
+          valor(p.numeradorM1),
+          valor(p.denominadorM1),
+          valor(p.m1),
+          diferenca(difM1)
         ]);
       }
       if(p.m2Oficial){
@@ -3255,9 +3226,20 @@
         registrarDivergencia(statM2, difM2, mesLabel);
         linhas.push([
           mesLabel, 'M2',
-          detalhamentoCalculado('M2', p), p.m2Calculado!=null ? fmtDec(p.m2Calculado,2)+'%' : '—',
-          fmtInt(p.numeradorM2)+' / '+fmtInt(p.denominadorM2), p.m2!=null ? fmtDec(p.m2,2)+'%' : '—',
-          difM2!=null ? (difM2>=0?'+':'')+fmtDec(difM2,2)+'%' : '—'
+          valor(p.atendimentosIndividuaisCalculado),
+          '',
+          '',
+          valor(p.atividadesTotaisCalculado),
+          valor(p.atividadesCompartilhadasCalculado),
+          valor(p.reunioesTotaisCalculado),
+          valor(p.reunioesCompartilhadasCalculado),
+          valor(p.numeradorM2Calculado),
+          valor(p.denominadorM2Calculado),
+          valor(p.m2Calculado, true),
+          valor(p.numeradorM2),
+          valor(p.denominadorM2),
+          valor(p.m2, true),
+          diferenca(difM2)+'%'
         ]);
       }
     });
@@ -3299,12 +3281,28 @@
 
     doc.autoTable({
       startY: y,
-      head: [['Mês','Indicador','Componentes do\ncalculado e origem','Valor\ncalculado','Numerador/\nDenominador\n(oficial)','Valor\n(oficial)','Diferença']],
+      head: [[
+        'Mês','Indicador',
+        'Atendimentos\nindividuais',
+        'Participações em\natividade coletiva',
+        'Pessoas\ndistintas',
+        'Atividades\ncoletivas totais',
+        'Atividades coletivas\ncompartilhadas',
+        'Reuniões\ntotais',
+        'Reuniões\ncompartilhadas',
+        'Numerador',
+        'Denominador',
+        'Valor',
+        'Numerador\n(Oficial)',
+        'Denominador\n(Oficial)',
+        'Valor\n(Oficial)',
+        'Diferença'
+      ]],
       body: linhas,
       theme: 'grid',
       margin: {left:margin, right:margin, bottom:34},
-      styles: {font:'helvetica', fontSize:7.4, cellPadding:3, overflow:'linebreak', valign:'top', textColor:[19,36,31], lineColor:[220,228,214], lineWidth:0.5},
-      headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold', halign:'center', valign:'middle'},
+      styles: {font:'helvetica', fontSize:8.6, cellPadding:4, overflow:'linebreak', textColor:[19,36,31], lineColor:[220,228,214], lineWidth:0.5},
+      headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold'},
       alternateRowStyles: {fillColor:[241,244,238]},
       didDrawPage: function(){
         doc.setFontSize(8);
