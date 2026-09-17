@@ -1144,11 +1144,19 @@
     var atividadesTotais = Math.max(atividadesTotaisListas, totalRelatorioAc);
     var atividadesTotaisFonte = totalRelatorioAc > atividadesTotaisListas
       ? "TOTAL RELATÓRIO AC" : "Resumo Atividade Coletiva";
-    var atividadesCompartilhadas = racFiltradas.filter(function(r){
+    var atividadesCompartilhadasListas = racFiltradas.filter(function(r){
       var totalProf = iRacTotalProf>=0 && r[iRacTotalProf]!=="" ? toInt(r[iRacTotalProf]) : 1+toInt(r[iRacProfEnv]);
       var tipoOk = iRacTipo<0 || TIPOS_ATIV_COLETIVA_COMPARTILHADA.indexOf(normalizarTexto(r[iRacTipo])) >= 0;
       return totalProf >= 2 && tipoOk;
     }).length;
+    // Mesma regra do "atividadesTotais" acima, mas aplicada ao componente
+    // que de fato alimenta o numerador do M2 (numeradorM2 → card "M2 —
+    // Ações Interprofissionais", o "X compartilhadas" do gauge). Sem isso,
+    // o card continuava mostrando só a contagem da lista detalhada mesmo
+    // quando a aba TOTAL RELATÓRIO AC trazia um total mensal maior.
+    var atividadesCompartilhadas = Math.max(atividadesCompartilhadasListas, totalRelatorioAc);
+    var atividadesCompartilhadasFonte = totalRelatorioAc > atividadesCompartilhadasListas
+      ? "TOTAL RELATÓRIO AC" : "Resumo Atividade Coletiva";
 
     // ---------- Resumo Reuniões ----------
     var rrRows = rowsOf("Resumo Reuniões");
@@ -1195,6 +1203,8 @@
         totalRelatorioAc: totalRelatorioAc,
         atividadesTotaisFonte: atividadesTotaisFonte,
         atividadesCompartilhadas: atividadesCompartilhadas,
+        atividadesCompartilhadasListas: atividadesCompartilhadasListas,
+        atividadesCompartilhadasFonte: atividadesCompartilhadasFonte,
         reunioesTotais: reunioesTotais,
         reunioesCompartilhadas: reunioesCompartilhadas,
         denominadorM2: denominadorM2,
