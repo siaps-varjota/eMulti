@@ -206,6 +206,12 @@
         numeradorM1: res.data.numeradorM1, denominadorM1: res.data.denominadorM1,
         numeradorM2: res.data.numeradorM2, denominadorM2: res.data.denominadorM2,
         notaFinal: res.data.notaFinal,
+        atendimentosIndividuaisCalculado: res.data.atendimentosIndividuais,
+        participacoesColetivasCalculado: res.data.participacoesColetivas,
+        atividadesTotaisCalculado: res.data.atividadesTotais,
+        atividadesCompartilhadasCalculado: res.data.atividadesCompartilhadas,
+        reunioesTotaisCalculado: res.data.reunioesTotais,
+        reunioesCompartilhadasCalculado: res.data.reunioesCompartilhadas,
         // Campos usados só pelo relatório de divergência oficial: valor
         // que o painel calcularia sem o override, e se este ponto teve
         // (ou não) override oficial aplicado — ver aplicarOverrideOficial.
@@ -1016,8 +1022,8 @@
   var NOTAS_METODOLOGICAS = [
     "Cálculo feito pelo próprio painel, direto dos dados brutos extraídos do e-SUS PEC (Atendimentos + Registro Tardio + Atividade Coletiva + Reuniões) para esta equipe/EMULTI, seguindo as fórmulas das Notas Metodológicas M1 (NT 43/2026-CGIAD/DEAPS/SAPS/MS) e M2 (NT 44/2026-CGIAD/DEAPS/SAPS/MS), na janela dos últimos 4 meses (ver 'Período' no topo da página) — não um quadrimestre fixo do calendário.",
     "M1 usa NOME da pessoa (a nota oficial usa CPF/CNS) — pessoas diferentes com o mesmo nome seriam contadas como se fossem uma só.",
-    "M2: numerador = ações compartilhadas; denominador = todas as ações realizadas pela eMulti, incluindo atendimentos individuais e atividades coletivas específicas e compartilhadas. Esta extração aproxima as ações compartilhadas de atividades coletivas e reuniões usando 'nº de profissionais envolvidos ≥ 2' — não há como checar CBO/CNS de cada profissional (principal/secundário) para aplicar a regra oficial à risca.",
-    "Atendimentos individuais compartilhados e compartilhamento de cuidado (PEC) não podem ser identificados com segurança nesta extração: a Lista de Atendimentos não informa todos os profissionais participantes e não há aba de solicitações PEC. Por isso o numerador calculado é uma aproximação e pode ficar abaixo do oficial; o denominador agora inclui as ações coletivas específicas disponíveis.",
+    "M2 oficial soma 3 componentes: atendimentos individuais compartilhados, atividades coletivas compartilhadas e compartilhamento de cuidado (PEC). Esta extração só consegue aproximar as parcelas de 'atividades coletivas' e 'reuniões', usando 'nº de profissionais envolvidos ≥ 2' como indício de ação compartilhada — não há como checar CBO/CNS de cada profissional (principal/secundário) pra aplicar a regra oficial à risca.",
+    "Atendimentos individuais compartilhados e compartilhamento de cuidado (PEC) NÃO entram no numerador do M2 aqui (a Lista de Atendimentos do e-SUS não indica se um atendimento individual teve mais de um profissional) — por isso o M2 calculado aqui tende a ficar ABAIXO do valor oficial do indicador.",
     "Atividade Coletiva só conta como 'compartilhada' aqui quando o tipo_atividade é Educação em saúde, Atendimento em grupo, Avaliação/Procedimento coletivo ou Mobilização social (códigos 04-07) E tem 2+ profissionais envolvidos — sem CBO/CNS de cada um, não dá pra confirmar que um deles é de fato cadastrado em eMulti, então ainda é uma aproximação.",
     "Reuniões (Resumo Reuniões) só contam oficialmente pra M2 quando são dos tipos 'Reunião de equipe', 'Reunião com outras equipes de saúde' ou 'Reunião intersetorial' (códigos 01-03) E registradas com o tema 'Discussão de Caso/Projeto Terapêutico Singular' — como a aba de reuniões não tem uma coluna de tema, esta extração conta qualquer reunião com 2+ profissionais, o que pode puxar o M2 um pouco PRA CIMA nesse componente específico.",
     "'Desempenho quadrimestral' NÃO é uma fórmula oficial do Ministério da Saúde — é uma síntese própria: Nota final = pontos M1 × 6 + pontos M2 × 4 (pontos por classificação: Regular=0,25, Suficiente=0,5, Bom=0,75, Ótimo=1), classificada como Regular < 2,6, Suficiente 2,6 a 4,9, Bom 5 a 7,5, Ótimo > 7,5 — pra dar uma visão geral rápida; os indicadores oficiais continuam sendo M1 e M2 separados.",
@@ -1115,16 +1121,8 @@
     var reunioesCompartilhadas = rrFiltradas.filter(function(r){ return toInt(r[iRrQtd]) >= 2; }).length;
 
     // ---------- M2 ----------
-    // ---------- M2 ----------
-    // Nota Metodológica M2 (NT 44/2026):
-    // Numerador = ações compartilhadas realizadas pela eMulti.
-    // Denominador = TODAS as ações realizadas pela eMulti, incluindo
-    // atendimentos individuais e atividades coletivas específicas e
-    // compartilhadas. O cálculo anterior usava apenas atendimentos
-    // individuais + numerador, excluindo as ações específicas e inflando
-    // artificialmente o percentual.
     var numeradorM2 = atividadesCompartilhadas + reunioesCompartilhadas;
-    var denominadorM2 = atendimentosIndividuais + atividadesTotais + reunioesTotais;
+    var denominadorM2 = atendimentosIndividuais + numeradorM2;
     var m2 = denominadorM2 ? (numeradorM2/denominadorM2*100) : null;
     var classificacaoM2 = classificarM2(m2);
 
@@ -2081,8 +2079,8 @@
       }),
       theme: 'grid',
       margin: {left:margin, right:margin, bottom:34},
-      styles: {font:'helvetica', fontSize:8.6, cellPadding:4, overflow:'linebreak', textColor:[19,36,31], lineColor:[220,228,214], lineWidth:0.5},
-      headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold'},
+      styles: {font:'helvetica', fontSize:7.4, cellPadding:3, overflow:'linebreak', valign:'top', textColor:[19,36,31], lineColor:[220,228,214], lineWidth:0.5},
+      headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold', halign:'center', valign:'middle'},
       alternateRowStyles: {fillColor:[241,244,238]},
       didDrawPage: function(){
         doc.setFontSize(8);
@@ -3165,7 +3163,7 @@
       theme: 'grid',
       margin: {left:margin, right:margin, bottom:34},
       styles: {font:'helvetica', fontSize: headers.length > 9 ? 7 : (headers.length > 6 ? 7.8 : 8.6), cellPadding:4, overflow:'linebreak', textColor:[19,36,31], lineColor:[220,228,214], lineWidth:0.5},
-      headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold'},
+      headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold', halign:'center', valign:'middle'},
       alternateRowStyles: {fillColor:[241,244,238]},
       didDrawPage: function(){
         doc.setFontSize(8);
@@ -3213,6 +3211,32 @@
       if(dif > 0){ stat.paraMais.n++; stat.paraMais.soma += dif; }
       else { stat.paraMenos.n++; stat.paraMenos.soma += Math.abs(dif); }
     }
+    // Mostra, no PDF, todos os componentes que entram no valor Calculado
+    // e identifica a aba de origem de cada componente. O Oficial permanece
+    // apenas com numerador/denominador e valor, pois não há detalhamento
+    // equivalente disponível na aba Q2-26.
+    function detalhamentoCalculado(indicador, p){
+      if(indicador === 'M1'){
+        return [
+          'Atend. individuais (Atendimentos): '+fmtInt(p.atendimentosIndividuaisCalculado),
+          'Partic. atividades coletivas (Participantes Ativ. Coletiva): '+fmtInt(p.participacoesColetivasCalculado),
+          'Numerador = atend. individuais + participações: '+fmtInt(p.numeradorM1Calculado),
+          'Denominador = pessoas distintas por nome (Atendimentos + Participantes Ativ. Coletiva): '+fmtInt(p.denominadorM1Calculado),
+          'Fórmula: numerador / denominador = '+(p.m1Calculado!=null ? fmtDec(p.m1Calculado,2) : '—')
+        ].join('\n');
+      }
+      return [
+        'Atend. individuais (Atendimentos): '+fmtInt(p.atendimentosIndividuaisCalculado),
+        'Ativ. coletivas totais (Resumo Atividade Coletiva): '+fmtInt(p.atividadesTotaisCalculado),
+        'Ativ. coletivas compartilhadas (Resumo Atividade Coletiva): '+fmtInt(p.atividadesCompartilhadasCalculado),
+        'Reuniões totais (Resumo Reuniões): '+fmtInt(p.reunioesTotaisCalculado),
+        'Reuniões compartilhadas (Resumo Reuniões): '+fmtInt(p.reunioesCompartilhadasCalculado),
+        'Numerador = ativ. compartilhadas + reuniões compartilhadas: '+fmtInt(p.numeradorM2Calculado),
+        'Denominador = atend. individuais + numerador: '+fmtInt(p.denominadorM2Calculado),
+        'Fórmula: numerador / denominador × 100 = '+(p.m2Calculado!=null ? fmtDec(p.m2Calculado,2)+'%' : '—')
+      ].join('\n');
+    }
+
     // Mais recente primeiro, mesma ordem da tabela de Série histórica.
     serieTendencia.slice().reverse().forEach(function(p){
       var mesLabel = monthShortLabel(p.mes);
@@ -3221,7 +3245,7 @@
         registrarDivergencia(statM1, difM1, mesLabel);
         linhas.push([
           mesLabel, 'M1',
-          fmtInt(p.numeradorM1Calculado)+' / '+fmtInt(p.denominadorM1Calculado), p.m1Calculado!=null ? fmtDec(p.m1Calculado,2) : '—',
+          detalhamentoCalculado('M1', p), p.m1Calculado!=null ? fmtDec(p.m1Calculado,2) : '—',
           fmtInt(p.numeradorM1)+' / '+fmtInt(p.denominadorM1), p.m1!=null ? fmtDec(p.m1,2) : '—',
           difM1!=null ? (difM1>=0?'+':'')+fmtDec(difM1,2) : '—'
         ]);
@@ -3231,7 +3255,7 @@
         registrarDivergencia(statM2, difM2, mesLabel);
         linhas.push([
           mesLabel, 'M2',
-          fmtInt(p.numeradorM2Calculado)+' / '+fmtInt(p.denominadorM2Calculado), p.m2Calculado!=null ? fmtDec(p.m2Calculado,2)+'%' : '—',
+          detalhamentoCalculado('M2', p), p.m2Calculado!=null ? fmtDec(p.m2Calculado,2)+'%' : '—',
           fmtInt(p.numeradorM2)+' / '+fmtInt(p.denominadorM2), p.m2!=null ? fmtDec(p.m2,2)+'%' : '—',
           difM2!=null ? (difM2>=0?'+':'')+fmtDec(difM2,2)+'%' : '—'
         ]);
@@ -3275,12 +3299,12 @@
 
     doc.autoTable({
       startY: y,
-      head: [['Mês','Indicador','Numerador/Denominador (calculado)','Valor (calculado)','Numerador/Denominador (oficial)','Valor (oficial)','Diferença']],
+      head: [['Mês','Indicador','Componentes do\ncalculado e origem','Valor\ncalculado','Numerador/\nDenominador\n(oficial)','Valor\n(oficial)','Diferença']],
       body: linhas,
       theme: 'grid',
       margin: {left:margin, right:margin, bottom:34},
-      styles: {font:'helvetica', fontSize:8.6, cellPadding:4, overflow:'linebreak', textColor:[19,36,31], lineColor:[220,228,214], lineWidth:0.5},
-      headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold'},
+      styles: {font:'helvetica', fontSize:7.4, cellPadding:3, overflow:'linebreak', valign:'top', textColor:[19,36,31], lineColor:[220,228,214], lineWidth:0.5},
+      headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold', halign:'center', valign:'middle'},
       alternateRowStyles: {fillColor:[241,244,238]},
       didDrawPage: function(){
         doc.setFontSize(8);
