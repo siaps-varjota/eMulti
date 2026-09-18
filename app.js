@@ -215,11 +215,17 @@
         // valores brutos, pra dar visibilidade quando o painel mostrar um
         // número menor do que o esperado (ver comentário em
         // calcularIndicadoresDoPeriodo sobre atividadesCompartilhadasFonte).
+        // IMPORTANTE: atividadesCompartilhadas é só UMA PARTE do
+        // numeradorM2 (a outra é reunioesCompartilhadas) — os dois vêm
+        // separados aqui pra não dar a entender que o numerador INTEIRO
+        // veio da AC quando só a parte de atividades coletivas veio.
+        atividadesCompartilhadas: res.data.atividadesCompartilhadas,
         atividadesCompartilhadasFonte: res.data.atividadesCompartilhadasFonte,
         atividadesCompartilhadasListas: res.data.atividadesCompartilhadasListas,
         atividadesTotaisFonte: res.data.atividadesTotaisFonte,
         atividadesTotaisListas: res.data.atividadesTotaisListas,
         totalRelatorioAc: res.data.totalRelatorioAc,
+        reunioesCompartilhadas: res.data.reunioesCompartilhadas,
         // Campos usados só pelo relatório de divergência oficial: valor
         // que o painel calcularia sem o override, e se este ponto teve
         // (ou não) override oficial aplicado — ver aplicarOverrideOficial.
@@ -378,10 +384,12 @@
         atividadesCompartilhadas: soma('atividadesCompartilhadas'),
         reunioesTotais: soma('reunioesTotais'),
         reunioesCompartilhadas: soma('reunioesCompartilhadas'),
+        reunioesCompartilhadasContrib: soma('reunioesCompartilhadasContrib'),
         denominadorM2: soma('denominadorM2'),
         numeradorM2: soma('numeradorM2'),
         atividadesCompartilhadasJanela: mediaJanela('atividadesCompartilhadas'),
         reunioesCompartilhadasJanela: mediaJanela('reunioesCompartilhadas'),
+        reunioesCompartilhadasContribJanela: mediaJanela('reunioesCompartilhadasContrib'),
         numeradorM2Janela: mediaJanela('numeradorM2'),
         denominadorM2Janela: mediaJanela('denominadorM2'),
         m2: m2,
@@ -1191,10 +1199,24 @@
     var reunioesCompartilhadas = rrFiltradas.filter(function(r){ return toInt(r[iRrQtd]) >= 2; }).length;
 
     // ---------- M2 ----------
-    var numeradorM2 = atividadesCompartilhadas + reunioesCompartilhadas;
+    // Quando a parcela de "atividades coletivas compartilhadas" veio da
+    // aba TOTAL RELATÓRIO AC, esse número já É o total fechado do
+    // relatório oficial (não é só a contagem detalhada da aba "Resumo
+    // Atividade Coletiva") — reuniões compartilhadas NÃO entram por cima
+    // nesse caso, senão duplica. Só quando a parcela vem da contagem
+    // detalhada (Lista) é que reunioesCompartilhadas (vinda de "Resumo
+    // Reuniões", uma aba à parte) soma normalmente ao numerador.
+    var numeradorM2 = atividadesCompartilhadasFonte === "TOTAL RELATÓRIO AC"
+      ? atividadesCompartilhadas
+      : atividadesCompartilhadas + reunioesCompartilhadas;
     var denominadorM2 = atendimentosIndividuais + numeradorM2;
     var m2 = denominadorM2 ? (numeradorM2/denominadorM2*100) : null;
     var classificacaoM2 = classificarM2(m2);
+    // Parcela de reuniões que de fato ENTROU no numerador (0 nos meses em
+    // que a fonte foi TOTAL RELATÓRIO AC, ver acima) — usada só pelos
+    // cards de "Composição do numerador" (stackbar), pra o segmento de
+    // reuniões não aparecer nesses meses como se tivesse contribuído.
+    var reunioesCompartilhadasContrib = numeradorM2 - atividadesCompartilhadas;
 
     // ---------- Desempenho quadrimestral (síntese própria) ----------
     var pontosM1 = PONTOS_POR_CLASSE[classificacaoM1];
@@ -1228,6 +1250,7 @@
         atividadesCompartilhadasFonte: atividadesCompartilhadasFonte,
         reunioesTotais: reunioesTotais,
         reunioesCompartilhadas: reunioesCompartilhadas,
+        reunioesCompartilhadasContrib: reunioesCompartilhadasContrib,
         denominadorM2: denominadorM2,
         numeradorM2: numeradorM2,
         m2: m2,
@@ -4500,7 +4523,12 @@
     var atendIndGauge = d.atendimentosIndividuaisJanela!=null ? d.atendimentosIndividuaisJanela : d.atendimentosIndividuais;
     var participColGauge = d.participacoesColetivasJanela!=null ? d.participacoesColetivasJanela : d.participacoesColetivas;
     var atividadesCompGauge = d.atividadesCompartilhadasJanela!=null ? d.atividadesCompartilhadasJanela : d.atividadesCompartilhadas;
-    var reunioesCompGauge = d.reunioesCompartilhadasJanela!=null ? d.reunioesCompartilhadasJanela : d.reunioesCompartilhadas;
+    // Usa a parcela que de fato entrou no numerador (0 nos meses em que a
+    // fonte foi TOTAL RELATÓRIO AC) — não o total bruto de reuniões — pra
+    // os segmentos do stackbar baterem com numM2Gauge (ver
+    // reunioesCompartilhadasContrib em calcularIndicadoresDoPeriodo).
+    var reunioesCompGauge = d.reunioesCompartilhadasContribJanela!=null ? d.reunioesCompartilhadasContribJanela
+      : (d.reunioesCompartilhadasContrib!=null ? d.reunioesCompartilhadasContrib : d.reunioesCompartilhadas);
 
     // ---- Composição (4 cartões: Numerador/Denominador de M1 e M2) ----
     var numM1Bar = stackbar([
@@ -4628,12 +4656,12 @@
       // aplicarOverrideOficial) — só um lembrete visual, não muda o valor.
       function oficialTag(ehOficial){ return ehOficial ? ' <span class="pill" style="background:#3B7DDD;font-size:9.5px;">Oficial</span>' : ''; }
       // Etiqueta de depuração: de onde veio o número de "atividades
-      // coletivas compartilhadas" usado no numerador do M2 deste mês —
-      // da contagem detalhada (Resumo Atividade Coletiva) ou do total
-      // mensal já consolidado (TOTAL RELATÓRIO AC) — com os dois valores
-      // brutos no title (hover), pra flagrar quando o valor esperado da
-      // aba AC não estiver realmente entrando na conta (ver comentário em
-      // calcularIndicadoresDoPeriodo).
+      // coletivas compartilhadas" (SÓ essa parcela — não o Numerador M2
+      // inteiro, que ainda soma reuniões compartilhadas por cima) — da
+      // contagem detalhada (Resumo Atividade Coletiva) ou do total
+      // mensal já consolidado (TOTAL RELATÓRIO AC). Fica colado na
+      // própria célula "Ativ. compartilhadas" pra não passar a impressão
+      // de que o Numerador M2 todo veio da AC.
       var fonteAc = p.atividadesCompartilhadasFonte;
       var fonteAcCurta = fonteAc === 'TOTAL RELATÓRIO AC' ? 'AC' : 'Lista';
       var fonteAcCor = fonteAc === 'TOTAL RELATÓRIO AC' ? '#3B7DDD' : '#7A8A82';
@@ -4642,15 +4670,26 @@
       var fonteAcTag = fonteAc
         ? ' <span class="pill" style="background:'+fonteAcCor+';font-size:9.5px;" title="'+escapeHtml(fonteAcTitle)+'">'+fonteAcCurta+'</span>'
         : '';
+      // Quando a fonte é AC, o total já vem fechado do relatório oficial
+      // e reuniões NÃO entram na soma (ver numeradorM2 em
+      // calcularIndicadoresDoPeriodo) — mostra o valor de reuniões
+      // esmaecido, com "(não somada)", pra bater com Numerador M2 =
+      // Ativ. compartilhadas nesses meses.
+      var reunioesNaoSomada = fonteAc === 'TOTAL RELATÓRIO AC';
+      var reunioesCell = reunioesNaoSomada
+        ? '<span style="color:#A9B3A5;" title="Não entra no Numerador M2 este mês: a parcela de atividades já veio como total fechado da aba TOTAL RELATÓRIO AC.">'+fmtInt(p.reunioesCompartilhadas)+' (não somada)</span>'
+        : fmtInt(p.reunioesCompartilhadas);
       return '<tr>'
         + '<td>'+escapeHtml(monthShortLabel(p.mes))+'</td>'
         + '<td>'+fmtInt(p.numeradorM1)+'</td>'
         + '<td>'+fmtInt(p.denominadorM1)+'</td>'
         + '<td>'+(p.m1!=null ? fmtDec(p.m1,2) : '—')+oficialTag(p.m1Oficial)+'</td>'
         + '<td>'+pill(classeM1)+'</td>'
+        + '<td>'+fmtInt(p.atividadesCompartilhadas)+fonteAcTag+'</td>'
+        + '<td>'+reunioesCell+'</td>'
         + '<td>'+fmtInt(p.numeradorM2)+'</td>'
         + '<td>'+fmtInt(p.denominadorM2)+'</td>'
-        + '<td>'+(p.m2!=null ? fmtDec(p.m2,2)+'%' : '—')+oficialTag(p.m2Oficial)+fonteAcTag+'</td>'
+        + '<td>'+(p.m2!=null ? fmtDec(p.m2,2)+'%' : '—')+oficialTag(p.m2Oficial)+'</td>'
         + '<td>'+pill(classeM2)+'</td>'
         + '<td>'+(p.notaFinal!=null ? fmtDec(p.notaFinal,2) : '—')+'</td>'
         + '<td>'+pill(desemp)+'</td>'
@@ -4664,10 +4703,10 @@
       : '';
     document.getElementById('trendHistoryWrap').innerHTML =
         '<div class="card"><div class="list-card-head"><h4 style="margin:0;font-size:14.5px;font-weight:500;">Série histórica — numerador, denominador e desempenho quadrimestral</h4>'+divergenciaBtnHtml+'</div>'
-      + '<p class="footnote" style="margin:4px 0 12px;">Um mês por linha (mais recente primeiro), cada um com sua própria janela móvel de '+JANELA_MESES+' meses terminando naquele mês (mesmos pontos dos gráficos acima). "Desempenho quadrimestral" é a síntese própria M1×6 + M2×4 — ver Notas Metodológicas. O selo "Oficial" marca meses em que o valor veio da aba Q2-26 em vez do cálculo do painel. Na coluna M2, o selo "AC"/"Lista" mostra se o número de atividades coletivas compartilhadas daquele mês veio da aba TOTAL RELATÓRIO AC ou da contagem detalhada (Resumo Atividade Coletiva) — passe o mouse pra ver os dois valores brutos comparados.</p>'
+      + '<p class="footnote" style="margin:4px 0 12px;">Um mês por linha (mais recente primeiro), cada um com sua própria janela móvel de '+JANELA_MESES+' meses terminando naquele mês (mesmos pontos dos gráficos acima). "Desempenho quadrimestral" é a síntese própria M1×6 + M2×4 — ver Notas Metodológicas. O selo "Oficial" marca meses em que o valor veio da aba Q2-26 em vez do cálculo do painel. O selo "AC"/"Lista" fica na coluna "Ativ. coletivas compartilhadas" e mostra a origem daquela parcela. Quando a origem é "AC", o total já vem fechado da aba TOTAL RELATÓRIO AC e Reuniões compartilhadas não entra na soma (fica marcada "não somada"); quando é "Lista", Numerador M2 = Ativ. coletivas compartilhadas + Reuniões compartilhadas.</p>'
       + '<div class="table-wrap"><table class="data-table"><thead><tr>'
       +   '<th>Mês</th><th>Numerador M1</th><th>Denominador M1</th><th>M1</th><th>Classe M1</th>'
-      +   '<th>Numerador M2</th><th>Denominador M2</th><th>M2 (%)</th><th>Classe M2</th><th>Nota do desempenho</th><th>Desempenho quadrimestral</th>'
+      +   '<th>Ativ. coletivas compartilhadas</th><th>Reuniões compartilhadas</th><th>Numerador M2</th><th>Denominador M2</th><th>M2 (%)</th><th>Classe M2</th><th>Nota do desempenho</th><th>Desempenho quadrimestral</th>'
       + '</tr></thead><tbody>'+trendHistoryRows+'</tbody></table></div></div>';
     var btnDivergencia = document.getElementById('btnDivergenciaOficial');
     if(btnDivergencia){
