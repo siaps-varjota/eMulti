@@ -982,7 +982,19 @@
     var aliases = {
       data_hora: ['data_hora','data','date'],
       equipe_unidade: ['equipe_unidade','equipe - unidade','equipe  - unidade','equipe/unidade'],
-      qtd_atendimentos: ['qtd_atendimentos','qtd de atendimentos','quantidade de atendimentos','atendimentos']
+      qtd_atendimentos: ['qtd_atendimentos','qtd de atendimentos','quantidade de atendimentos','atendimentos'],
+      // Variações de nome pra coluna de tipo da Atividade Coletiva.
+      tipo_atividade: ['tipo_atividade','tipo de atividade','tipo','tipo_da_atividade'],
+      // Variações comuns pra "quantidade total de profissionais" e
+      // "quantidade de profissionais envolvidos" na aba Resumo Atividade
+      // Coletiva — sem isso, se o cabeçalho real da planilha vier escrito
+      // diferente do esperado, nenhuma das duas colunas é encontrada e o
+      // painel nunca consegue contar nenhuma atividade como compartilhada
+      // (ver comentário em cima do cálculo de atividadesCompartilhadasListas).
+      qtd_total_profissionais: ['qtd_total_profissionais','quantidade total de profissionais','total de profissionais','qtd_de_profissionais','qtd total de profissionais'],
+      qtd_profissionais_envolvidos: ['qtd_profissionais_envolvidos','profissionais_envolvidos','quantidade de profissionais envolvidos','nº de profissionais envolvidos','numero de profissionais envolvidos','profissionais envolvidos'],
+      // Variação de nome pra coluna de participantes da aba Resumo Reuniões.
+      qtd_participantes: ['qtd_participantes','quantidade de participantes','participantes','qtd de participantes']
     };
     var wanted = String(name||'').trim().toLowerCase();
     var candidates = aliases[wanted] || [wanted];
@@ -1118,6 +1130,18 @@
     var racFiltradas = racRows.slice(1).filter(function(r){
       return withinPeriod(parseBRDate(r[iRacData]), periodo.inicio, periodo.fim);
     });
+    // Se NENHUMA das duas colunas de profissionais for encontrada, o
+    // painel não tem como saber quantos profissionais participaram de
+    // cada atividade — "totalProf" abaixo sempre vira 1 e NENHUMA
+    // atividade jamais é contada como compartilhada (sintoma: "Ativ.
+    // coletivas compartilhadas" sempre 0, em qualquer período/mês).
+    // Avisa no console com o cabeçalho real da aba pra facilitar achar o
+    // nome exato da coluna na planilha.
+    if(iRacTotalProf < 0 && iRacProfEnv < 0){
+      console.warn('[Resumo Atividade Coletiva] nenhuma coluna de profissionais encontrada — cabeçalho real da aba:', racHeader,
+        '| esperado "qtd_total_profissionais" ou "qtd_profissionais_envolvidos" (ou variações próximas)',
+        '| iRacTotalProf='+iRacTotalProf, 'iRacProfEnv='+iRacProfEnv);
+    }
     // ---------- TOTAL RELATÓRIO AC (janela móvel já consolidada) ----------
     // A tabela TOTAL RELATÓRIO AC já traz, em cada linha mensal, o total
     // correspondente à janela móvel de 4 meses terminada naquele mês.
