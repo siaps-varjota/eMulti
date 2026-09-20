@@ -85,7 +85,7 @@
 
   .filter-bar-outer{max-width:1400px;margin:20px auto 0;padding:0 40px;}
   .ref-month-row{
-    display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;width:100%;
+    display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;width:100%;
     background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
     padding:14px 18px;
   }
@@ -93,13 +93,21 @@
   .ref-window-label{font-size:12.5px;color:var(--ink-soft);white-space:normal;word-break:break-word;line-height:1.4;}
   .ref-window-label b{color:var(--ink);font-weight:600;}
 
-  /* ---------- Multi-select arredondado (Equipe / Quadrimestre / Mês) ---------- */
-  .ms-field{display:flex;flex-direction:column;gap:5px;flex:1 1 170px;}
+  /* ---------- Multi-select arredondado (Equipe / Quadrimestre / Tipo de Cálculo / Mês) ---------- */
+  /* Larguras reduzidas (flex-basis + min-width) pra Equipe, Quadrimestre,
+     Tipo de Cálculo, Mês e Período caberem lado a lado numa linha só nas
+     larguras de tela usuais — em telas estreitas ainda quebra linha
+     (flex-wrap:wrap continua ativo) em vez de estourar o container. */
+  .ms-field{display:flex;flex-direction:column;gap:5px;flex:1 1 135px;}
   .ms-field .ms-wrap{width:100%;}
-  .ms-field.ms-field-window{flex:1 1 180px;min-width:180px;max-width:260px;}
+  .ms-field.ms-field-window{flex:1 1 150px;min-width:150px;max-width:220px;}
+  /* Tipo de Cálculo só precisa mostrar "Soma"/"Média" — campo mais
+     estreito que os demais, sobrando espaço pros outros filtros. */
+  .ms-field.ms-field-tipo-calculo{flex:0 1 110px;min-width:100px;}
+  .ms-field.ms-field-tipo-calculo .ms-wrap{min-width:100px;}
   .ms-field > label{font-size:13px;font-weight:600;color:var(--ink-soft);}
   .ms-field > label.ms-hidden-label{visibility:hidden;}
-  .ms-wrap{position:relative;min-width:170px;}
+  .ms-wrap{position:relative;min-width:135px;}
   .ms-btn{
     width:100%;min-height:38px;padding:8px 12px;border:1px solid var(--line);border-radius:12px;
     background:var(--paper);font-family:'Inter',sans-serif;font-size:13.5px;font-weight:500;color:var(--ink);
