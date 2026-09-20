@@ -1065,6 +1065,7 @@
   var NOTAS_METODOLOGICAS = [
     "Cálculo feito pelo próprio painel, direto dos dados brutos extraídos do e-SUS PEC (Atendimentos + Registro Tardio + Atividade Coletiva + Reuniões) para esta equipe/EMULTI, seguindo as fórmulas das Notas Metodológicas M1 (NT 43/2026-CGIAD/DEAPS/SAPS/MS) e M2 (NT 44/2026-CGIAD/DEAPS/SAPS/MS), na janela dos últimos 4 meses (ver 'Período' no topo da página) — não um quadrimestre fixo do calendário.",
     "M1 usa NOME da pessoa (a nota oficial usa CPF/CNS) — pessoas diferentes com o mesmo nome seriam contadas como se fossem uma só.",
+    "Participação coletiva (M1) só conta quando pelo menos um dos profissionais da atividade (colunas 'Responsavel Atividade' ou 'Profissional 1' a 'Profissional 5' da aba Participantes Ativ. Coletiva) está cadastrado na aba PROFISSIONAIS como sendo da eMulti — participações conduzidas só por profissionais de fora da eMulti não entram no numerador.",
     "M2 oficial soma 3 componentes: atendimentos individuais compartilhados, atividades coletivas compartilhadas e compartilhamento de cuidado (PEC). Esta extração só consegue aproximar as parcelas de 'atividades coletivas' e 'reuniões', usando 'nº de profissionais envolvidos ≥ 2' como indício de ação compartilhada — não há como checar CBO/CNS de cada profissional (principal/secundário) pra aplicar a regra oficial à risca.",
     "Atendimentos individuais compartilhados e compartilhamento de cuidado (PEC) NÃO entram no numerador do M2 aqui (a Lista de Atendimentos do e-SUS não indica se um atendimento individual teve mais de um profissional) — por isso o M2 calculado aqui tende a ficar ABAIXO do valor oficial do indicador.",
     "Atividade Coletiva só conta como 'compartilhada' aqui quando o tipo_atividade é Educação em saúde, Atendimento em grupo, Avaliação/Procedimento coletivo ou Mobilização social (códigos 04-07) E tem 2+ profissionais envolvidos — sem CBO/CNS de cada um, não dá pra confirmar que um deles é de fato cadastrado em eMulti, então ainda é uma aproximação.",
@@ -1102,10 +1103,46 @@
     var partHeader = partRows[0] || [];
     var iPData = colIndex(partHeader, "data");
     var iPNome = colIndex(partHeader, "participante");
+    // Colunas de profissional da atividade (Responsavel Atividade +
+    // Profissional 1 a 5) — usadas pra só contar a "Participação
+    // coletiva" (M1) quando pelo menos um desses profissionais está
+    // cadastrado na aba PROFISSIONAIS como sendo da eMulti. Sem isso, o
+    // numerador do M1 contaria participações coletivas conduzidas só por
+    // profissionais de fora da eMulti (outros programas/equipes).
+    var iPResp = colIndex(partHeader, "Responsavel Atividade");
+    var iPProf1 = colIndex(partHeader, "profissional 1");
+    var iPProf2 = colIndex(partHeader, "profissional 2");
+    var iPProf3 = colIndex(partHeader, "profissional 3");
+    var iPProf4 = colIndex(partHeader, "profissional 4");
+    var iPProf5 = colIndex(partHeader, "profissional 5");
+    var iPProfCols = [iPResp, iPProf1, iPProf2, iPProf3, iPProf4, iPProf5].filter(function(i){ return i>=0; });
+    // Nomes normalizados (sem acento/maiúscula) dos profissionais
+    // cadastrados na aba PROFISSIONAIS (roster da eMulti — ver
+    // profissionaisRoster). Se o roster ainda não carregou (vazio) ou
+    // nenhuma das colunas de profissional foi encontrada no cabeçalho
+    // real da aba, o filtro fica DESLIGADO (conta todas as participações,
+    // comportamento antigo) em vez de zerar tudo silenciosamente — avisa
+    // no console pra facilitar diagnóstico.
+    var rosterNomesEmulti = {};
+    profissionaisRoster.forEach(function(p){ rosterNomesEmulti[normalizeText(p.nome)] = true; });
+    var filtroProfEmultiAtivo = profissionaisRoster.length > 0 && iPProfCols.length > 0;
+    if(!filtroProfEmultiAtivo){
+      console.warn('[Participantes Ativ. Coletiva] filtro de profissional eMulti desativado (roster PROFISSIONAIS vazio ou colunas "Responsavel Atividade"/"Profissional 1..5" não encontradas no cabeçalho) — contando todas as participações coletivas do período, sem checar profissional. cabeçalho real:', partHeader,
+        '| iPProfCols='+JSON.stringify(iPProfCols), '| profissionaisRoster.length='+profissionaisRoster.length);
+    }
+    function linhaTemProfissionalEmulti(r){
+      for(var i=0;i<iPProfCols.length;i++){
+        var nome = String(r[iPProfCols[i]]||"").trim();
+        if(nome && rosterNomesEmulti[normalizeText(nome)]) return true;
+      }
+      return false;
+    }
     var partFiltradas = partRows.slice(1).filter(function(r){
       var nome = String(r[iPNome]||"").trim();
-      return nome && nome.indexOf("(sem lista nominal") !== 0
-        && withinPeriod(parseBRDate(r[iPData]), periodo.inicio, periodo.fim);
+      if(!nome || nome.indexOf("(sem lista nominal") === 0) return false;
+      if(!withinPeriod(parseBRDate(r[iPData]), periodo.inicio, periodo.fim)) return false;
+      if(filtroProfEmultiAtivo && !linhaTemProfissionalEmulti(r)) return false;
+      return true;
     });
     var participacoesColetivas = partFiltradas.length;
 
