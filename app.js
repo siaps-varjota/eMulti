@@ -564,6 +564,17 @@
   function escapeHtml(s){
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
+  // Debounce simples: só executa fn depois que o usuário parou de disparar
+  // o evento por `ms` milissegundos (ex.: parar de digitar). Evita
+  // recalcular uma lista inteira (potencialmente 1000+ linhas) a cada tecla.
+  function debounce(fn, ms){
+    var timer = null;
+    return function(){
+      var args = arguments, ctx = this;
+      clearTimeout(timer);
+      timer = setTimeout(function(){ fn.apply(ctx, args); }, ms);
+    };
+  }
   function pillHex(c){ return CLASS_PILL_HEX[c] || "#9AA69E"; }
   function arcHex(c){ return CLASS_ARC_HEX[c] || "#9AA69E"; }
   function arcHexOv(c){ return CLASS_ARC_HEX_OV[c] || "#9AA69E"; }
@@ -3074,9 +3085,27 @@
       + '<div style="display:flex;flex-wrap:wrap;gap:8px;">'+pills+'</div>'
       + '</div>';
   }
+  // wb (latestWb) já usado pra montar cada container de listas relacionadas
+  // (listsM1/listsM2) da última vez — ver renderListsSection logo abaixo.
+  var listsRenderedForWb = {};
   function renderListsSection(containerId, names){
     var el = document.getElementById(containerId);
     if(!el) return;
+    // As tabelas brutas (Atendimentos, Participantes Ativ. Coletiva etc.)
+    // só mudam de conteúdo quando os DADOS da planilha mudam (nova leitura
+    // ou troca de equipe, que sempre gera um wb novo em fetchAndLoad) —
+    // filtros do topo (Mês, Quadrimestre, Tipo de Cálculo) só afetam os
+    // cards de M1/M2 (já atualizados à parte, antes desta chamada), não o
+    // conteúdo dessas listas. Reconstruir milhares de <tr> via innerHTML
+    // (com escapeHtml linha a linha) a cada clique nesses filtros era a
+    // maior causa de travamento do painel ao "aplicar filtros" — agora só
+    // refaz o HTML quando o workbook realmente mudou. Como bônus, isso
+    // também para de apagar a busca/filtros de coluna que o usuário tinha
+    // digitado dentro de uma lista sempre que ele mexia em outro filtro.
+    if(listsRenderedForWb[containerId] === latestWb && el.children.length){
+      return;
+    }
+    listsRenderedForWb[containerId] = latestWb;
     el.innerHTML = relatedListsPillsHtml(containerId, names) + names.map(renderListCard).join('');
 
     // Só o card da lista ativa (pill selecionada) fica visível — os
@@ -3261,9 +3290,8 @@
     });
 
     el.querySelectorAll('[data-filter-key]').forEach(function(input){
-      input.addEventListener('input', function(){
-        applyFilters(input.closest('.list-card'));
-      });
+      var debouncedApply = debounce(function(){ applyFilters(input.closest('.list-card')); }, 200);
+      input.addEventListener('input', debouncedApply);
     });
 
     el.querySelectorAll('.filter-pair').forEach(function(pair){
