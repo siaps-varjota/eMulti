@@ -1133,29 +1133,6 @@
       return true;
     });
     var atendimentosIndividuais = atFiltradas.length;
-    // Diagnóstico: se a contagem de "Atendimentos individuais" do card
-    // (que usa o roster da aba PROFISSIONAIS) não bater com uma contagem
-    // manual feita na aba Listas (filtro de Mês + Profissional), abra o
-    // console do navegador — esta tabela mostra, profissional por
-    // profissional, quantas linhas de "Atendimentos" caíram dentro do
-    // período atual e se cada um foi considerado "da eMulti" (comparado
-    // com o cadastro da aba PROFISSIONAIS). Compare a lista de nomes
-    // marcados como eMulti (true) aqui com os nomes selecionados
-    // manualmente no filtro de Profissional da lista — qualquer nome que
-    // apareça aqui como eMulti mas NÃO estava selecionado na lista (ou
-    // vice-versa) explica a diferença de contagem.
-    if(filtroProfEmultiAtendAtivo){
-      var debugProfContagem = {};
-      atRows.slice(1).forEach(function(r){
-        var nome = String(r[iNome]||"").trim();
-        if(!nome || !withinPeriod(parseBRDate(r[iData]), periodo.inicio, periodo.fim)) return;
-        var prof = String(r[iAtProf]||"").trim() || '(profissional em branco)';
-        if(!debugProfContagem[prof]) debugProfContagem[prof] = {atendimentos: 0, "é da eMulti (aba PROFISSIONAIS)": nomeEhDaEmulti(prof)};
-        debugProfContagem[prof].atendimentos++;
-      });
-      console.log('[Atendimentos] contagem por profissional no período atual (janela: '+fmtBRDate(periodo.inicio)+' a '+fmtBRDate(periodo.fim)+') — compare com os nomes selecionados no filtro de Profissional da aba Listas:');
-      console.table(debugProfContagem);
-    }
 
     // ---------- Participantes Ativ. Coletiva ----------
     var partRows = rowsOf("Participantes Ativ. Coletiva");
@@ -5117,6 +5094,64 @@
       renderDashboard(record, serie, performanceProfissionais, analisesData);
     });
   }
+
+  // ---------- Debug manual (console) ----------
+  // window.debugAtendimentosEmulti(): imprime UMA tabela só, pro período
+  // EXATO que está selecionado agora no painel (mesma regra usada por
+  // aplicarMesReferencia — mês único = janela de 4 meses terminando
+  // nele; vários meses = intervalo entre o primeiro e o último; nenhum
+  // mês = quadrimestre selecionado inteiro), com a contagem de
+  // atendimentos por profissional e se cada um é considerado "da eMulti"
+  // (roster da aba PROFISSIONAIS). Chame direto no console do navegador
+  // (F12 → Console → digite "debugAtendimentosEmulti()" e Enter) — não
+  // fica rodando sozinho a cada recálculo (evita a poluição de outras
+  // janelas, como a do gráfico de Tendência), então o período mostrado é
+  // sempre exatamente o que está no card "Composição do numerador" no
+  // momento em que você chamar.
+  function periodoEfetivoAtual(){
+    if(refMonthDates.length === 1){
+      return calcularJanelaPeriodo(refMonthDates[0]);
+    } else if(refMonthDates.length > 1){
+      return {
+        inicio: periodoMesUnico(refMonthDates[0]).inicio,
+        fim: periodoMesUnico(refMonthDates[refMonthDates.length-1]).fim
+      };
+    }
+    var meses = mesesDoQuadrimestre(quadSelecionado.ano, quadSelecionado.qIndex);
+    return {inicio: periodoMesUnico(meses[0]).inicio, fim: periodoMesUnico(meses[3]).fim};
+  }
+  window.debugAtendimentosEmulti = function(){
+    if(!latestWb){
+      console.warn('[debugAtendimentosEmulti] o painel ainda não carregou nenhuma planilha.');
+      return;
+    }
+    var periodo = periodoEfetivoAtual();
+    var ws = latestWb.Sheets[suffixedName("Atendimentos")];
+    var rows = ws ? sheetToRows(ws) : [];
+    var header = rows[0] || [];
+    var iData = colIndex(header, "data_hora");
+    var iNome = colIndex(header, "nome");
+    var iProf = colIndex(header, "profissional");
+    var contagem = {};
+    rows.slice(1).forEach(function(r){
+      var nome = String(r[iNome]||"").trim();
+      if(!nome || !withinPeriod(parseBRDate(r[iData]), periodo.inicio, periodo.fim)) return;
+      var prof = String(r[iProf]||"").trim() || '(profissional em branco)';
+      if(!contagem[prof]){
+        var ehEmulti = profissionaisRoster.some(function(p){ return normalizeText(p.nome) === normalizeText(prof); });
+        contagem[prof] = {atendimentos: 0, "é da eMulti (aba PROFISSIONAIS)": ehEmulti};
+      }
+      contagem[prof].atendimentos++;
+    });
+    var totalEmulti = Object.keys(contagem)
+      .filter(function(k){ return contagem[k]["é da eMulti (aba PROFISSIONAIS)"]; })
+      .reduce(function(s,k){ return s + contagem[k].atendimentos; }, 0);
+    console.log('[debugAtendimentosEmulti] equipe(s): '+currentEquipes.map(function(e){ return e.label; }).join(' + ')
+      +' | período: '+fmtBRDate(periodo.inicio)+' a '+fmtBRDate(periodo.fim)
+      +' | TOTAL "Atendimentos individuais" (só eMulti): '+totalEmulti);
+    console.table(contagem);
+    return contagem;
+  };
 
   function fetchAndLoad(){
     refreshBtn.classList.add('loading');
