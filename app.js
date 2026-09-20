@@ -1133,6 +1133,29 @@
       return true;
     });
     var atendimentosIndividuais = atFiltradas.length;
+    // Diagnóstico: se a contagem de "Atendimentos individuais" do card
+    // (que usa o roster da aba PROFISSIONAIS) não bater com uma contagem
+    // manual feita na aba Listas (filtro de Mês + Profissional), abra o
+    // console do navegador — esta tabela mostra, profissional por
+    // profissional, quantas linhas de "Atendimentos" caíram dentro do
+    // período atual e se cada um foi considerado "da eMulti" (comparado
+    // com o cadastro da aba PROFISSIONAIS). Compare a lista de nomes
+    // marcados como eMulti (true) aqui com os nomes selecionados
+    // manualmente no filtro de Profissional da lista — qualquer nome que
+    // apareça aqui como eMulti mas NÃO estava selecionado na lista (ou
+    // vice-versa) explica a diferença de contagem.
+    if(filtroProfEmultiAtendAtivo){
+      var debugProfContagem = {};
+      atRows.slice(1).forEach(function(r){
+        var nome = String(r[iNome]||"").trim();
+        if(!nome || !withinPeriod(parseBRDate(r[iData]), periodo.inicio, periodo.fim)) return;
+        var prof = String(r[iAtProf]||"").trim() || '(profissional em branco)';
+        if(!debugProfContagem[prof]) debugProfContagem[prof] = {atendimentos: 0, "é da eMulti (aba PROFISSIONAIS)": nomeEhDaEmulti(prof)};
+        debugProfContagem[prof].atendimentos++;
+      });
+      console.log('[Atendimentos] contagem por profissional no período atual (janela: '+fmtBRDate(periodo.inicio)+' a '+fmtBRDate(periodo.fim)+') — compare com os nomes selecionados no filtro de Profissional da aba Listas:');
+      console.table(debugProfContagem);
+    }
 
     // ---------- Participantes Ativ. Coletiva ----------
     var partRows = rowsOf("Participantes Ativ. Coletiva");
