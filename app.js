@@ -378,6 +378,13 @@
         participacoesColetivasJanela: mediaJanela('participacoesColetivas'),
         numeradorM1Janela: mediaJanela('numeradorM1'),
         denominadorM1Janela: mediaJanela('denominadorM1'),
+        // Versão "Calculado" (pré-override oficial) do denominador do M1,
+        // já com a média das janelas — usada só pro card "Denominador do
+        // M1" mostrar a contagem REAL da lista "Pessoas atendidas" embaixo
+        // da barra, mesmo quando o total do card (denominadorM1Janela) vem
+        // substituído pelo valor oficial da aba Q2-26 (mesmo padrão já
+        // usado no card "Composição do numerador", ver numM1Bar).
+        denominadorM1CalculadoJanela: mediaJanela('denominadorM1Calculado'),
         m1: m1,
         classificacaoM1: classificacaoM1,
         atividadesTotais: soma('atividadesTotais'),
@@ -1065,6 +1072,7 @@
   var NOTAS_METODOLOGICAS = [
     "Cálculo feito pelo próprio painel, direto dos dados brutos extraídos do e-SUS PEC (Atendimentos + Registro Tardio + Atividade Coletiva + Reuniões) para esta equipe/EMULTI, seguindo as fórmulas das Notas Metodológicas M1 (NT 43/2026-CGIAD/DEAPS/SAPS/MS) e M2 (NT 44/2026-CGIAD/DEAPS/SAPS/MS), na janela dos últimos 4 meses (ver 'Período' no topo da página) — não um quadrimestre fixo do calendário.",
     "M1 usa NOME da pessoa (a nota oficial usa CPF/CNS) — pessoas diferentes com o mesmo nome seriam contadas como se fossem uma só.",
+    "Atendimento individual (M1) só conta quando o profissional responsável (coluna 'profissional' da aba Atendimentos) está cadastrado na aba PROFISSIONAIS como sendo da eMulti — atendimentos de profissionais de fora da eMulti não entram no numerador.",
     "Participação coletiva (M1) só conta quando pelo menos um dos profissionais da atividade (colunas 'Responsavel Atividade' ou 'Profissional 1' a 'Profissional 5' da aba Participantes Ativ. Coletiva) está cadastrado na aba PROFISSIONAIS como sendo da eMulti — participações conduzidas só por profissionais de fora da eMulti não entram no numerador.",
     "M2 oficial soma 3 componentes: atendimentos individuais compartilhados, atividades coletivas compartilhadas e compartilhamento de cuidado (PEC). Esta extração só consegue aproximar as parcelas de 'atividades coletivas' e 'reuniões', usando 'nº de profissionais envolvidos ≥ 2' como indício de ação compartilhada — não há como checar CBO/CNS de cada profissional (principal/secundário) pra aplicar a regra oficial à risca.",
     "Atendimentos individuais compartilhados e compartilhamento de cuidado (PEC) NÃO entram no numerador do M2 aqui (a Lista de Atendimentos do e-SUS não indica se um atendimento individual teve mais de um profissional) — por isso o M2 calculado aqui tende a ficar ABAIXO do valor oficial do indicador.",
@@ -1087,14 +1095,42 @@
       return ws ? sheetToRows(ws) : [];
     }
 
+    // Nomes normalizados (sem acento/maiúscula) dos profissionais
+    // cadastrados na aba PROFISSIONAIS (roster da eMulti — ver
+    // profissionaisRoster) — usado tanto pro filtro de "Atendimentos
+    // individuais" quanto pro de "Participações coletivas" (M1) logo
+    // abaixo, pra só contar quando pelo menos um profissional envolvido é
+    // de fato da eMulti.
+    var rosterNomesEmulti = {};
+    profissionaisRoster.forEach(function(p){ rosterNomesEmulti[normalizeText(p.nome)] = true; });
+    function nomeEhDaEmulti(nome){
+      nome = String(nome||"").trim();
+      return !!nome && !!rosterNomesEmulti[normalizeText(nome)];
+    }
+
     // ---------- Atendimentos ----------
     var atRows = rowsOf("Atendimentos");
     var atHeader = atRows[0] || [];
     var iData = colIndex(atHeader, "data_hora");
     var iNome = colIndex(atHeader, "nome");
+    // Coluna do profissional que realizou o atendimento — usada pra só
+    // contar como "Atendimento individual" (M1) quando esse profissional
+    // está cadastrado na aba PROFISSIONAIS como sendo da eMulti. Mesma
+    // regra de segurança do filtro de Participações coletivas abaixo: se
+    // o roster ainda não carregou (vazio) ou a coluna "profissional" não
+    // foi encontrada, o filtro fica DESLIGADO (conta tudo, comportamento
+    // antigo) em vez de zerar o M1 silenciosamente.
+    var iAtProf = colIndex(atHeader, "profissional");
+    var filtroProfEmultiAtendAtivo = profissionaisRoster.length > 0 && iAtProf >= 0;
+    if(!filtroProfEmultiAtendAtivo){
+      console.warn('[Atendimentos] filtro de profissional eMulti desativado (roster PROFISSIONAIS vazio ou coluna "profissional" não encontrada no cabeçalho) — contando todos os atendimentos do período, sem checar profissional. cabeçalho real:', atHeader,
+        '| iAtProf='+iAtProf, '| profissionaisRoster.length='+profissionaisRoster.length);
+    }
     var atFiltradas = atRows.slice(1).filter(function(r){
       var nome = String(r[iNome]||"").trim();
-      return nome && withinPeriod(parseBRDate(r[iData]), periodo.inicio, periodo.fim);
+      if(!nome || !withinPeriod(parseBRDate(r[iData]), periodo.inicio, periodo.fim)) return false;
+      if(filtroProfEmultiAtendAtivo && !nomeEhDaEmulti(r[iAtProf])) return false;
+      return true;
     });
     var atendimentosIndividuais = atFiltradas.length;
 
@@ -1116,15 +1152,11 @@
     var iPProf4 = colIndex(partHeader, "profissional 4");
     var iPProf5 = colIndex(partHeader, "profissional 5");
     var iPProfCols = [iPResp, iPProf1, iPProf2, iPProf3, iPProf4, iPProf5].filter(function(i){ return i>=0; });
-    // Nomes normalizados (sem acento/maiúscula) dos profissionais
-    // cadastrados na aba PROFISSIONAIS (roster da eMulti — ver
-    // profissionaisRoster). Se o roster ainda não carregou (vazio) ou
-    // nenhuma das colunas de profissional foi encontrada no cabeçalho
-    // real da aba, o filtro fica DESLIGADO (conta todas as participações,
-    // comportamento antigo) em vez de zerar tudo silenciosamente — avisa
-    // no console pra facilitar diagnóstico.
-    var rosterNomesEmulti = {};
-    profissionaisRoster.forEach(function(p){ rosterNomesEmulti[normalizeText(p.nome)] = true; });
+    // Se o roster ainda não carregou (vazio) ou nenhuma das colunas de
+    // profissional foi encontrada no cabeçalho real da aba, o filtro fica
+    // DESLIGADO (conta todas as participações, comportamento antigo) em
+    // vez de zerar tudo silenciosamente — avisa no console pra facilitar
+    // diagnóstico.
     var filtroProfEmultiAtivo = profissionaisRoster.length > 0 && iPProfCols.length > 0;
     if(!filtroProfEmultiAtivo){
       console.warn('[Participantes Ativ. Coletiva] filtro de profissional eMulti desativado (roster PROFISSIONAIS vazio ou colunas "Responsavel Atividade"/"Profissional 1..5" não encontradas no cabeçalho) — contando todas as participações coletivas do período, sem checar profissional. cabeçalho real:', partHeader,
@@ -1132,8 +1164,7 @@
     }
     function linhaTemProfissionalEmulti(r){
       for(var i=0;i<iPProfCols.length;i++){
-        var nome = String(r[iPProfCols[i]]||"").trim();
-        if(nome && rosterNomesEmulti[normalizeText(nome)]) return true;
+        if(nomeEhDaEmulti(r[iPProfCols[i]])) return true;
       }
       return false;
     }
@@ -4598,6 +4629,14 @@
     var denM2Gauge = d.denominadorM2Janela!=null ? d.denominadorM2Janela : d.denominadorM2;
     var atendIndGauge = d.atendimentosIndividuaisJanela!=null ? d.atendimentosIndividuaisJanela : d.atendimentosIndividuais;
     var participColGauge = d.participacoesColetivasJanela!=null ? d.participacoesColetivasJanela : d.participacoesColetivas;
+    // Contagem REAL de "Pessoas atendidas" (calculada a partir das listas,
+    // ANTES do override oficial) — mesmo padrão de atendIndGauge/
+    // participColGauge acima: o total do card (denM1Gauge, mais abaixo)
+    // pode vir substituído pelo valor oficial da aba Q2-26, mas o segmento
+    // da barra mostra o dado calculado de verdade, com o percentual em
+    // relação ao total oficial.
+    var denM1CalcGauge = d.denominadorM1CalculadoJanela!=null ? d.denominadorM1CalculadoJanela
+      : (d.denominadorM1Calculado!=null ? d.denominadorM1Calculado : d.denominadorM1);
     var atividadesCompGauge = d.atividadesCompartilhadasJanela!=null ? d.atividadesCompartilhadasJanela : d.atividadesCompartilhadas;
     // Usa a parcela que de fato entrou no numerador (0 nos meses em que a
     // fonte foi TOTAL RELATÓRIO AC) — não o total bruto de reuniões — pra
@@ -4612,7 +4651,7 @@
         {label:'Participações coletivas', value:participColGauge, color:'#C68A3D'}
       ], numM1Gauge);
     var denM1Bar = stackbar([
-        {label:'Pessoas atendidas', value:denM1Gauge, color:'#153F35'}
+        {label:'Pessoas atendidas', value:denM1CalcGauge, color:'#153F35'}
       ], denM1Gauge);
     var numM2Bar = stackbar([
         {label:'Atividades coletivas compartilhadas', value:atividadesCompGauge, color:'#153F35'},
