@@ -12,11 +12,15 @@
   // terminando naquele mês. Mude só este número se quiser 3, 4 ou 6 meses
   // de janela.
   var JANELA_MESES = 4;
-  // ---- Override com dados OFICIAIS (aba "M1/M2" da mesma planilha) ----
-  // A aba M1/M2 traz uma linha por equipe e mês, com os resultados oficiais
-  // dos dois indicadores no mesmo registro. Sempre que houver uma linha
-  // oficial para mês/equipe, os valores substituem os calculados pelo painel.
-  var OFFICIAL_SHEET_NAME = "M1/M2";
+  // ---- Override com dados OFICIAIS (aba "Q2-26" da mesma planilha) ----
+  // Pra mai/jun/jul de 2026, a Secretaria já tem o resultado oficial do
+  // SIAPS/Ministério da Saúde (M1 e M2, por equipe e por mês), publicado
+  // numa aba separada da mesma planilha. Sempre que esses dados oficiais
+  // existirem pra um mês/equipe/indicador, eles SUBSTITUEM o valor
+  // calculado pelo painel a partir dos dados brutos (ver
+  // aplicarOverrideOficial, mais abaixo) — o cálculo próprio continua
+  // valendo só pros meses/indicadores sem dado oficial disponível.
+  var OFFICIAL_SHEET_NAME = "Q2-26";
   // chave "centro|2026-05|M1" -> {numerador, denominador}
   var officialOverrides = {};
   // Quantos pontos (meses) mostrar nos gráficos de tendência — cada ponto
@@ -705,11 +709,13 @@
     }
     return -1;
   }
-  // ---------- Dados oficiais (aba M1/M2) ----------
-  // A aba M1/M2 tem uma linha por equipe e mês, com as colunas:
-  // MÊS | NOME DA EQUIPE | SIGLA DA EQUIPE | NUMERADOR M1 |
-  // DENOMINADOR M1 | PONTUAÇÃO M1 | NUMERADOR M2 | DENOMINADOR M2 |
-  // PONTUAÇÃO M2.
+  // ---------- Dados oficiais (aba Q2-26) ----------
+  // A aba Q2-26 tem uma única tabela, uma linha por equipe/mês, com
+  // cabeçalho: MÊS | NOME DA EQUIPE | SIGLA DA EQUIPE | NUMERADOR M1 |
+  // DENOMINADOR M1 | PONTUAÇÃO M1 (não usada — recalculamos pra garantir
+  // a mesma fórmula do painel) | NUMERADOR M2 | DENOMINADOR M2 |
+  // PONTUAÇÃO M2. Não há coluna separada por aba/equipe — filtramos e
+  // agrupamos aqui mesmo.
   var MESES_PT_ABREV = {jan:0,fev:1,mar:2,abr:3,mai:4,jun:5,jul:6,ago:7,set:8,out:9,nov:10,dez:11};
   function parseMesAbrevPt(raw){
     var s = String(raw||"").trim().toLowerCase().replace(/\./g,'');
@@ -737,29 +743,34 @@
   function officialOverrideKey(equipeKey, ano, mesIdx, indicador){
     return equipeKey + '|' + ano + '-' + String(mesIdx+1).padStart(2,'0') + '|' + indicador;
   }
-  // Faz o parse do CSV bruto da aba M1/M2 pro mapa de overrides. O parser
-  // localiza as colunas pelo cabeçalho, para não depender da ordem exata
-  // caso a planilha seja reorganizada futuramente.
+  // Faz o parse do CSV bruto da aba Q2-26 pro mapa de overrides. Espera
+  // uma linha de cabeçalho com MÊS, NOME DA EQUIPE, SIGLA DA EQUIPE,
+  // NUMERADOR M1, DENOMINADOR M1, PONTUAÇÃO M1, NUMERADOR M2,
+  // DENOMINADOR M2, PONTUAÇÃO M2 (colunas achadas pelo nome, não por
+  // posição fixa — ver colIndex). Cada linha de dado gera até 2 entradas
+  // no mapa (M1 e M2); linhas sem MÊS/NOME DA EQUIPE reconhecíveis, ou a
+  // própria linha de cabeçalho, são ignoradas.
   function parseOfficialSheetCsv(csvText){
     var rows = parseCsv(csvText);
     var map = {};
     if(!rows.length) return map;
-    var header = rows[0].map(function(v){ return normalizeText(v).replace(/\s+/g,' '); });
-    function idxOf(name){ return header.indexOf(normalizeText(name).replace(/\s+/g,' ')); }
-    var iMes = idxOf('MÊS');
-    var iNome = idxOf('NOME DA EQUIPE');
-    var iNumM1 = idxOf('NUMERADOR M1');
-    var iDenM1 = idxOf('DENOMINADOR M1');
-    var iNumM2 = idxOf('NUMERADOR M2');
-    var iDenM2 = idxOf('DENOMINADOR M2');
-    if(iMes < 0 || iNome < 0 || iNumM1 < 0 || iDenM1 < 0 || iNumM2 < 0 || iDenM2 < 0) return map;
+    var header = rows[0];
+    var iMes = colIndex(header, 'mes');
+    var iEquipe = colIndex(header, 'nome_da_equipe');
+    var iNumM1 = colIndex(header, 'numerador_m1');
+    var iDenM1 = colIndex(header, 'denominador_m1');
+    var iNumM2 = colIndex(header, 'numerador_m2');
+    var iDenM2 = colIndex(header, 'denominador_m2');
+    if(iMes<0 || iEquipe<0 || iNumM1<0 || iDenM1<0 || iNumM2<0 || iDenM2<0) return map;
     rows.slice(1).forEach(function(r){
-      var equipeKey = equipeKeyFromNomeOficial(r[iNome]);
+      var equipeKey = equipeKeyFromNomeOficial(r[iEquipe]);
       if(!equipeKey) return;
       var mes = parseMesAbrevPt(r[iMes]);
       if(!mes) return;
-      var base = officialOverrideKey(equipeKey, mes.ano, mes.mesIdx, 'M1');
-      map[base] = {numerador: toInt(r[iNumM1]), denominador: toInt(r[iDenM1])};
+      map[officialOverrideKey(equipeKey, mes.ano, mes.mesIdx, 'M1')] = {
+        numerador: toInt(r[iNumM1]),
+        denominador: toInt(r[iDenM1])
+      };
       map[officialOverrideKey(equipeKey, mes.ano, mes.mesIdx, 'M2')] = {
         numerador: toInt(r[iNumM2]),
         denominador: toInt(r[iDenM2])
@@ -3302,7 +3313,7 @@
     doc.save(arquivo);
   }
 
-  // ---------- PDF de divergência: calculado (painel) vs. oficial (M1/M2) ----------
+  // ---------- PDF de divergência: calculado (painel) vs. oficial (Q2-26) ----------
   // Compara, mês a mês, o valor que o painel calcularia a partir dos
   // dados brutos (numeradorXCalculado/denominadorXCalculado/xCalculado —
   // guardados em aplicarOverrideOficial ANTES da substituição) com o
@@ -3362,7 +3373,7 @@
       }
     });
     if(!linhas.length){
-      alert('Não há meses com dado oficial (aba M1/M2) carregado pra esta equipe — nada pra comparar.');
+      alert('Não há meses com dado oficial (aba Q2-26) carregado pra esta equipe — nada pra comparar.');
       return;
     }
 
@@ -3389,7 +3400,7 @@
     doc.setTextColor(21,63,53);
     doc.setFont('helvetica','bold');
     doc.setFontSize(13);
-    doc.text('Calculado pelo painel × Oficial (aba M1/M2)', margin, y);
+    doc.text('Calculado pelo painel × Oficial (aba Q2-26)', margin, y);
     y += 16;
     doc.setFont('helvetica','normal');
     doc.setFontSize(9);
@@ -4293,7 +4304,7 @@
 
     var vals = points.map(function(p){return p.y;});
     // Quando existe a série "não oficial" (yAlt: valor calculado direto da
-    // planilha, ANTES do override da aba M1/M2 — ver m1Calculado/m2Calculado
+    // planilha, ANTES do override da aba Q2-26 — ver m1Calculado/m2Calculado
     // em calcularSerieTendencia/aplicarOverrideOficial), inclui esses
     // valores no min/max pra a linha preliminar caber na mesma escala sem
     // distorcer a proporção da linha oficial.
@@ -4386,7 +4397,7 @@
     // Linha "Preliminar": a MESMA linha de tendência (mesmo traçado que
     // liga os pontos), só que calculada com os valores da tabela nominal
     // (yAlt = m1Calculado/m2Calculado, direto da planilha), ignorando o
-    // override da aba M1/M2. Nos meses sem override, yAlt é idêntico a y
+    // override da aba Q2-26. Nos meses sem override, yAlt é idêntico a y
     // (aplicarOverrideOficial só substitui quando há dado oficial), então
     // a linha só "se separa" da linha principal nos meses com selo
     // "Oficial". Fica invisível até o pill "Preliminar" (canto superior
@@ -4401,7 +4412,7 @@
       var pathAlt = coordsAlt.map(function(c,i){ return (i===0?"M ":"L ")+c.x+" "+c.y; }).join(" ");
       // Marca com um pontinho só os meses onde a linha preliminar realmente
       // diverge da oficial (isto é, onde houve override — ver p.oficial)
-      // pra destacar visualmente ONDE a planilha diverge da aba M1/M2.
+      // pra destacar visualmente ONDE a planilha diverge da aba Q2-26.
       var dotsAlt = points.map(function(p,i){
         if(!p.oficial) return '';
         return '<circle cx="'+coordsAlt[i].x+'" cy="'+coordsAlt[i].y+'" r="2.6" fill="#6B6B6B"/>';
@@ -4650,7 +4661,7 @@
     // calcularSerieTendencia) — não é mais o histórico de vezes que a
     // página foi atualizada.
     var trend = '<div class="card trend-card-combo">'
-      + '<button type="button" id="trendPreliminarToggle" class="trend-preliminar-toggle" title="Mostrar a linha calculada só com os dados da planilha (tabela nominal), sem o override da aba M1/M2"><i></i>Preliminar</button>'
+      + '<button type="button" id="trendPreliminarToggle" class="trend-preliminar-toggle" title="Mostrar a linha calculada só com os dados da planilha (tabela nominal), sem o override da aba Q2-26"><i></i>Preliminar</button>'
       + '<div class="trend-sub"><h4>M1 mês a mês</h4>'
         + '<p class="cur">Mês de referência ('+refMonthLabel()+'): '+fmtDec(d.m1,2)+'</p>'
         + sparkline(serieTendencia.map(function(p){ return {y:p.m1, label:monthShortLabel(p.mes), value:fmtDec(p.m1,2), quadKey:quadKeyOfDate(p.mes), quadLabel:quadCode(p.mes), oficial:!!p.m1Oficial, yAlt:p.m1Calculado, futuro:isMesFuturo(p.mes)}; }).filter(function(p){return p.y!=null;}), '#153F35', {quadAvg:true, classify:classificarM1, hideAxis:true})
@@ -4659,7 +4670,7 @@
         + '<p class="cur">Mês de referência ('+refMonthLabel()+'): '+fmtDec(d.m2,2)+'%</p>'
         + sparkline(serieTendencia.map(function(p){ return {y:p.m2, label:monthShortLabel(p.mes), value:fmtDec(p.m2,2)+'%', quadKey:quadKeyOfDate(p.mes), quadLabel:quadCode(p.mes), oficial:!!p.m2Oficial, yAlt:p.m2Calculado, futuro:isMesFuturo(p.mes)}; }).filter(function(p){return p.y!=null;}), '#C68A3D', {quadAvg:true, suffix:'%', classify:classificarM2})
         + '</div>'
-      + '<p class="footnote">Cada ponto já é a janela de '+JANELA_MESES+' meses terminando naquele mês. Linha tracejada fina = média do quadrimestre no período exibido; o trecho tracejado mais grosso no final da linha principal = meses que ainda não terminaram (projeção). O pill "Preliminar" (canto superior direito) mostra/esconde a linha calculada só com os dados da planilha (tabela nominal), sem o override da aba M1/M2 — os pontinhos marcam os meses em que ela diverge da linha oficial.</p>'
+      + '<p class="footnote">Cada ponto já é a janela de '+JANELA_MESES+' meses terminando naquele mês. Linha tracejada fina = média do quadrimestre no período exibido; o trecho tracejado mais grosso no final da linha principal = meses que ainda não terminaram (projeção). O pill "Preliminar" (canto superior direito) mostra/esconde a linha calculada só com os dados da planilha (tabela nominal), sem o override da aba Q2-26 — os pontinhos marcam os meses em que ela diverge da linha oficial.</p>'
       + '</div>';
     document.getElementById('trendRow').innerHTML = trend;
     setupTrendInteractivity();
@@ -4680,7 +4691,7 @@
       var desemp = classificarDesempenho(p.notaFinal);
       function pill(txt){ return '<span class="pill" style="background:'+(CLASS_PILL_HEX[txt]||'#7A8A82')+'">'+escapeHtml(txt)+'</span>'; }
       // Pequeno selo "Oficial" na célula do M1/M2 quando aquele mês usou
-      // o dado da aba M1/M2 em vez do calculado pelo painel (ver
+      // o dado da aba Q2-26 em vez do calculado pelo painel (ver
       // aplicarOverrideOficial) — só um lembrete visual, não muda o valor.
       function oficialTag(ehOficial){ return ehOficial ? ' <span class="pill" style="background:#3B7DDD;font-size:9.5px;">Oficial</span>' : ''; }
       // Etiqueta de depuração: de onde veio o número de "atividades
@@ -4731,7 +4742,7 @@
       : '';
     document.getElementById('trendHistoryWrap').innerHTML =
         '<div class="card"><div class="list-card-head"><h4 style="margin:0;font-size:14.5px;font-weight:500;">Série histórica — numerador, denominador e desempenho quadrimestral</h4>'+divergenciaBtnHtml+'</div>'
-      + '<p class="footnote" style="margin:4px 0 12px;">Um mês por linha (mais recente primeiro), cada um com sua própria janela móvel de '+JANELA_MESES+' meses terminando naquele mês (mesmos pontos dos gráficos acima). "Desempenho quadrimestral" é a síntese própria M1×6 + M2×4 — ver Notas Metodológicas. O selo "Oficial" marca meses em que o valor veio da aba M1/M2 em vez do cálculo do painel. O selo "AC"/"Lista" fica na coluna "Ativ. coletivas compartilhadas" e mostra a origem daquela parcela. Quando a origem é "AC", o total já vem fechado da aba TOTAL RELATÓRIO AC e Reuniões compartilhadas não entra na soma (fica marcada "não somada"); quando é "Lista", Numerador M2 = Ativ. coletivas compartilhadas + Reuniões compartilhadas.</p>'
+      + '<p class="footnote" style="margin:4px 0 12px;">Um mês por linha (mais recente primeiro), cada um com sua própria janela móvel de '+JANELA_MESES+' meses terminando naquele mês (mesmos pontos dos gráficos acima). "Desempenho quadrimestral" é a síntese própria M1×6 + M2×4 — ver Notas Metodológicas. O selo "Oficial" marca meses em que o valor veio da aba Q2-26 em vez do cálculo do painel. O selo "AC"/"Lista" fica na coluna "Ativ. coletivas compartilhadas" e mostra a origem daquela parcela. Quando a origem é "AC", o total já vem fechado da aba TOTAL RELATÓRIO AC e Reuniões compartilhadas não entra na soma (fica marcada "não somada"); quando é "Lista", Numerador M2 = Ativ. coletivas compartilhadas + Reuniões compartilhadas.</p>'
       + '<div class="table-wrap"><table class="data-table"><thead><tr>'
       +   '<th>Mês</th><th>Numerador M1</th><th>Denominador M1</th><th>M1</th><th>Classe M1</th>'
       +   '<th>Ativ. coletivas compartilhadas</th><th>Reuniões compartilhadas</th><th>Numerador M2</th><th>Denominador M2</th><th>M2 (%)</th><th>Classe M2</th><th>Nota do desempenho</th><th>Desempenho quadrimestral</th>'
