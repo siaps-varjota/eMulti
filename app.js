@@ -3160,20 +3160,26 @@
       var headersForQtd = cached ? cached.headers : [];
       var nomeIdxQtd = -1;
       headersForQtd.forEach(function(h, i){
-        if(nomeIdxQtd < 0 && normalizeText(h) === 'NOME') nomeIdxQtd = i;
+        // "NOME" cobre a tabela Atendimentos; "PARTICIPANTE" cobre a
+        // tabela "Participantes Ativ. Coletiva" (mesma lógica de
+        // recontagem por nome, só muda o nome da coluna-chave).
+        if(nomeIdxQtd < 0 && (normalizeText(h) === 'NOME' || normalizeText(h) === 'PARTICIPANTE')) nomeIdxQtd = i;
       });
       var qtdColIdxs = [];
       headersForQtd.forEach(function(h, i){
         var hn = normalizeText(h);
         var ehPeriodoPattern = hn.indexOf('QTD_') === 0 && hn.indexOf('PER') !== -1;
         // "Qtd de atendimentos"/"qtd_atendimentos"/"Quantidade de
-        // atendimentos" (ex.: coluna homônima na lista "Atendimentos")
-        // também entram no recálculo por filtro — sem isso a coluna fica
-        // sempre com o valor bruto (ou vazio) da planilha, em vez de
-        // refletir o período/filtros ativos na lista.
+        // atendimentos" (ex.: coluna homônima na lista "Atendimentos") e
+        // "Qtd de participações"/"qtd_participacoes"/"Quantidade de
+        // participações" (ex.: coluna homônima na lista "Participantes
+        // Ativ. Coletiva") também entram no recálculo por filtro — sem
+        // isso a coluna fica sempre com o valor bruto (ou vazio) da
+        // planilha, em vez de refletir o período/filtros ativos na lista.
         var chaveQtd = hn.replace(/[-\s]+/g, '_');
         var ehQtdAtendimentos = ['QTD_ATENDIMENTOS','QTD_DE_ATENDIMENTOS','QUANTIDADE_DE_ATENDIMENTOS'].indexOf(chaveQtd) !== -1;
-        if(ehPeriodoPattern || ehQtdAtendimentos) qtdColIdxs.push(i);
+        var ehQtdParticipacoes = ['QTD_PARTICIPACOES','QTD_DE_PARTICIPACOES','QUANTIDADE_DE_PARTICIPACOES','QTD_PARTICIPACAO','QTD_DE_PARTICIPACAO','QUANTIDADE_DE_PARTICIPACAO'].indexOf(chaveQtd) !== -1;
+        if(ehPeriodoPattern || ehQtdAtendimentos || ehQtdParticipacoes) qtdColIdxs.push(i);
       });
       if(nomeIdxQtd >= 0 && qtdColIdxs.length){
         var countsPorNomeQtd = {};
