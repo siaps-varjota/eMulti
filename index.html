@@ -17,6 +17,61 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+<div id="loginOverlay">
+  <div class="login-card">
+    <p class="login-kicker">Atenção Primária · Varjota-CE</p>
+    <h2 class="login-title">Painel eMulti</h2>
+    <div class="login-error" id="loginError"></div>
+    <form id="loginForm" autocomplete="off">
+      <div class="login-field">
+        <label for="loginCpf">CPF</label>
+        <input type="text" id="loginCpf" inputmode="numeric" placeholder="000.000.000-00" maxlength="14" required>
+      </div>
+      <div class="login-field">
+        <label for="loginSenha">Senha</label>
+        <input type="password" id="loginSenha" placeholder="Sua senha" required>
+      </div>
+      <button type="submit" class="login-submit" id="loginSubmit">Entrar</button>
+    </form>
+    <p class="login-footer">Acesso restrito às equipes eMulti de Varjota.</p>
+  </div>
+</div>
+
+<div class="login-modal-backdrop hidden" id="firstLoginModal">
+  <div class="login-modal">
+    <h3>Primeiro acesso</h3>
+    <p>Esta é sua primeira vez entrando com essa senha. Deseja trocá-la agora por uma senha só sua?</p>
+    <div class="login-modal-actions">
+      <button type="button" class="btn-secondary" id="firstLoginNo">Agora não</button>
+      <button type="button" class="btn-primary" id="firstLoginYes">Trocar senha</button>
+    </div>
+  </div>
+</div>
+
+<div class="login-modal-backdrop hidden" id="changePasswordBackdrop">
+  <div class="login-modal">
+    <h3>Nova senha</h3>
+    <p>Escolha uma nova senha com pelo menos 6 caracteres.</p>
+    <div class="login-error" id="changePasswordError"></div>
+    <form id="changePasswordForm">
+      <div class="login-field">
+        <label for="newSenha">Nova senha</label>
+        <input type="password" id="newSenha" required>
+      </div>
+      <div class="login-field">
+        <label for="newSenhaConfirm">Confirmar nova senha</label>
+        <input type="password" id="newSenhaConfirm" required>
+      </div>
+      <div class="login-modal-actions">
+        <button type="button" class="btn-secondary" id="changePasswordSkip">Pular</button>
+        <button type="submit" class="btn-primary" id="changePasswordSubmit">Salvar nova senha</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="appShell" class="hidden">
 <div class="header-group">
 <header class="topbar">
   <div class="topbar-left">
@@ -34,6 +89,10 @@
       <div class="periodo" id="topPeriodo"></div>
       <div class="dt" id="topUpdated">Carregando…</div>
     </div>
+    <button class="logout-pill" id="logoutBtn" title="Sair">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" stroke-linecap="round" stroke-linejoin="round"/><path d="M16 17l5-5-5-5M21 12H9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Sair</span>
+    </button>
   </div>
 </header>
 
@@ -166,7 +225,8 @@
       <ul class="notes-list" id="notesList"></ul>
      </div>
 </main>
+</div><!-- /#appShell -->
 
-<script src="app.js"></script>
+<script src="auth.js"></script>
 </body>
 </html>
