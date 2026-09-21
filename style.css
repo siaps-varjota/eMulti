@@ -719,3 +719,86 @@
     .tab{flex:0 0 auto;white-space:nowrap;}
     .main{padding:20px 20px 50px;}
   }
+
+/* ============================================================
+   Login — Painel eMulti (CPF + senha)
+   ============================================================ */
+.hidden{display:none !important;}
+
+#loginOverlay{
+  position:fixed;inset:0;z-index:1000;
+  background:linear-gradient(135deg,var(--header-bg-2) 0%,#0A241C 60%,#081813 100%);
+  min-height:100vh;
+  display:flex;align-items:center;justify-content:center;
+  padding:20px;
+  font-family:'Inter',sans-serif;
+}
+.login-card{
+  background:var(--surface);border-radius:16px;
+  padding:44px 40px 36px;width:100%;max-width:400px;
+  box-shadow:0 20px 60px rgba(0,0,0,.35);text-align:center;
+}
+.login-kicker{
+  font-size:11px;letter-spacing:1.4px;text-transform:uppercase;
+  color:var(--pill-otimo);font-weight:700;margin:0 0 6px;
+}
+.login-title{
+  font-family:'Fraunces',serif;font-size:22px;font-weight:600;
+  color:var(--ink);margin:0 0 24px;
+}
+.login-field{text-align:left;margin-bottom:16px;}
+.login-field label{
+  display:block;font-size:12px;font-weight:700;color:var(--ink-soft);
+  text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;
+}
+.login-field input{
+  width:100%;padding:11px 14px;border:1.5px solid var(--line);border-radius:8px;
+  font-size:15px;font-family:inherit;color:var(--ink);background:var(--paper);
+  outline:none;transition:border-color .15s,box-shadow .15s;
+}
+.login-field input:focus{
+  border-color:var(--header-bg);box-shadow:0 0 0 3px rgba(28,109,83,.12);background:var(--surface);
+}
+.login-submit{
+  width:100%;background:var(--header-bg);color:var(--header-ink);border:none;
+  border-radius:8px;padding:13px;font-size:16px;font-weight:700;cursor:pointer;
+  letter-spacing:.02em;margin-top:6px;transition:background .15s,transform .1s;
+}
+.login-submit:hover{background:var(--header-bg-2);transform:translateY(-1px);}
+.login-submit:active{transform:translateY(0);}
+.login-submit:disabled{opacity:.6;cursor:default;transform:none;}
+.login-error{
+  background:#FDECEC;color:#B5474B;border:1.5px solid #F0C6C6;border-radius:8px;
+  padding:10px 14px;font-size:13.5px;font-weight:600;margin-bottom:16px;display:none;
+}
+.login-footer{margin-top:22px;font-size:12px;color:var(--ink-soft);}
+
+/* Modais de primeiro acesso / troca de senha, no mesmo padrão */
+.login-modal-backdrop{
+  position:fixed;inset:0;z-index:1100;
+  background:rgba(8,24,19,.55);
+  display:flex;align-items:center;justify-content:center;padding:20px;
+}
+.login-modal{
+  background:var(--surface);border-radius:16px;padding:32px 30px 26px;
+  width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,.35);text-align:center;
+  font-family:'Inter',sans-serif;
+}
+.login-modal h3{
+  font-family:'Fraunces',serif;font-size:18px;color:var(--ink);margin:0 0 8px;
+}
+.login-modal p{font-size:13.5px;color:var(--ink-soft);margin:0 0 20px;line-height:1.5;}
+.login-modal-actions{display:flex;gap:10px;margin-top:6px;}
+.login-modal .btn-secondary{
+  flex:1;background:var(--paper);color:var(--ink-soft);border:1px solid var(--line);
+  border-radius:8px;padding:11px;font-size:14px;font-weight:700;cursor:pointer;
+  font-family:'Inter',sans-serif;
+}
+.login-modal .btn-primary{
+  flex:1;background:var(--header-bg);color:var(--header-ink);border:none;
+  border-radius:8px;padding:11px;font-size:14px;font-weight:700;cursor:pointer;
+  font-family:'Inter',sans-serif;
+}
+.login-modal .btn-secondary:hover{background:#E7ECE1;}
+.login-modal .btn-primary:hover{background:var(--header-bg-2);}
+.login-modal .login-field{margin-bottom:12px;}
