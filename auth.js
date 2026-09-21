@@ -16,7 +16,7 @@ const CHAVE_SECRETA = 'scamander'; // precisa ser igual à do Apps Script
 // Se quiser restringir o login só a certas categorias de usuário
 // (ex.: só quem tem categoria "eMulti" pode entrar aqui), liste-as
 // abaixo. Deixe o array vazio para não restringir por categoria.
-const CATEGORIAS_PERMITIDAS = [];
+const CATEGORIAS_PERMITIDAS = ['eMulti', 'Coordenação'];
 
 const SESSION_KEY = 'painel_emulti_auth';
 const SESSION_TTL = 8 * 60 * 60 * 1000; // 8 horas
