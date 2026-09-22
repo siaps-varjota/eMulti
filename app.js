@@ -2783,7 +2783,7 @@
     if(partCached){
       var iPData = colIndex(partCached.headers, "data");
       var iPNome = colIndex(partCached.headers, "participante");
-      var iProfPart = profissionalColIndex(partCached.headers);
+      var iProfPartCols = colsProfissionaisParticipantes(partCached.headers);
       if(iPData >= 0 && iPNome >= 0){
         partCached.rows.forEach(function(r){
           var nome = String(r[iPNome]||"").trim();
@@ -2793,8 +2793,10 @@
           if(!pessoasSet[chave]) pessoasSet[chave] = {nome:nome, at:0, part:0, datas:[], profissionais:{}};
           pessoasSet[chave].part++;
           if(d) pessoasSet[chave].datas.push(d);
-          var prof = iProfPart >= 0 ? String(r[iProfPart]||"").trim() : '';
-          if(prof) pessoasSet[chave].profissionais[prof] = true;
+          iProfPartCols.forEach(function(idx){
+            var prof = String(r[idx]||"").trim();
+            if(prof) pessoasSet[chave].profissionais[prof] = true;
+          });
         });
       }
     }
@@ -2877,6 +2879,22 @@
       if(normalizeText(headerRow[i]).indexOf("PROFISSIONAL") !== -1) return i;
     }
     return -1;
+  }
+  // "Participantes Ativ. Coletiva" não tem uma única coluna "profissional"
+  // — tem "Responsavel Atividade" + "profissional 1" a "profissional 5"
+  // (até 6 pessoas podem estar envolvidas na mesma atividade; ver
+  // iPProfCols em calcularSinteseParaPeriodo, que já usa essas 6 colunas
+  // pra filtrar M1). A coluna "Profissional" da tabela "Pessoas
+  // atendidas" precisa juntar o valor de TODAS elas — antes usava só
+  // profissionalColIndex, que por buscar "PROFISSIONAL" por substring
+  // parava na primeira batida ("profissional 1"), então ignorava o
+  // Responsável e as colunas 2 a 5.
+  function colsProfissionaisParticipantes(headerRow){
+    var nomes = ["Responsavel Atividade","profissional 1","profissional 2","profissional 3","profissional 4","profissional 5"];
+    var idxs = nomes.map(function(n){ return colIndex(headerRow, n); }).filter(function(i){ return i>=0; });
+    if(idxs.length) return idxs;
+    var single = profissionalColIndex(headerRow);
+    return single >= 0 ? [single] : [];
   }
   // Nome exato da coluna calculada de dias sem atendimento (Busca-Ativa) —
   // usado tanto pro filtro de coluna (que agrupa em faixas, não valor a
