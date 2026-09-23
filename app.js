@@ -4184,16 +4184,19 @@
     var css = ''
       + '.kpi-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}'
       + '.kpi-head-title{margin:0;font-size:15px;font-weight:700;line-height:1.25}'
-      + '.kpi-panel{border-radius:18px;padding:20px 14px 16px;margin:12px 0 14px;text-align:center;'
+      + '.kpi-panel{border-radius:18px;padding:16px 14px 14px;margin:12px 0 14px;text-align:center;'
       +   'background:var(--kpi-bg);background:color-mix(in srgb,var(--kpi-bg) 45%,#fff)}'
-      + '.kpi-main{display:flex;align-items:center;justify-content:center;gap:clamp(12px,2.5vw,24px)}'
-      + '.kpi-icon{flex:none;width:clamp(48px,6vw,68px);height:clamp(48px,6vw,68px);border-radius:50%;'
+      + '.kpi-main{display:flex;align-items:center;justify-content:center;gap:clamp(10px,2vw,18px)}'
+      + '.kpi-icon{flex:none;width:clamp(38px,4vw,48px);height:clamp(38px,4vw,48px);border-radius:50%;'
       +   'display:grid;place-items:center;color:var(--kpi-accent);'
       +   'background:var(--kpi-bg);background:color-mix(in srgb,var(--kpi-accent) 14%,transparent)}'
-      + '.kpi-icon svg{width:48%;height:48%}'
-      + '.kpi-value{font-weight:800;font-size:clamp(44px,6vw,72px);line-height:1;letter-spacing:-.03em;'
+      + '.kpi-icon svg{width:50%;height:50%}'
+      + '.kpi-value{font-weight:800;font-size:clamp(30px,3.6vw,44px);line-height:1;letter-spacing:-.02em;'
       +   'color:var(--kpi-accent);font-variant-numeric:tabular-nums}'
-      + '.kpi-value .unit{font-size:.42em;font-weight:700;letter-spacing:0;margin-left:.08em}'
+      + '.kpi-value .unit{font-size:.45em;font-weight:700;letter-spacing:0;margin-left:.08em}'
+      + '.kpi-donut{flex:none;display:flex;flex-direction:column;align-items:center;gap:2px}'
+      + '.kpi-donut svg{width:clamp(56px,5.5vw,68px);height:auto;display:block}'
+      + '.kpi-donut-label{font-size:10px;line-height:1.1;font-weight:600;color:var(--kpi-accent);opacity:.85}'
       + '.kpi-caption{margin:12px 0 0;font-size:14px;line-height:1.35;color:var(--ink,#2b3a35)}';
     var el = document.createElement('style');
     el.id = 'kpiPanelStyles';
@@ -4201,11 +4204,32 @@
     document.head.appendChild(el);
   }
   injectKpiStyles();
-  function kpiPanelHTML(st, iconKind, valueHtml, caption){
+  // Meta "Ótimo" de cada escala (o valor a partir do qual o indicador vira
+  // Ótimo — ver OV_LEGEND_*): M1 > 3 (escala 0–4), M2 > 5% (escala 0–8),
+  // Desempenho > 7,5 (escala 0–10). 100% do donut = esse valor atingido.
+  var KPI_META_OTIMA = {4:3, 8:5, 10:7.5};
+  function kpiDonutHTML(value, domainMax, st){
+    var meta = KPI_META_OTIMA[domainMax];
+    if(value==null || isNaN(value) || !meta) return '';
+    var pct = (value/meta)*100;
+    var frac = Math.max(0, Math.min(1, value/meta));
+    var r = 26, c = 2*Math.PI*r;
+    return '<div class="kpi-donut" title="'+fmtDec(pct,0)+'% da meta Ótimo (100% = '+fmtDec(meta,meta%1?1:0)+')">'
+      + '<svg viewBox="0 0 64 64">'
+      +   '<circle cx="32" cy="32" r="'+r+'" fill="none" stroke="'+st.badgeText+'" stroke-opacity=".16" stroke-width="8"/>'
+      +   '<circle cx="32" cy="32" r="'+r+'" fill="none" stroke="'+st.badgeText+'" stroke-width="8" stroke-linecap="round"'
+      +     ' stroke-dasharray="'+(frac*c).toFixed(2)+' '+c.toFixed(2)+'" transform="rotate(-90 32 32)"/>'
+      +   '<text x="32" y="36.5" text-anchor="middle" font-size="13" font-weight="800" fill="'+st.badgeText+'">'+fmtDec(pct,0)+'%</text>'
+      + '</svg>'
+      + '<span class="kpi-donut-label">da meta Ótimo</span>'
+      + '</div>';
+  }
+  function kpiPanelHTML(st, iconKind, valueHtml, caption, value, domainMax){
     return '<div class="kpi-panel" style="--kpi-accent:'+st.badgeText+';--kpi-bg:'+st.badgeBg+';">'
       +   '<div class="kpi-main">'
       +     '<div class="kpi-icon"><svg viewBox="0 0 24 24">'+OV_ICONS[iconKind]+'</svg></div>'
       +     '<div class="kpi-value">'+valueHtml+'</div>'
+      +     kpiDonutHTML(value, domainMax, st)
       +   '</div>'
       +   (caption ? '<p class="kpi-caption">'+caption+'</p>' : '')
       + '</div>';
@@ -4397,7 +4421,7 @@
       +   '<div class="ov-head-left">'+ovIconHTML(opts.iconKind, st)+'<h3 class="ov-title" title="'+opts.title+'">'+opts.title+'</h3></div>'
       +   '<span class="ov-badge" style="background:'+st.badgeBg+';color:'+st.badgeText+';">'+st.icon+' '+(opts.classe||'—')+'</span>'
       + '</div>'
-      + kpiPanelHTML(st, opts.iconKind==='pulse' ? 'users' : 'pulse', opts.valueTxt, opts.valueCap)
+      + kpiPanelHTML(st, opts.iconKind==='pulse' ? 'users' : 'pulse', opts.valueTxt, opts.valueCap, opts.value, opts.domainMax)
       + ovEvoHTML(opts.value, opts.anterior, opts.domainMax, opts.decimals, opts.suffix||'', opts.bands)
       + ovLegendHTML(opts.legend)
       + '</div>';
@@ -4484,7 +4508,7 @@
       +   '<div class="ov-head-left">'+ovIconHTML(iconKind, st)+'<h3 class="kpi-head-title">Resultado do indicador</h3></div>'
       +   '<span class="ov-badge" style="background:'+st.badgeBg+';color:'+st.badgeText+';">'+st.icon+' '+(classLabel||'—')+'</span>'
       + '</div>'
-      + kpiPanelHTML(st, iconKind==='pulse' ? 'users' : 'pulse', valueHtml, capText)
+      + kpiPanelHTML(st, iconKind==='pulse' ? 'users' : 'pulse', valueHtml, capText, value, domainMax)
       + (legend ? '<div class="ip-gauge-legend-row">'+gaugeLegendHTML(legend)+'</div>' : '')
       + '<div class="ip-evo-embed">'+ipEvoContentHTML(value, anterior, domainMax, decimals, suffix, bands)+'</div>'
       + '</div>';
