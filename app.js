@@ -4169,6 +4169,7 @@
     pulse: '<path d="M3 12h4l2-7 4 14 2-7h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
     users: '<circle cx="8.5" cy="8" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M2.5 19c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="17" cy="9" r="2.4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.3 13.6c2.6.3 4.7 2.3 4.7 5.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
     share: '<path d="M8.2 11l7.6-4.2M8.2 13l7.6 4.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="6" cy="12" r="3" fill="currentColor"/><circle cx="18" cy="5.5" r="3" fill="currentColor"/><circle cx="18" cy="18.5" r="3" fill="currentColor"/>',
+    trophy: '<path d="M7.5 4h9v5.2a4.5 4.5 0 0 1-9 0V4z" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7.5 6H4.5v1.6A3 3 0 0 0 7.6 10.6M16.5 6h3v1.6a3 3 0 0 1-3.1 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 13.8V17M8.5 20h7M9.5 17h5v3h-5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
     speed: '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 12l4.5-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/>'
   };
   function ovIconHTML(kind, st){
@@ -4249,8 +4250,8 @@
       + '<span class="kpi-donut-label">'+(domainMax===10?'da nota máxima':'da meta Ótimo')+'</span>'
       + '</div>';
   }
-  // Ícone do painel por indicador: M1 (pulse) → pessoas, M2 (users) → compartilhamento, demais → pulso.
-  function kpiPanelIcon(kind){ return kind==='pulse' ? 'users' : (kind==='users' ? 'share' : 'pulse'); }
+  // Ícone do painel por indicador: M1 (pulse) → pessoas, M2 (users) → compartilhamento, Desempenho → troféu.
+  function kpiPanelIcon(kind){ return kind==='pulse' ? 'users' : (kind==='users' ? 'share' : 'trophy'); }
   function kpiPanelHTML(st, iconKind, valueHtml, caption, value, domainMax){
     return '<div class="kpi-panel" style="--kpi-accent:'+st.badgeText+';--kpi-bg:'+st.badgeBg+';">'
       +   '<div class="kpi-main">'
