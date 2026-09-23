@@ -2910,6 +2910,24 @@
     var single = profissionalColIndex(headerRow);
     return single >= 0 ? [single] : [];
   }
+  // Só as colunas numeradas ("profissional 1" a "profissional 5"), SEM
+  // "Responsavel Atividade" — usado pelo filtro virtual "Profissional da
+  // eMulti" da lista "Participantes Ativ. Coletiva" (ver PROF_EMULTI_FILTER_VALUE
+  // logo abaixo): o que importa pro indicador é se ALGUM dos profissionais
+  // envolvidos na atividade (não necessariamente o responsável) é da
+  // eMulti — mesmo quando o responsável não é, a atividade ainda conta
+  // como coletiva da eMulti (só não é "compartilhada").
+  function colsProfissionaisNumerados(headerRow){
+    var nomes = ["profissional 1","profissional 2","profissional 3","profissional 4","profissional 5"];
+    return nomes.map(function(n){ return colIndex(headerRow, n); }).filter(function(i){ return i>=0; });
+  }
+  // Valor sentinela (não é um índice numérico de coluna) usado no <select>
+  // "Filtrar por coluna…" pra representar o filtro virtual "Profissional
+  // da eMulti", que substitui as 5 colunas "profissional 1".."profissional
+  // 5" por uma única opção — o valor list combina as 5 colunas (linha
+  // bate se QUALQUER uma delas tiver um profissional da eMulti marcado),
+  // em vez do filtro normal de 1 coluna só.
+  var PROF_EMULTI_FILTER_VALUE = 'prof_emulti';
   // Nome exato da coluna calculada de dias sem atendimento (Busca-Ativa) —
   // usado tanto pro filtro de coluna (que agrupa em faixas, não valor a
   // valor) quanto pro cálculo em applyFilters.
@@ -3059,8 +3077,19 @@
           return '<td>'+escapeHtml(v===undefined||v===null?'':v)+'</td>';
         }).join('')+'</tr>';
       }).join('');
+      var idxsProfNumerados = colsProfissionaisNumerados(cached.headers);
+      // Nas colunas normais (índice numérico), pula "profissional 1" a
+      // "profissional 5" — elas viram UMA opção só ("Profissional da
+      // eMulti"), inserida na posição da primeira delas.
       var colOptionsHtml = '<option value="">Filtrar por coluna…</option>'
-        + cached.headers.map(function(h,i){ return '<option value="'+i+'">'+escapeHtml(h)+'</option>'; }).join('');
+        + cached.headers.map(function(h,i){
+          if(idxsProfNumerados.indexOf(i) !== -1){
+            return (i === idxsProfNumerados[0])
+              ? '<option value="'+PROF_EMULTI_FILTER_VALUE+'">Profissional da eMulti</option>'
+              : '';
+          }
+          return '<option value="'+i+'">'+escapeHtml(h)+'</option>';
+        }).join('');
       var filterPairsHtml = [0,1,2].map(function(idx){
         return '<div class="filter-pair">'
           + '<select class="filter-col">'+colOptionsHtml+'</select>'
@@ -3174,17 +3203,29 @@
       var textInput = card.querySelector('.list-search');
       var term = textInput ? textInput.value.trim().toLowerCase() : '';
       var activeFilters = [];
+      var idxsProfNumeradosFiltro = colsProfissionaisNumerados(cached ? cached.headers : []);
       card.querySelectorAll('.filter-pair').forEach(function(pair){
         var colSelect = pair.querySelector('.filter-col');
         var valWrap = pair.querySelector('.filter-val-ms');
-        var colIdx = colSelect && colSelect.value !== '' ? parseInt(colSelect.value, 10) : null;
+        var isProfEmulti = colSelect && colSelect.value === PROF_EMULTI_FILTER_VALUE;
+        var colIdx = (colSelect && !isProfEmulti && colSelect.value !== '') ? parseInt(colSelect.value, 10) : null;
         var vals = (valWrap && valWrap._msInstance) ? valWrap._msInstance.getSelected() : [];
-        if(colIdx !== null && vals.length){ activeFilters.push({colIdx:colIdx, vals:vals}); }
+        if(!vals.length) return;
+        if(isProfEmulti){ activeFilters.push({profEmulti:true, colIdxs:idxsProfNumeradosFiltro, vals:vals}); }
+        else if(colIdx !== null){ activeFilters.push({colIdx:colIdx, vals:vals}); }
       });
       var visibleCount = 0;
       card.querySelectorAll('tbody tr').forEach(function(tr, rowIdx){
         var matchesText = !term || tr.textContent.toLowerCase().indexOf(term) !== -1;
         var matchesCols = activeFilters.every(function(f){
+          if(f.profEmulti){
+            // Bate se QUALQUER uma das 5 colunas "profissional N" desta
+            // linha tiver um dos nomes marcados no filtro.
+            return f.colIdxs.some(function(ci){
+              var cell = tr.children[ci];
+              return cell && f.vals.indexOf(cell.textContent.trim()) >= 0;
+            });
+          }
           var cell = tr.children[f.colIdx];
           if(!cell) return false;
           var headerName = (cached && cached.headers) ? cached.headers[f.colIdx] : '';
@@ -3343,13 +3384,35 @@
       colSelect.addEventListener('change', function(){
         var card = colSelect.closest('.list-card');
         var listName = card.querySelector('[data-list-filters]').getAttribute('data-list-filters');
-        var colIdx = colSelect.value !== '' ? parseInt(colSelect.value, 10) : null;
-        if(colIdx === null){
+        var cached = latestSheets[listName];
+        var isProfEmulti = colSelect.value === PROF_EMULTI_FILTER_VALUE;
+        var colIdx = (!isProfEmulti && colSelect.value !== '') ? parseInt(colSelect.value, 10) : null;
+        if(colIdx === null && !isProfEmulti){
           msInst.setOptions([]);
           msInst.setSelected([]);
           valWrap.classList.add('ms-disabled');
+        } else if(isProfEmulti){
+          // Junta os valores distintos das 5 colunas "profissional N",
+          // mas só os nomes cadastrados na aba PROFISSIONAIS (roster da
+          // eMulti) — é isso que interessa pro indicador, não qualquer
+          // nome que apareça em alguma dessas colunas.
+          var idxsProf = colsProfissionaisNumerados(cached ? cached.headers : []);
+          var seenProf = {};
+          var valuesProf = [];
+          (cached ? cached.rows : []).forEach(function(r){
+            idxsProf.forEach(function(ci){
+              var v = r[ci];
+              v = (v===undefined||v===null) ? '' : String(v).trim();
+              if(!v || !nomeEhDaEmulti(v) || seenProf[v]) return;
+              seenProf[v] = true;
+              valuesProf.push(v);
+            });
+          });
+          valuesProf.sort(function(a,b){ return a.localeCompare(b, 'pt-BR'); });
+          msInst.setOptions(valuesProf.map(function(v){ return {value:v, label:v}; }));
+          msInst.setSelected([]);
+          valWrap.classList.remove('ms-disabled');
         } else {
-          var cached = latestSheets[listName];
           var headerName = (cached && cached.headers) ? cached.headers[colIdx] : '';
           var isDiasCol = (headerName === DIAS_SEM_ATENDIMENTO_HEADER);
           var seen = {};
