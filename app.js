@@ -139,28 +139,15 @@
   // marcada, as linhas de AMBAS entram no cálculo (resultado combinado/
   // somado das equipes selecionadas). Sempre fica pelo menos 1 marcada.
   var currentEquipes = [EQUIPES[0]];
-  // ---- Filtro "Tipo de Cálculo": Soma ou Média ----
-  // Só tem efeito quando o resultado exibido combina MAIS DE UM mês (2+
-  // meses marcados no filtro de Mês, ou nenhum mês marcado = média do
-  // quadrimestre inteiro — ver mediaDeMeses). Com exatamente 1 mês
-  // marcado o resultado já é um valor único (a janela móvel terminando
-  // naquele mês) e este filtro não muda nada.
-  // - "media" (comportamento antigo, antes deste filtro existir): cada
-  //   mês entra com o seu M1/M2 já calculado pela janela móvel de
-  //   JANELA_MESES meses terminando nele (mesma lógica oficial usada na
-  //   Tendência), e os meses selecionados são combinados pela MÉDIA
-  //   dessas janelas — por isso o card "Composição do numerador" podia
-  //   mostrar um número maior que a soma das linhas do período (a janela
-  //   de cada mês também inclui meses ANTERIORES ao período filtrado).
-  // - "soma" (padrão): ignora a janela móvel de cada mês individualmente
-  //   e usa a SOMA das contagens cruas dos meses selecionados — o mesmo
-  //   total que bate com a lista "Atendimentos" filtrada pelos mesmos
-  //   meses (ver soma()/pessoasLista em mediaDeMeses).
-  var TIPOS_CALCULO = [
-    {key:'soma', label:'Soma'},
-    {key:'media', label:'Média'}
-  ];
-  var tipoCalculo = 'soma';
+  // Indicadores de resultado (Composição do numerador, denominador etc.)
+  // sempre mostram a MÉDIA quando o período combina mais de um mês (ver
+  // mediaDeMeses) — antes havia um filtro "Tipo de Cálculo" (Soma/Média)
+  // na tela; foi removido a pedido, então o comportamento agora é fixo
+  // em "média" (cada mês entra com seu M1/M2 já calculado pela janela
+  // móvel de JANELA_MESES meses terminando nele, e os meses selecionados
+  // são combinados pela média dessas janelas — mesma lógica oficial
+  // usada na Tendência).
+  var tipoCalculo = 'media';
   // Filtro de Equipe da aba Análises — INDEPENDENTE do filtro global do
   // topo (currentEquipes): mudar um não muda o outro (a pedido). Mesmo
   // visual/comportamento do seletor do topo (single-select + "Todas"),
@@ -880,6 +867,22 @@
   // profissional+equipe cadastrados na aba (um profissional que atua em
   // 2 equipes gera 2 entradas, uma pra cada).
   var profissionaisRoster = [];
+  // Diz se um nome está cadastrado na aba PROFISSIONAIS (roster da
+  // eMulti). Usado em vários lugares (filtro de M1, "Pessoas atendidas",
+  // debug) — fica num único lugar pra não duplicar a lógica de
+  // normalização. O cache é reconstruído sozinho sempre que
+  // profissionaisRoster muda de referência (recarregou a planilha).
+  var rosterNomesEmultiCache = null;
+  var rosterNomesEmultiCacheFor = null;
+  function nomeEhDaEmulti(nome){
+    if(rosterNomesEmultiCacheFor !== profissionaisRoster){
+      rosterNomesEmultiCache = {};
+      profissionaisRoster.forEach(function(p){ rosterNomesEmultiCache[normalizeText(p.nome)] = true; });
+      rosterNomesEmultiCacheFor = profissionaisRoster;
+    }
+    nome = String(nome||"").trim();
+    return !!nome && !!rosterNomesEmultiCache[normalizeText(nome)];
+  }
   // Acha a coluna certa tentando primeiro nomes exatos e, não achando,
   // cai pra uma busca por palavra-chave no cabeçalho — protege contra a
   // aba PROFISSIONAIS usar um nome de coluna um pouco diferente do
@@ -1164,18 +1167,11 @@
       return ws ? sheetToRows(ws) : [];
     }
 
-    // Nomes normalizados (sem acento/maiúscula) dos profissionais
-    // cadastrados na aba PROFISSIONAIS (roster da eMulti — ver
-    // profissionaisRoster) — usado tanto pro filtro de "Atendimentos
-    // individuais" quanto pro de "Participações coletivas" (M1) logo
-    // abaixo, pra só contar quando pelo menos um profissional envolvido é
-    // de fato da eMulti.
-    var rosterNomesEmulti = {};
-    profissionaisRoster.forEach(function(p){ rosterNomesEmulti[normalizeText(p.nome)] = true; });
-    function nomeEhDaEmulti(nome){
-      nome = String(nome||"").trim();
-      return !!nome && !!rosterNomesEmulti[normalizeText(nome)];
-    }
+    // nomeEhDaEmulti (checa se o nome está na aba PROFISSIONAIS) é uma
+    // função global agora — ver declaração perto de profissionaisRoster —
+    // usada aqui pro filtro de "Atendimentos individuais" e de
+    // "Participações coletivas" (M1) logo abaixo, e também em
+    // pessoasAtendidasParaMeses pra ordenar a coluna "Profissional".
 
     // ---------- Atendimentos ----------
     var atRows = rowsOf("Atendimentos");
@@ -2824,7 +2820,14 @@
         // coluna, e ela fica filtrável junto com "Atendimentos" = 1
         // pelo filtro de coluna já existente na lista. Com mais de um
         // profissional envolvido, mostra todos separados por vírgula.
-        var listaProf = Object.keys(p.profissionais).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); });
+        // Profissional(is) da eMulti (cadastrado na aba PROFISSIONAIS)
+        // aparece(m) primeiro — o resto continua em ordem alfabética.
+        var listaProf = Object.keys(p.profissionais).sort(function(a,b){
+          var eA = nomeEhDaEmulti(a) ? 0 : 1;
+          var eB = nomeEhDaEmulti(b) ? 0 : 1;
+          if(eA !== eB) return eA - eB;
+          return a.localeCompare(b,'pt-BR');
+        });
         var profissionalCol = listaProf.length ? listaProf.join(', ') : '—';
         var row = [p.nome, p.at, p.part, p.at+p.part, profissionalCol];
         for(var i=0;i<maxDatas;i++){
@@ -5342,30 +5345,6 @@
     equipeMs.setSelected([currentEquipes.length > 1 ? TODAS_KEY : currentEquipes[0].key]);
   }
   renderEquipeSwitcher();
-
-  // Filtro "Tipo de Cálculo" (Soma/Média) — mesmo visual dos outros
-  // seletores do topo (single-select, sem busca). Ao contrário da Equipe,
-  // não precisa buscar dados de novo (não muda quais linhas entram, só
-  // como os meses selecionados são combinados) — só recalcula em cima do
-  // wb já carregado, então chama aplicarMesReferencia(false) direto.
-  function renderTipoCalculoSwitcher(){
-    var container = document.getElementById('tipoCalculoMs');
-    if(!container) return;
-    var tipoCalculoMs = createMultiSelect(container, {
-      placeholder: 'Selecione',
-      multi: false,
-      search: false,
-      onChange: function(keys){
-        tipoCalculo = keys[0] || 'soma';
-        aplicarMesReferencia(false);
-      }
-    });
-    tipoCalculoMs.setOptions(
-      TIPOS_CALCULO.map(function(t){ return {value: t.key, label: t.label}; })
-    );
-    tipoCalculoMs.setSelected([tipoCalculo]);
-  }
-  renderTipoCalculoSwitcher();
 
   // ---------- Init ----------
   refreshHistoryFromStorage(function(arr){
