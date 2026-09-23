@@ -918,6 +918,14 @@
     });
     if(iNome < 0) return [];
     var lista = [];
+    // Deduplica por profissional+equipe: evita cartão duplicado no
+    // Panorama Assistencial quando a mesma equipe aparece preenchida em
+    // mais de uma coluna "Equipe N" da mesma linha (ex.: "Equipe 1" e
+    // "Equipe 2" ambas com "Centro" por engano de digitação) — sem isso,
+    // cada coluna virava uma entrada separada no roster com o MESMO
+    // nome+equipe, e calcularPerformanceProfissionais gerava um cartão
+    // idêntico pra cada uma.
+    var vistos = {};
     rows.slice(1).forEach(function(r){
       var nome = String(r[iNome]||"").trim();
       if(!nome) return;
@@ -927,6 +935,9 @@
         if(!valorEquipe) return; // "Equipe 2" costuma vir vazia pra quem só atua em 1 equipe
         var equipeMatch = EQUIPES.filter(function(eq){ return valorEquipe.indexOf(normalizeText(eq.matchKeyword)) !== -1; })[0];
         if(!equipeMatch) return;
+        var chave = normalizeText(nome) + '|' + equipeMatch.key;
+        if(vistos[chave]) return;
+        vistos[chave] = true;
         lista.push({nome: nome, equipeKey: equipeMatch.key, categoria: categoria});
       });
     });
