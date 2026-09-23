@@ -1295,23 +1295,41 @@
       return withinPeriod(parseBRDate(r[iRacData]), periodo.inicio, periodo.fim);
     });
     // "Total de Profissionais da EMulti": passa a vir da aba Participantes
-    // Ativ. Coletiva (não mais da aba Resumo Atividade Coletiva). Cada linha
-    // de Participantes é um participante, então o valor se repete por
-    // atividade — guarda o primeiro valor preenchido de cada ID de atividade.
+    // Ativ. Coletiva (não mais da aba Resumo Atividade Coletiva). Lá ela é
+    // uma coluna VIRTUAL, calculada aqui: nº de profissionais DISTINTOS da
+    // eMulti (cadastrados na aba PROFISSIONAIS) entre "Responsavel
+    // Atividade" + "Profissional 1..5" da linha. Se a planilha de origem
+    // um dia trouxer uma coluna real com esse nome, ela tem prioridade.
+    // O resultado é guardado por ID da atividade (mesmo ID nas duas abas).
     var iRacId = colIndex(racHeader, "id_atividade");
     var iPId = colIndex(partHeader, "id_atividade");
-    var iPTotalEmulti = colIndex(partHeader, "total_prof_emulti");
+    var iPTotalEmultiReal = colIndex(partHeader, "total_prof_emulti");
+    var podeCalcularVirtual = profissionaisRoster.length > 0 && iPProfCols.length > 0;
+    function totalProfEmultiDaLinha(r){
+      if(iPTotalEmultiReal >= 0 && String(r[iPTotalEmultiReal]===undefined||r[iPTotalEmultiReal]===null?"":r[iPTotalEmultiReal]).trim() !== ""){
+        return toInt(r[iPTotalEmultiReal]);
+      }
+      var vistos = {}, n = 0;
+      for(var i=0;i<iPProfCols.length;i++){
+        var nomeP = r[iPProfCols[i]];
+        if(!nomeP || !nomeEhDaEmulti(nomeP)) continue;
+        var k = normalizeText(nomeP);
+        if(vistos[k]) continue;
+        vistos[k] = true; n++;
+      }
+      return n;
+    }
     var totalEmultiPorAtividade = {};
-    var ligacaoPartOk = iRacId >= 0 && iPId >= 0 && iPTotalEmulti >= 0;
+    var ligacaoPartOk = iRacId >= 0 && iPId >= 0 && (iPTotalEmultiReal >= 0 || podeCalcularVirtual);
     if(ligacaoPartOk){
       partRows.slice(1).forEach(function(r){
         var id = String(r[iPId]||"").trim();
-        var v = String(r[iPTotalEmulti]===undefined||r[iPTotalEmulti]===null?"":r[iPTotalEmulti]).trim();
-        if(!id || v==="" || totalEmultiPorAtividade.hasOwnProperty(id)) return;
-        totalEmultiPorAtividade[id] = toInt(v);
+        if(!id) return;
+        var v = totalProfEmultiDaLinha(r);
+        if(!totalEmultiPorAtividade.hasOwnProperty(id) || v > totalEmultiPorAtividade[id]) totalEmultiPorAtividade[id] = v;
       });
     } else {
-      console.warn('[Participantes Ativ. Coletiva] não foi possível usar "Total de Profissionais da EMulti" de Participantes — usando a coluna da aba Resumo Atividade Coletiva. iRacId='+iRacId, 'iPId='+iPId, 'iPTotalEmulti='+iPTotalEmulti,
+      console.warn('[Participantes Ativ. Coletiva] "Total de Profissionais da EMulti" não pôde ser calculado — usando a coluna da aba Resumo Atividade Coletiva. iRacId='+iRacId, 'iPId='+iPId, 'podeCalcularVirtual='+podeCalcularVirtual,
         '| cabeçalho Resumo:', racHeader, '| cabeçalho Participantes:', partHeader);
     }
     // Se NENHUMA das duas colunas de profissionais for encontrada, o
