@@ -3038,6 +3038,30 @@
           });
         }
       }
+      // Coluna calculada "Total de Profissionais da EMulti" na tabela
+      // "Resumo Atividade Coletiva": soma o profissional responsável (1)
+      // com os profissionais envolvidos (qtd_profissionais_envolvidos),
+      // contando todo mundo que participou da atividade independente do
+      // papel (responsável ou envolvido) — mesma regra já usada pelo
+      // cálculo de "atividade compartilhada" do M2 (ver totalProf em
+      // atividadesCompartilhadasListas, mais acima). Quando a aba já tem
+      // uma coluna de total pronta (qtd_total_profissionais), essa é
+      // usada direto em vez de somar, pra não divergir do dado oficial.
+      if(displayListName(name) === "Resumo Atividade Coletiva"){
+        var iTotalProfDisplay = colIndex(headers, "qtd_total_profissionais");
+        var iProfEnvDisplay = colIndex(headers, "qtd_profissionais_envolvidos");
+        if(iTotalProfDisplay >= 0 || iProfEnvDisplay >= 0){
+          headers.push("Total de Profissionais da EMulti");
+          dataRows = dataRows.map(function(r){
+            var totalProf = (iTotalProfDisplay >= 0 && r[iTotalProfDisplay] !== "")
+              ? toInt(r[iTotalProfDisplay])
+              : 1 + toInt(r[iProfEnvDisplay]);
+            var novaLinha = r.slice();
+            novaLinha.push(totalProf);
+            return novaLinha;
+          });
+        }
+      }
       latestSheets[name] = {headers: headers, rows: dataRows};
     });
   }
