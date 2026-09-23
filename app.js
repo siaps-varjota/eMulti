@@ -1236,39 +1236,53 @@
       return d ? (d.getFullYear()+"-"+d.getMonth()+"-"+d.getDate()) : String(v||"").trim();
     }
     var idP = colIndex(partHeader, "id_atividade"), idR = colIndex(racHeader, "id_atividade");
-    var keyPart, keyRac, modo;
+    function limpa(v){ return normalizeText(v).replace(/\s+/g," ").trim(); }
+    // Cada "nível" é uma forma de ligar Resumo -> Participantes, da mais
+    // precisa pra mais frouxa. O primeiro nível que achar a atividade vence.
+    var niveis = [];
     if(idP >= 0 && idR >= 0){
-      modo = "id";
-      keyPart = function(r){ return String(r[idP]||"").trim(); };
-      keyRac = function(r){ return String(r[idR]||"").trim(); };
-    } else {
-      var dP = colIndex(partHeader,"data"), dR = colIndex(racHeader,"data");
-      var eP = colIndex(partHeader,"equipe_unidade"); if(eP<0) eP = equipeColIndex(partHeader);
-      var eR = colIndex(racHeader,"equipe_unidade"); if(eR<0) eR = equipeColIndex(racHeader);
-      var rP = colIndex(partHeader,"responsavel"), rR = colIndex(racHeader,"responsavel");
-      if(dP<0||dR<0||eP<0||eR<0||rP<0||rR<0) return null;
-      var tP = colIndex(partHeader,"tipo_atividade"), tR = colIndex(racHeader,"tipo_atividade");
-      var usaTipo = tP>=0 && tR>=0;
-      modo = "data+equipe+responsavel"+(usaTipo?"+tipo":"");
-      keyPart = function(r){
-        return [dataKey(r[dP]), eqKey(r[eP]), normalizeText(r[rP]).trim()].concat(usaTipo?[normalizarTexto(r[tP])]:[]).join("|");
-      };
-      keyRac = function(r){
-        return [dataKey(r[dR]), eqKey(r[eR]), normalizeText(r[rR]).trim()].concat(usaTipo?[normalizarTexto(r[tR])]:[]).join("|");
-      };
+      niveis.push({nome:"id",
+        kp:function(r){ return String(r[idP]||"").trim(); },
+        kr:function(r){ return String(r[idR]||"").trim(); }});
     }
-    var mapa = {};
-    partRows.slice(1).forEach(function(r){
-      var k = keyPart(r);
-      if(!k || /^\|+$/.test(k)) return;
-      var v = calc.calcular(r);
-      if(!mapa.hasOwnProperty(k) || v > mapa[k]) mapa[k] = v;
+    var dP = colIndex(partHeader,"data"), dR = colIndex(racHeader,"data");
+    var eP = colIndex(partHeader,"equipe_unidade"); if(eP<0) eP = equipeColIndex(partHeader);
+    var eR = colIndex(racHeader,"equipe_unidade"); if(eR<0) eR = equipeColIndex(racHeader);
+    var rP = colIndex(partHeader,"responsavel"), rR = colIndex(racHeader,"responsavel");
+    var tP = colIndex(partHeader,"tipo_atividade"), tR = colIndex(racHeader,"tipo_atividade");
+    if(dP>=0 && dR>=0 && rP>=0 && rR>=0){
+      if(eP>=0 && eR>=0 && tP>=0 && tR>=0){
+        niveis.push({nome:"data+equipe+responsavel+tipo",
+          kp:function(r){ return [dataKey(r[dP]), eqKey(r[eP]), limpa(r[rP]), limpa(r[tP])].join("|"); },
+          kr:function(r){ return [dataKey(r[dR]), eqKey(r[eR]), limpa(r[rR]), limpa(r[tR])].join("|"); }});
+      }
+      if(eP>=0 && eR>=0){
+        niveis.push({nome:"data+equipe+responsavel",
+          kp:function(r){ return [dataKey(r[dP]), eqKey(r[eP]), limpa(r[rP])].join("|"); },
+          kr:function(r){ return [dataKey(r[dR]), eqKey(r[eR]), limpa(r[rR])].join("|"); }});
+      }
+      niveis.push({nome:"data+responsavel",
+        kp:function(r){ return [dataKey(r[dP]), limpa(r[rP])].join("|"); },
+        kr:function(r){ return [dataKey(r[dR]), limpa(r[rR])].join("|"); }});
+    }
+    if(!niveis.length) return null;
+    niveis.forEach(function(nv){
+      nv.mapa = {};
+      partRows.slice(1).forEach(function(r){
+        var k = nv.kp(r);
+        if(!k || /^\|+$/.test(k)) return;
+        var v = calc.calcular(r);
+        if(!nv.mapa.hasOwnProperty(k) || v > nv.mapa[k]) nv.mapa[k] = v;
+      });
     });
     return {
-      modo: modo,
+      modo: niveis.map(function(n){ return n.nome; }).join(" > "),
       total: function(racRow){
-        var k = keyRac(racRow);
-        return (k && mapa.hasOwnProperty(k)) ? mapa[k] : undefined;
+        for(var i=0;i<niveis.length;i++){
+          var k = niveis[i].kr(racRow);
+          if(k && niveis[i].mapa.hasOwnProperty(k)) return niveis[i].mapa[k];
+        }
+        return undefined;
       }
     };
   }
@@ -3163,6 +3177,24 @@
           });
         }
       }
+      // Se a planilha trouxer MAIS DE UMA coluna "Total de Profissionais da
+      // EMulti" (inclusive com grafias diferentes, ex. "Profissionails" e
+      // "Profissionais"), mantém só a PRIMEIRA e remove as demais da
+      // EXIBIÇÃO — evita coluna duplicada com valores conflitantes.
+      (function(){
+        var idxs = [];
+        headers.forEach(function(h, i){
+          var t = normalizeText(h);
+          if(t.indexOf("TOTAL") !== -1 && t.indexOf("PROFISSION") !== -1 && t.indexOf("EMULTI") !== -1) idxs.push(i);
+        });
+        if(idxs.length > 1){
+          var remover = idxs.slice(1);
+          headers = headers.filter(function(h, i){ return remover.indexOf(i) === -1; });
+          dataRows = dataRows.map(function(r){
+            return r.filter(function(c, i){ return remover.indexOf(i) === -1; });
+          });
+        }
+      })();
       // Coluna virtual "Total de Profissionais da EMulti" (só na EXIBIÇÃO):
       // - Participantes Ativ. Coletiva: calculada linha a linha (Responsável
       //   + Profissional 1..5 que são da eMulti); se a planilha já trouxer
