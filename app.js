@@ -4197,13 +4197,37 @@
       + '.kpi-donut{flex:none;display:flex;flex-direction:column;align-items:center;gap:2px}'
       + '.kpi-donut svg{width:clamp(56px,5.5vw,68px);height:auto;display:block}'
       + '.kpi-donut-label{font-size:10px;line-height:1.1;font-weight:600;color:var(--kpi-accent);opacity:.85}'
-      + '.kpi-caption{margin:12px 0 0;font-size:14px;line-height:1.35;color:var(--ink,#2b3a35)}';
+      + '.kpi-caption{margin:12px 0 0;font-size:14px;line-height:1.35;color:var(--ink,#2b3a35);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}';
     var el = document.createElement('style');
     el.id = 'kpiPanelStyles';
     el.textContent = css;
     document.head.appendChild(el);
   }
   injectKpiStyles();
+  // Legenda do painel sempre em UMA linha: se o texto não cabe na largura
+  // do card, a fonte encolhe (de 14px até no mínimo 9px) até caber. Roda
+  // sempre que o DOM muda (cards re-renderizados) e quando o painel muda
+  // de tamanho (resize da janela, troca de aba que estava oculta).
+  var kpiFitRO = window.ResizeObserver ? new ResizeObserver(debounce(function(){ fitKpiCaptions(true); }, 60)) : null;
+  function fitKpiCaptions(fromRO){
+    var caps = document.querySelectorAll('.kpi-caption');
+    Array.prototype.forEach.call(caps, function(cap){
+      if(kpiFitRO && !fromRO && cap.parentNode) kpiFitRO.observe(cap.parentNode);
+      if(!cap.clientWidth) return; // aba oculta: reajusta quando ficar visível
+      cap.style.fontSize = '';
+      var size = parseFloat(getComputedStyle(cap).fontSize) || 14;
+      while(cap.scrollWidth > cap.clientWidth + 0.5 && size > 9){
+        size -= 0.5;
+        cap.style.fontSize = size + 'px';
+      }
+    });
+  }
+  var kpiFitDebounced = debounce(function(){ fitKpiCaptions(false); }, 30);
+  if(window.MutationObserver){
+    new MutationObserver(kpiFitDebounced).observe(document.body, {childList:true, subtree:true});
+  }
+  window.addEventListener('resize', kpiFitDebounced);
+  kpiFitDebounced();
   // Meta "Ótimo" de cada escala (o valor a partir do qual o indicador vira
   // Ótimo — ver OV_LEGEND_*): M1 > 3 (escala 0–4), M2 > 5% (escala 0–8),
   // Desempenho = nota 10 (máxima da escala 0–10). 100% do donut = esse valor atingido.
