@@ -1096,6 +1096,11 @@
       // diferente do esperado, nenhuma das duas colunas é encontrada e o
       // painel nunca consegue contar nenhuma atividade como compartilhada
       // (ver comentário em cima do cálculo de atividadesCompartilhadasListas).
+      // ID da atividade (chave que liga "Resumo Atividade Coletiva" a
+      // "Participantes Ativ. Coletiva") e total de profissionais da eMulti
+      // vindo de Participantes.
+      id_atividade: ['id_atividade','id atividade','id da atividade','codigo_atividade','codigo da atividade','cod_atividade','cod atividade','id_ativ','id','codigo'],
+      total_prof_emulti: ['total_prof_emulti','total de profissionais da emulti','total de profissionais emulti','total profissionais emulti','qtd_profissionais_emulti','qtd total de profissionais da emulti','quantidade de profissionais da emulti'],
       qtd_total_profissionais: ['qtd_total_profissionais','quantidade total de profissionais','total de profissionais','qtd_de_profissionais','qtd total de profissionais'],
       qtd_profissionais_envolvidos: ['qtd_profissionais_envolvidos','profissionais_envolvidos','quantidade de profissionais envolvidos','nº de profissionais envolvidos','numero de profissionais envolvidos','profissionais envolvidos'],
       // Variação de nome pra coluna de participantes da aba Resumo Reuniões.
@@ -1289,6 +1294,26 @@
     var racFiltradas = racRows.slice(1).filter(function(r){
       return withinPeriod(parseBRDate(r[iRacData]), periodo.inicio, periodo.fim);
     });
+    // "Total de Profissionais da EMulti": passa a vir da aba Participantes
+    // Ativ. Coletiva (não mais da aba Resumo Atividade Coletiva). Cada linha
+    // de Participantes é um participante, então o valor se repete por
+    // atividade — guarda o primeiro valor preenchido de cada ID de atividade.
+    var iRacId = colIndex(racHeader, "id_atividade");
+    var iPId = colIndex(partHeader, "id_atividade");
+    var iPTotalEmulti = colIndex(partHeader, "total_prof_emulti");
+    var totalEmultiPorAtividade = {};
+    var ligacaoPartOk = iRacId >= 0 && iPId >= 0 && iPTotalEmulti >= 0;
+    if(ligacaoPartOk){
+      partRows.slice(1).forEach(function(r){
+        var id = String(r[iPId]||"").trim();
+        var v = String(r[iPTotalEmulti]===undefined||r[iPTotalEmulti]===null?"":r[iPTotalEmulti]).trim();
+        if(!id || v==="" || totalEmultiPorAtividade.hasOwnProperty(id)) return;
+        totalEmultiPorAtividade[id] = toInt(v);
+      });
+    } else {
+      console.warn('[Participantes Ativ. Coletiva] não foi possível usar "Total de Profissionais da EMulti" de Participantes — usando a coluna da aba Resumo Atividade Coletiva. iRacId='+iRacId, 'iPId='+iPId, 'iPTotalEmulti='+iPTotalEmulti,
+        '| cabeçalho Resumo:', racHeader, '| cabeçalho Participantes:', partHeader);
+    }
     // Se NENHUMA das duas colunas de profissionais for encontrada, o
     // painel não tem como saber quantos profissionais participaram de
     // cada atividade — "totalProf" abaixo sempre vira 1 e NENHUMA
@@ -1357,7 +1382,10 @@
     var atividadesTotaisFonte = totalRelatorioAc > atividadesTotaisListas
       ? "TOTAL RELATÓRIO AC" : "Resumo Atividade Coletiva";
     var atividadesCompartilhadasListas = racFiltradas.filter(function(r){
-      var totalProf = iRacTotalProf>=0 && r[iRacTotalProf]!=="" ? toInt(r[iRacTotalProf]) : 1+toInt(r[iRacProfEnv]);
+      var idAtiv = ligacaoPartOk ? String(r[iRacId]||"").trim() : "";
+      var totalProf = (idAtiv && totalEmultiPorAtividade.hasOwnProperty(idAtiv))
+        ? totalEmultiPorAtividade[idAtiv]
+        : (iRacTotalProf>=0 && r[iRacTotalProf]!=="" ? toInt(r[iRacTotalProf]) : 1+toInt(r[iRacProfEnv]));
       var tipoOk = iRacTipo<0 || TIPOS_ATIV_COLETIVA_COMPARTILHADA.indexOf(normalizarTexto(r[iRacTipo])) >= 0;
       return totalProf >= 2 && tipoOk;
     }).length;
@@ -3034,30 +3062,6 @@
           dataRows = dataRows.map(function(r){
             var novaLinha = r.slice();
             novaLinha.splice(statusIdx, 1);
-            return novaLinha;
-          });
-        }
-      }
-      // Coluna calculada "Total de Profissionais da EMulti" na tabela
-      // "Resumo Atividade Coletiva": soma o profissional responsável (1)
-      // com os profissionais envolvidos (qtd_profissionais_envolvidos),
-      // contando todo mundo que participou da atividade independente do
-      // papel (responsável ou envolvido) — mesma regra já usada pelo
-      // cálculo de "atividade compartilhada" do M2 (ver totalProf em
-      // atividadesCompartilhadasListas, mais acima). Quando a aba já tem
-      // uma coluna de total pronta (qtd_total_profissionais), essa é
-      // usada direto em vez de somar, pra não divergir do dado oficial.
-      if(displayListName(name) === "Resumo Atividade Coletiva"){
-        var iTotalProfDisplay = colIndex(headers, "qtd_total_profissionais");
-        var iProfEnvDisplay = colIndex(headers, "qtd_profissionais_envolvidos");
-        if(iTotalProfDisplay >= 0 || iProfEnvDisplay >= 0){
-          headers.push("Total de Profissionais da EMulti");
-          dataRows = dataRows.map(function(r){
-            var totalProf = (iTotalProfDisplay >= 0 && r[iTotalProfDisplay] !== "")
-              ? toInt(r[iTotalProfDisplay])
-              : 1 + toInt(r[iProfEnvDisplay]);
-            var novaLinha = r.slice();
-            novaLinha.push(totalProf);
             return novaLinha;
           });
         }
