@@ -4174,6 +4174,42 @@
     return '<div class="ov-icon" style="background:'+st.badgeBg+';color:'+st.accent+';">'
       + '<svg viewBox="0 0 24 24">'+OV_ICONS[kind]+'</svg></div>';
   }
+  // ---------- Painel "número grande" (substitui os gauges/anéis) ----------
+  // Cada indicador agora mostra o resultado como um número grande dentro de
+  // um painel suave na cor do status (Ótimo/Bom/Suficiente/Regular), com o
+  // ícone em círculo ao lado e a legenda "X ÷ Y" logo abaixo. As cores vêm
+  // de ovStatus() — as mesmas do badge e da borda do cartão.
+  function injectKpiStyles(){
+    if(document.getElementById('kpiPanelStyles')) return;
+    var css = ''
+      + '.kpi-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}'
+      + '.kpi-head-title{margin:0;font-size:15px;font-weight:700;line-height:1.25}'
+      + '.kpi-panel{border-radius:18px;padding:20px 14px 16px;margin:12px 0 14px;text-align:center;'
+      +   'background:var(--kpi-bg);background:color-mix(in srgb,var(--kpi-bg) 45%,#fff)}'
+      + '.kpi-main{display:flex;align-items:center;justify-content:center;gap:clamp(12px,2.5vw,24px)}'
+      + '.kpi-icon{flex:none;width:clamp(48px,6vw,68px);height:clamp(48px,6vw,68px);border-radius:50%;'
+      +   'display:grid;place-items:center;color:var(--kpi-accent);'
+      +   'background:var(--kpi-bg);background:color-mix(in srgb,var(--kpi-accent) 14%,transparent)}'
+      + '.kpi-icon svg{width:48%;height:48%}'
+      + '.kpi-value{font-weight:800;font-size:clamp(44px,6vw,72px);line-height:1;letter-spacing:-.03em;'
+      +   'color:var(--kpi-accent);font-variant-numeric:tabular-nums}'
+      + '.kpi-value .unit{font-size:.42em;font-weight:700;letter-spacing:0;margin-left:.08em}'
+      + '.kpi-caption{margin:12px 0 0;font-size:14px;line-height:1.35;color:var(--ink,#2b3a35)}';
+    var el = document.createElement('style');
+    el.id = 'kpiPanelStyles';
+    el.textContent = css;
+    document.head.appendChild(el);
+  }
+  injectKpiStyles();
+  function kpiPanelHTML(st, iconKind, valueHtml, caption){
+    return '<div class="kpi-panel" style="--kpi-accent:'+st.badgeText+';--kpi-bg:'+st.badgeBg+';">'
+      +   '<div class="kpi-main">'
+      +     '<div class="kpi-icon"><svg viewBox="0 0 24 24">'+OV_ICONS[iconKind]+'</svg></div>'
+      +     '<div class="kpi-value">'+valueHtml+'</div>'
+      +   '</div>'
+      +   (caption ? '<p class="kpi-caption">'+caption+'</p>' : '')
+      + '</div>';
+  }
   // Anel de progresso (valor ÷ domainMax) — usado no lugar do arco meia-lua
   // nos cartões da Visão geral.
   function ovRingSVG(value, domainMax, bands, classeAtual, st, gaugeId){
@@ -4361,11 +4397,7 @@
       +   '<div class="ov-head-left">'+ovIconHTML(opts.iconKind, st)+'<h3 class="ov-title" title="'+opts.title+'">'+opts.title+'</h3></div>'
       +   '<span class="ov-badge" style="background:'+st.badgeBg+';color:'+st.badgeText+';">'+st.icon+' '+(opts.classe||'—')+'</span>'
       + '</div>'
-      + '<div class="ov-main">'
-      +   '<div class="ov-ring-wrap">'+ovRingSVG(opts.value, opts.domainMax, opts.bands, opts.classe, st, opts.gaugeId)+'</div>'
-      +   '<div class="ov-value" style="color:'+st.accent+';">'+opts.valueTxt+'</div>'
-      + '</div>'
-      + (opts.valueCap ? '<p class="ov-formula-divider">'+opts.valueCap+'</p>' : '')
+      + kpiPanelHTML(st, opts.iconKind==='pulse' ? 'users' : 'pulse', opts.valueTxt, opts.valueCap)
       + ovEvoHTML(opts.value, opts.anterior, opts.domainMax, opts.decimals, opts.suffix||'', opts.bands)
       + ovLegendHTML(opts.legend)
       + '</div>';
@@ -4441,26 +4473,19 @@
   // Cartão do gauge (coluna 1): arco + resultado no topo, legenda de
   // faixas logo abaixo do arco, e a Evolução do quadrimestre embutida no
   // final, dentro do mesmo cartão.
-  function ipGaugeCardHTML(value, domainMax, bands, gaugeId, valueHtml, classLabel, capText, anterior, decimals, suffix, legend){
-    // O número (valueHtml) agora fica dentro do próprio gauge, logo abaixo
-    // do ponteiro (mesma técnica de margin-top negativo usada no ov-value
-    // da Visão geral — ver .ip-gauge-visual .ip-result-value no CSS), em
-    // vez de ficar solto no bloco lateral. O bloco lateral (ip-result-block)
-    // guarda só o rótulo + badge de classificação.
-    return '<div class="card ip-gauge-card" style="border-top:4px solid '+arcHex(classLabel)+';">'
-      + '<div class="ip-gauge-row">'
-      +   '<div class="ip-gauge-visual">'+buildGauge(value, domainMax, bands, gaugeId)
-      +     '<div class="ip-result-value">'+valueHtml+'</div>'
-      +   '</div>'
-      +   '<div class="ip-result-block">'
-      +     '<div class="ip-result-head">'
-      +       '<p class="ip-result-label">Resultado do indicador</p>'
-      +       '<span class="pill" style="background:'+pillHex(classLabel)+'">'+(classLabel||'—')+'</span>'
-      +     '</div>'
-      +   '</div>'
+  function ipGaugeCardHTML(value, domainMax, bands, gaugeId, valueHtml, classLabel, capText, anterior, decimals, suffix, legend, iconKind){
+    // Sem gauge: o resultado vira um número grande num painel na cor do
+    // status (ver kpiPanelHTML). gaugeId/bands seguem na assinatura só por
+    // compatibilidade — bands ainda é usado pela trilha de Evolução.
+    var st = ovStatus(classLabel);
+    iconKind = iconKind || 'pulse';
+    return '<div class="card ip-gauge-card" style="border-top:4px solid '+st.accent+';">'
+      + '<div class="kpi-head">'
+      +   '<div class="ov-head-left">'+ovIconHTML(iconKind, st)+'<h3 class="kpi-head-title">Resultado do indicador</h3></div>'
+      +   '<span class="ov-badge" style="background:'+st.badgeBg+';color:'+st.badgeText+';">'+st.icon+' '+(classLabel||'—')+'</span>'
       + '</div>'
+      + kpiPanelHTML(st, iconKind==='pulse' ? 'users' : 'pulse', valueHtml, capText)
       + (legend ? '<div class="ip-gauge-legend-row">'+gaugeLegendHTML(legend)+'</div>' : '')
-      + (capText ? '<p class="ip-formula-divider">'+capText+'</p>' : '')
       + '<div class="ip-evo-embed">'+ipEvoContentHTML(value, anterior, domainMax, decimals, suffix, bands)+'</div>'
       + '</div>';
   }
@@ -5090,7 +5115,7 @@
     document.getElementById('gaugeRowM1').innerHTML =
       ipGaugeCardHTML(d.m1, 4, CLASS_BANDS_M1, 'needle-m1tab-m1', fmtDec(d.m1,2), d.classificacaoM1,
         fmtInt(numM1Gauge)+' atendimentos ÷ '+fmtInt(denM1Gauge)+' pessoas',
-        quadAnterior.m1, 2, '', LEGEND_M1);
+        quadAnterior.m1, 2, '', LEGEND_M1, 'pulse');
     document.getElementById('compRowM1').innerHTML =
         '<div class="card comp-card">'+compCardHeaderHTML('Composição do numerador', numM1Gauge)+numM1Bar+'</div>'
       + '<div class="card comp-card">'+compCardHeaderHTML('Denominador do M1', denM1Gauge)+denM1Bar+'</div>';
@@ -5104,7 +5129,7 @@
     document.getElementById('gaugeRowM2').innerHTML =
       ipGaugeCardHTML(d.m2, 8, CLASS_BANDS_M2, 'needle-m2tab-m2', fmtDec(d.m2,2)+'<span class="unit">%</span>', d.classificacaoM2,
         fmtInt(numM2Gauge)+' compartilhadas ÷ '+fmtInt(denM2Gauge)+' ações',
-        quadAnterior.m2, 2, '%', LEGEND_M2);
+        quadAnterior.m2, 2, '%', LEGEND_M2, 'users');
     document.getElementById('compRowM2').innerHTML =
         '<div class="card comp-card">'+compCardHeaderHTML('Composição do numerador', numM2Gauge)+numM2Bar+'</div>'
       + '<div class="card comp-card">'+compCardHeaderHTML('Denominador do M2', denM2Gauge)+denM2Bar+'</div>';
