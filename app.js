@@ -1165,7 +1165,7 @@
     "Participação coletiva (M1) só conta quando pelo menos um dos profissionais da atividade (colunas 'Responsavel Atividade' ou 'Profissional 1' a 'Profissional 5' da aba Participantes Ativ. Coletiva) está cadastrado na aba PROFISSIONAIS como sendo da eMulti — participações conduzidas só por profissionais de fora da eMulti não entram no numerador.",
     "M2 oficial soma 3 componentes: atendimentos individuais compartilhados, atividades coletivas compartilhadas e compartilhamento de cuidado (PEC). Esta extração só consegue aproximar as parcelas de 'atividades coletivas' e 'reuniões', usando 'nº de profissionais envolvidos ≥ 2' como indício de ação compartilhada — não há como checar CBO/CNS de cada profissional (principal/secundário) pra aplicar a regra oficial à risca.",
     "Atendimentos individuais compartilhados e compartilhamento de cuidado (PEC) NÃO entram no numerador do M2 aqui (a Lista de Atendimentos do e-SUS não indica se um atendimento individual teve mais de um profissional) — por isso o M2 calculado aqui tende a ficar ABAIXO do valor oficial do indicador.",
-    "Atividade Coletiva só conta como 'compartilhada' aqui quando o tipo_atividade é Educação em saúde, Atendimento em grupo, Avaliação/Procedimento coletivo ou Mobilização social (códigos 04-07) E tem 2+ profissionais envolvidos — sem CBO/CNS de cada um, não dá pra confirmar que um deles é de fato cadastrado em eMulti, então ainda é uma aproximação.",
+    "Atividade Coletiva só conta como 'compartilhada' aqui quando o tipo_atividade é Educação em saúde, Atendimento em grupo, Avaliação/Procedimento coletivo ou Mobilização social (códigos 04-07) E tem pelo menos 1 profissional da eMulti (coluna 'Total de Profissionais da EMulti', de Participantes Ativ. Coletiva) e 2 ou mais profissionais no total ('Qtd total de profissionais').",
     "Reuniões (Resumo Reuniões) só contam oficialmente pra M2 quando são dos tipos 'Reunião de equipe', 'Reunião com outras equipes de saúde' ou 'Reunião intersetorial' (códigos 01-03) E registradas com o tema 'Discussão de Caso/Projeto Terapêutico Singular' — como a aba de reuniões não tem uma coluna de tema, esta extração conta qualquer reunião com 2+ profissionais, o que pode puxar o M2 um pouco PRA CIMA nesse componente específico.",
     "'Desempenho quadrimestral' NÃO é uma fórmula oficial do Ministério da Saúde — é uma síntese própria: Nota final = pontos M1 × 6 + pontos M2 × 4 (pontos por classificação: Regular=0,25, Suficiente=0,5, Bom=0,75, Ótimo=1), classificada como Regular < 2,6, Suficiente 2,6 a 4,9, Bom 5 a 7,5, Ótimo > 7,5 — pra dar uma visão geral rápida; os indicadores oficiais continuam sendo M1 e M2 separados.",
     "Abandono consumado: o paciente precisa ter pelo menos 2 consultas. O painel calcula a mediana histórica do intervalo entre a 1ª e a 2ª consulta dos pacientes analisados e mede os dias desde a última consulta de cada paciente. Quando esse intervalo é maior que 3 vezes a mediana histórica, o paciente é classificado como abandono consumado.",
@@ -1483,13 +1483,21 @@
     var atividadesTotais = Math.max(atividadesTotaisListas, totalRelatorioAc);
     var atividadesTotaisFonte = totalRelatorioAc > atividadesTotaisListas
       ? "TOTAL RELATÓRIO AC" : "Resumo Atividade Coletiva";
+    // Atividade coletiva COMPARTILHADA (numerador do M2): tem pelo menos 1
+    // profissional da eMulti ("Total de Profissionais da EMulti" >= 1, vindo
+    // de Participantes Ativ. Coletiva) E 2 ou mais profissionais no total
+    // ("Qtd total de profissionais" do Resumo Atividade Coletiva) — e o tipo
+    // de atividade é um dos 4 tipos aceitos.
     var atividadesCompartilhadasListas = racFiltradas.filter(function(r){
       var totalEmultiPart = ligacaoAtiv ? ligacaoAtiv.total(r) : undefined;
-      var totalProf = (totalEmultiPart !== undefined)
-        ? totalEmultiPart
-        : (iRacTotalProf>=0 && r[iRacTotalProf]!=="" ? toInt(r[iRacTotalProf]) : 1+toInt(r[iRacProfEnv]));
+      var totalProfGeral = (iRacTotalProf>=0 && r[iRacTotalProf]!=="" && r[iRacTotalProf]!==undefined)
+        ? toInt(r[iRacTotalProf])
+        : 1+toInt(r[iRacProfEnv]);
+      // Sem ligação com Participantes não dá pra checar a eMulti: não
+      // zera a atividade por isso (mantém só a regra de 2+ profissionais).
+      var temEmulti = (totalEmultiPart === undefined) ? true : totalEmultiPart >= 1;
       var tipoOk = iRacTipo<0 || TIPOS_ATIV_COLETIVA_COMPARTILHADA.indexOf(normalizarTexto(r[iRacTipo])) >= 0;
-      return totalProf >= 2 && tipoOk;
+      return temEmulti && totalProfGeral >= 2 && tipoOk;
     }).length;
     // Mesma regra do "atividadesTotais" acima, mas aplicada ao componente
     // que de fato alimenta o numerador do M2 (numeradorM2 → card "M2 —
