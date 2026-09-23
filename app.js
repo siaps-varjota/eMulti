@@ -1105,7 +1105,9 @@
       qtd_total_profissionais: ['qtd_total_profissionais','quantidade total de profissionais','total de profissionais','qtd_de_profissionais','qtd total de profissionais'],
       qtd_profissionais_envolvidos: ['qtd_profissionais_envolvidos','profissionais_envolvidos','quantidade de profissionais envolvidos','nº de profissionais envolvidos','numero de profissionais envolvidos','profissionais envolvidos'],
       // Variação de nome pra coluna de participantes da aba Resumo Reuniões.
-      qtd_participantes: ['qtd_participantes','quantidade de participantes','participantes','qtd de participantes']
+      qtd_participantes: ['qtd_participantes','quantidade de participantes','participantes','qtd de participantes'],
+      // Coluna "Temas da reunião" da aba Resumo Reuniões (pode trazer mais de um tema na mesma célula).
+      temas_reuniao: ['temas_reuniao','temas da reuniao','temas_da_reuniao','temas','tema','tema_reuniao','tema da reuniao']
     };
     var wanted = String(name||'').trim().toLowerCase();
     var candidates = aliases[wanted] || [wanted];
@@ -1166,7 +1168,7 @@
     "M2 oficial soma 3 componentes: atendimentos individuais compartilhados, atividades coletivas compartilhadas e compartilhamento de cuidado (PEC). Esta extração só consegue aproximar as parcelas de 'atividades coletivas' e 'reuniões', usando 'nº de profissionais envolvidos ≥ 2' como indício de ação compartilhada — não há como checar CBO/CNS de cada profissional (principal/secundário) pra aplicar a regra oficial à risca.",
     "Atendimentos individuais compartilhados e compartilhamento de cuidado (PEC) NÃO entram no numerador do M2 aqui (a Lista de Atendimentos do e-SUS não indica se um atendimento individual teve mais de um profissional) — por isso o M2 calculado aqui tende a ficar ABAIXO do valor oficial do indicador.",
     "Atividade Coletiva só conta como 'compartilhada' aqui quando o tipo_atividade é Educação em saúde, Atendimento em grupo, Avaliação/Procedimento coletivo ou Mobilização social (códigos 04-07) E tem pelo menos 1 profissional da eMulti (coluna 'Total de Profissionais da EMulti', de Participantes Ativ. Coletiva) e 2 ou mais profissionais no total ('Qtd total de profissionais').",
-    "Reuniões (Resumo Reuniões) só contam oficialmente pra M2 quando são dos tipos 'Reunião de equipe', 'Reunião com outras equipes de saúde' ou 'Reunião intersetorial' (códigos 01-03) E registradas com o tema 'Discussão de Caso/Projeto Terapêutico Singular' — como a aba de reuniões não tem uma coluna de tema, esta extração conta qualquer reunião com 2+ profissionais, o que pode puxar o M2 um pouco PRA CIMA nesse componente específico.",
+    "Reuniões (Resumo Reuniões) só contam pra M2 quando têm 2+ participantes E o tema 'Discussão de caso / Projeto terapêutico singular' marcado na coluna 'Temas da reunião' (a célula pode ter vários temas). Reuniões sem esse tema aparecem no total de reuniões, mas não entram como 'compartilhadas'. Ainda não é checado o tipo da reunião (códigos 01-03: equipe, outras equipes de saúde ou intersetorial).",
     "'Desempenho quadrimestral' NÃO é uma fórmula oficial do Ministério da Saúde — é uma síntese própria: Nota final = pontos M1 × 6 + pontos M2 × 4 (pontos por classificação: Regular=0,25, Suficiente=0,5, Bom=0,75, Ótimo=1), classificada como Regular < 2,6, Suficiente 2,6 a 4,9, Bom 5 a 7,5, Ótimo > 7,5 — pra dar uma visão geral rápida; os indicadores oficiais continuam sendo M1 e M2 separados.",
     "Abandono consumado: o paciente precisa ter pelo menos 2 consultas. O painel calcula a mediana histórica do intervalo entre a 1ª e a 2ª consulta dos pacientes analisados e mede os dias desde a última consulta de cada paciente. Quando esse intervalo é maior que 3 vezes a mediana histórica, o paciente é classificado como abandono consumado.",
     "Classificação do acompanhamento: Em dia = dias desde a última consulta ≤ mediana; Em risco = dias desde a última consulta > mediana e ≤ 3 × mediana; Abandono consumado = dias desde a última consulta > 3 × mediana. O painel não usa um número fixo de dias: o limite é calculado dinamicamente com base no comportamento histórico dos pacientes incluídos nos filtros da aba Análises.",
@@ -1517,7 +1519,23 @@
       return withinPeriod(parseBRDate(r[iRrData]), periodo.inicio, periodo.fim);
     });
     var reunioesTotais = rrFiltradas.length;
-    var reunioesCompartilhadas = rrFiltradas.filter(function(r){ return toInt(r[iRrQtd]) >= 2; }).length;
+    // Regra oficial do M2: a reunião só conta como ação compartilhada se
+    // tiver "Discussão de caso / Projeto terapêutico singular" entre os
+    // "Temas da reunião" (a célula pode listar vários temas) E 2+
+    // participantes. Se a coluna de temas não existir na aba, cai na regra
+    // antiga (qualquer reunião com 2+ participantes) e avisa no console.
+    var iRrTema = colIndex(rrHeader, "temas_reuniao");
+    if(iRrTema < 0 && rrRows.length){
+      console.warn('[painel] Coluna "Temas da reunião" não encontrada na aba Resumo Reuniões — contando toda reunião com 2+ participantes.');
+    }
+    function reuniaoTemDiscussaoCaso(r){
+      if(iRrTema < 0) return true;
+      var t = normalizarTexto(r[iRrTema]);
+      return t.indexOf('discussao de caso') >= 0 || t.indexOf('projeto terapeutico singular') >= 0;
+    }
+    var reunioesCompartilhadas = rrFiltradas.filter(function(r){
+      return toInt(r[iRrQtd]) >= 2 && reuniaoTemDiscussaoCaso(r);
+    }).length;
 
     // ---------- M2 ----------
     // Quando a parcela de "atividades coletivas compartilhadas" veio da
