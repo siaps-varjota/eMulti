@@ -1172,6 +1172,53 @@
     "Na aba Análises, a classificação considera o histórico inteiro ou os quadrimestres selecionados na própria aba Análises, e não necessariamente o filtro global de período."
   ];
 
+  // ---------- "Total de Profissionais da EMulti" (coluna virtual) ----------
+  // Coluna calculada aqui (não existe na planilha de origem de "Participantes
+  // Ativ. Coletiva"): nº de profissionais DISTINTOS da eMulti (cadastrados na
+  // aba PROFISSIONAIS) entre "Responsavel Atividade" + "Profissional 1..5" da
+  // linha. Se a planilha um dia trouxer uma coluna real com esse nome, ela
+  // tem prioridade. É a mesma fonte usada no M2 e nas listas exibidas (aba
+  // Participantes Ativ. Coletiva e Resumo Atividade Coletiva).
+  var TOTAL_PROF_EMULTI_HEADER = "Total de Profissionais da EMulti";
+  function criarCalculadoraTotalProfEmulti(partHeader){
+    var iReal = colIndex(partHeader, "total_prof_emulti");
+    var profCols = ["Responsavel Atividade","profissional 1","profissional 2","profissional 3","profissional 4","profissional 5"]
+      .map(function(n){ return colIndex(partHeader, n); })
+      .filter(function(i){ return i >= 0; });
+    var podeVirtual = profissionaisRoster.length > 0 && profCols.length > 0;
+    return {
+      disponivel: iReal >= 0 || podeVirtual,
+      calcular: function(r){
+        if(iReal >= 0 && String(r[iReal]===undefined||r[iReal]===null?"":r[iReal]).trim() !== "") return toInt(r[iReal]);
+        var vistos = {}, n = 0;
+        for(var i=0;i<profCols.length;i++){
+          var nomeP = r[profCols[i]];
+          if(!nomeP || !nomeEhDaEmulti(nomeP)) continue;
+          var k = normalizeText(nomeP);
+          if(vistos[k]) continue;
+          vistos[k] = true; n++;
+        }
+        return n;
+      }
+    };
+  }
+  // Mapa ID da atividade -> total de profissionais da eMulti, a partir das
+  // linhas (com cabeçalho na 1ª) de "Participantes Ativ. Coletiva".
+  function mapaTotalProfEmultiPorAtividade(partRows){
+    var partHeader = partRows[0] || [];
+    var iPId = colIndex(partHeader, "id_atividade");
+    var calc = criarCalculadoraTotalProfEmulti(partHeader);
+    var mapa = {};
+    if(iPId < 0 || !calc.disponivel) return null;
+    partRows.slice(1).forEach(function(r){
+      var id = String(r[iPId]||"").trim();
+      if(!id) return;
+      var v = calc.calcular(r);
+      if(!mapa.hasOwnProperty(id) || v > mapa[id]) mapa[id] = v;
+    });
+    return mapa;
+  }
+
   // Motor de cálculo: recebe o "workbook" (abas já em formato de matriz de
   // linhas) e o período {inicio, fim} (objetos Date) e calcula M1, M2 e o
   // Desempenho quadrimestral direto dos dados brutos — replica a lógica do
@@ -1295,41 +1342,13 @@
       return withinPeriod(parseBRDate(r[iRacData]), periodo.inicio, periodo.fim);
     });
     // "Total de Profissionais da EMulti": passa a vir da aba Participantes
-    // Ativ. Coletiva (não mais da aba Resumo Atividade Coletiva). Lá ela é
-    // uma coluna VIRTUAL, calculada aqui: nº de profissionais DISTINTOS da
-    // eMulti (cadastrados na aba PROFISSIONAIS) entre "Responsavel
-    // Atividade" + "Profissional 1..5" da linha. Se a planilha de origem
-    // um dia trouxer uma coluna real com esse nome, ela tem prioridade.
-    // O resultado é guardado por ID da atividade (mesmo ID nas duas abas).
+    // Ativ. Coletiva (coluna virtual, ver mapaTotalProfEmultiPorAtividade),
+    // ligada à aba Resumo Atividade Coletiva pelo ID da atividade.
     var iRacId = colIndex(racHeader, "id_atividade");
-    var iPId = colIndex(partHeader, "id_atividade");
-    var iPTotalEmultiReal = colIndex(partHeader, "total_prof_emulti");
-    var podeCalcularVirtual = profissionaisRoster.length > 0 && iPProfCols.length > 0;
-    function totalProfEmultiDaLinha(r){
-      if(iPTotalEmultiReal >= 0 && String(r[iPTotalEmultiReal]===undefined||r[iPTotalEmultiReal]===null?"":r[iPTotalEmultiReal]).trim() !== ""){
-        return toInt(r[iPTotalEmultiReal]);
-      }
-      var vistos = {}, n = 0;
-      for(var i=0;i<iPProfCols.length;i++){
-        var nomeP = r[iPProfCols[i]];
-        if(!nomeP || !nomeEhDaEmulti(nomeP)) continue;
-        var k = normalizeText(nomeP);
-        if(vistos[k]) continue;
-        vistos[k] = true; n++;
-      }
-      return n;
-    }
-    var totalEmultiPorAtividade = {};
-    var ligacaoPartOk = iRacId >= 0 && iPId >= 0 && (iPTotalEmultiReal >= 0 || podeCalcularVirtual);
-    if(ligacaoPartOk){
-      partRows.slice(1).forEach(function(r){
-        var id = String(r[iPId]||"").trim();
-        if(!id) return;
-        var v = totalProfEmultiDaLinha(r);
-        if(!totalEmultiPorAtividade.hasOwnProperty(id) || v > totalEmultiPorAtividade[id]) totalEmultiPorAtividade[id] = v;
-      });
-    } else {
-      console.warn('[Participantes Ativ. Coletiva] "Total de Profissionais da EMulti" não pôde ser calculado — usando a coluna da aba Resumo Atividade Coletiva. iRacId='+iRacId, 'iPId='+iPId, 'podeCalcularVirtual='+podeCalcularVirtual,
+    var totalEmultiPorAtividade = mapaTotalProfEmultiPorAtividade(partRows);
+    var ligacaoPartOk = iRacId >= 0 && !!totalEmultiPorAtividade;
+    if(!ligacaoPartOk){
+      console.warn('[Participantes Ativ. Coletiva] "Total de Profissionais da EMulti" não pôde ser calculado — usando a coluna da aba Resumo Atividade Coletiva. iRacId='+iRacId,
         '| cabeçalho Resumo:', racHeader, '| cabeçalho Participantes:', partHeader);
     }
     // Se NENHUMA das duas colunas de profissionais for encontrada, o
@@ -3062,6 +3081,16 @@
   }
   function populateSheetsCache(wb){
     latestSheets = {};
+    // Mapa ID da atividade -> total de profissionais da eMulti (calculado a
+    // partir de Participantes Ativ. Coletiva) pra exibir a coluna "Total de
+    // Profissionais da EMulti" nas duas listas.
+    var nomePartAba = suffixedName("Participantes Ativ. Coletiva");
+    var wsPart = wb.Sheets[nomePartAba];
+    var partRowsBrutas = wsPart ? sheetToRows(wsPart).filter(function(r){
+      return r.some(function(c){ return String(c).trim() !== ""; });
+    }) : [];
+    var totalEmultiMapa = partRowsBrutas.length ? mapaTotalProfEmultiPorAtividade(partRowsBrutas) : null;
+    var totalEmultiCalc = partRowsBrutas.length ? criarCalculadoraTotalProfEmulti(partRowsBrutas[0]) : null;
     wb.SheetNames.forEach(function(name){
       var rows = sheetToRows(wb.Sheets[name]).filter(function(r){
         return r.some(function(c){ return String(c).trim() !== ""; });
@@ -3081,6 +3110,39 @@
             var novaLinha = r.slice();
             novaLinha.splice(statusIdx, 1);
             return novaLinha;
+          });
+        }
+      }
+      // Coluna virtual "Total de Profissionais da EMulti" (só na EXIBIÇÃO):
+      // - Participantes Ativ. Coletiva: calculada linha a linha (Responsável
+      //   + Profissional 1..5 que são da eMulti); se a planilha já trouxer
+      //   uma coluna com esse nome, ela é mantida.
+      // - Resumo Atividade Coletiva: a coluna de total de profissionais é
+      //   SUBSTITUÍDA pelo valor de Participantes (ligação pelo ID da
+      //   atividade); se não existir, é acrescentada no fim.
+      var nomeExib = displayListName(name);
+      if(nomeExib === "Participantes Ativ. Coletiva" && totalEmultiCalc && totalEmultiCalc.disponivel
+         && colIndex(headers, "total_prof_emulti") < 0){
+        var calcLinha = totalEmultiCalc.calcular;
+        headers = headers.concat([TOTAL_PROF_EMULTI_HEADER]);
+        dataRows = dataRows.map(function(r){ return r.concat([calcLinha(r)]); });
+      } else if(nomeExib === "Resumo Atividade Coletiva" && totalEmultiMapa){
+        var iId = colIndex(headers, "id_atividade");
+        if(iId >= 0){
+          var iTot = colIndex(headers, "total_prof_emulti");
+          if(iTot < 0) iTot = colIndex(headers, "qtd_total_profissionais");
+          var acrescentar = iTot < 0;
+          if(acrescentar){ headers = headers.concat([TOTAL_PROF_EMULTI_HEADER]); }
+          dataRows = dataRows.map(function(r){
+            var nova = r.slice();
+            var id = String(r[iId]||"").trim();
+            if(id && totalEmultiMapa.hasOwnProperty(id)){
+              if(acrescentar) nova[headers.length-1] = totalEmultiMapa[id];
+              else nova[iTot] = totalEmultiMapa[id];
+            } else if(acrescentar){
+              nova[headers.length-1] = "";
+            }
+            return nova;
           });
         }
       }
