@@ -1100,7 +1100,8 @@
       // "Participantes Ativ. Coletiva") e total de profissionais da eMulti
       // vindo de Participantes.
       id_atividade: ['id_atividade','id atividade','id da atividade','codigo_atividade','codigo da atividade','cod_atividade','cod atividade','id_ativ','id','codigo'],
-      total_prof_emulti: ['total_prof_emulti','total de profissionais da emulti','total de profissionais emulti','total profissionais emulti','qtd_profissionais_emulti','qtd total de profissionais da emulti','quantidade de profissionais da emulti'],
+      responsavel: ['responsavel','responsavel atividade','responsavel da atividade'],
+      total_prof_emulti: ['total de profissionails da emulti','total profissionails emulti','total_prof_emulti','total de profissionais da emulti','total de profissionais emulti','total profissionais emulti','qtd_profissionais_emulti','qtd total de profissionais da emulti','quantidade de profissionais da emulti'],
       qtd_total_profissionais: ['qtd_total_profissionais','quantidade total de profissionais','total de profissionais','qtd_de_profissionais','qtd total de profissionais'],
       qtd_profissionais_envolvidos: ['qtd_profissionais_envolvidos','profissionais_envolvidos','quantidade de profissionais envolvidos','nº de profissionais envolvidos','numero de profissionais envolvidos','profissionais envolvidos'],
       // Variação de nome pra coluna de participantes da aba Resumo Reuniões.
@@ -1180,8 +1181,21 @@
   // tem prioridade. É a mesma fonte usada no M2 e nas listas exibidas (aba
   // Participantes Ativ. Coletiva e Resumo Atividade Coletiva).
   var TOTAL_PROF_EMULTI_HEADER = "Total de Profissionais da EMulti";
+  // Acha a coluna "Total de Profissionais da EMulti" mesmo com variações de
+  // grafia (a planilha tem "Profissionails" com erro de digitação): primeiro
+  // pelos apelidos conhecidos, depois por um cabeçalho que contenha
+  // "total" + "profission" + "emulti".
+  function colTotalProfEmulti(headerRow){
+    var i = colIndex(headerRow, "total_prof_emulti");
+    if(i >= 0) return i;
+    for(var j=0;j<headerRow.length;j++){
+      var h = normalizeText(headerRow[j]);
+      if(h.indexOf("TOTAL") !== -1 && h.indexOf("PROFISSION") !== -1 && h.indexOf("EMULTI") !== -1) return j;
+    }
+    return -1;
+  }
   function criarCalculadoraTotalProfEmulti(partHeader){
-    var iReal = colIndex(partHeader, "total_prof_emulti");
+    var iReal = colTotalProfEmulti(partHeader);
     var profCols = ["Responsavel Atividade","profissional 1","profissional 2","profissional 3","profissional 4","profissional 5"]
       .map(function(n){ return colIndex(partHeader, n); })
       .filter(function(i){ return i >= 0; });
@@ -1202,21 +1216,61 @@
       }
     };
   }
-  // Mapa ID da atividade -> total de profissionais da eMulti, a partir das
-  // linhas (com cabeçalho na 1ª) de "Participantes Ativ. Coletiva".
-  function mapaTotalProfEmultiPorAtividade(partRows){
-    var partHeader = partRows[0] || [];
-    var iPId = colIndex(partHeader, "id_atividade");
+  // Liga cada linha de "Resumo Atividade Coletiva" às linhas de
+  // "Participantes Ativ. Coletiva". Se as duas abas têm coluna de ID da
+  // atividade, liga por ID; senão, pela combinação data + equipe +
+  // responsável (+ tipo de atividade, quando as duas abas têm). Devolve
+  // {total(linhaDoResumo) -> número | undefined, modo} ou null.
+  function criarLigacaoAtividades(partRows, racHeader){
+    if(!partRows || !partRows.length) return null;
+    var partHeader = partRows[0];
     var calc = criarCalculadoraTotalProfEmulti(partHeader);
+    if(!calc.disponivel) return null;
+    function eqKey(v){
+      var t = normalizeText(v);
+      for(var i=0;i<EQUIPES.length;i++){ if(t.indexOf(EQUIPES[i].matchKeyword) !== -1) return EQUIPES[i].key; }
+      return t.trim();
+    }
+    function dataKey(v){
+      var d = parseBRDate(v);
+      return d ? (d.getFullYear()+"-"+d.getMonth()+"-"+d.getDate()) : String(v||"").trim();
+    }
+    var idP = colIndex(partHeader, "id_atividade"), idR = colIndex(racHeader, "id_atividade");
+    var keyPart, keyRac, modo;
+    if(idP >= 0 && idR >= 0){
+      modo = "id";
+      keyPart = function(r){ return String(r[idP]||"").trim(); };
+      keyRac = function(r){ return String(r[idR]||"").trim(); };
+    } else {
+      var dP = colIndex(partHeader,"data"), dR = colIndex(racHeader,"data");
+      var eP = colIndex(partHeader,"equipe_unidade"); if(eP<0) eP = equipeColIndex(partHeader);
+      var eR = colIndex(racHeader,"equipe_unidade"); if(eR<0) eR = equipeColIndex(racHeader);
+      var rP = colIndex(partHeader,"responsavel"), rR = colIndex(racHeader,"responsavel");
+      if(dP<0||dR<0||eP<0||eR<0||rP<0||rR<0) return null;
+      var tP = colIndex(partHeader,"tipo_atividade"), tR = colIndex(racHeader,"tipo_atividade");
+      var usaTipo = tP>=0 && tR>=0;
+      modo = "data+equipe+responsavel"+(usaTipo?"+tipo":"");
+      keyPart = function(r){
+        return [dataKey(r[dP]), eqKey(r[eP]), normalizeText(r[rP]).trim()].concat(usaTipo?[normalizarTexto(r[tP])]:[]).join("|");
+      };
+      keyRac = function(r){
+        return [dataKey(r[dR]), eqKey(r[eR]), normalizeText(r[rR]).trim()].concat(usaTipo?[normalizarTexto(r[tR])]:[]).join("|");
+      };
+    }
     var mapa = {};
-    if(iPId < 0 || !calc.disponivel) return null;
     partRows.slice(1).forEach(function(r){
-      var id = String(r[iPId]||"").trim();
-      if(!id) return;
+      var k = keyPart(r);
+      if(!k || /^\|+$/.test(k)) return;
       var v = calc.calcular(r);
-      if(!mapa.hasOwnProperty(id) || v > mapa[id]) mapa[id] = v;
+      if(!mapa.hasOwnProperty(k) || v > mapa[k]) mapa[k] = v;
     });
-    return mapa;
+    return {
+      modo: modo,
+      total: function(racRow){
+        var k = keyRac(racRow);
+        return (k && mapa.hasOwnProperty(k)) ? mapa[k] : undefined;
+      }
+    };
   }
 
   // Motor de cálculo: recebe o "workbook" (abas já em formato de matriz de
@@ -1342,14 +1396,11 @@
       return withinPeriod(parseBRDate(r[iRacData]), periodo.inicio, periodo.fim);
     });
     // "Total de Profissionais da EMulti": passa a vir da aba Participantes
-    // Ativ. Coletiva (coluna virtual, ver mapaTotalProfEmultiPorAtividade),
-    // ligada à aba Resumo Atividade Coletiva pelo ID da atividade.
-    var iRacId = colIndex(racHeader, "id_atividade");
-    var totalEmultiPorAtividade = mapaTotalProfEmultiPorAtividade(partRows);
-    var ligacaoPartOk = iRacId >= 0 && !!totalEmultiPorAtividade;
-    if(!ligacaoPartOk){
-      console.warn('[Participantes Ativ. Coletiva] "Total de Profissionais da EMulti" não pôde ser calculado — usando a coluna da aba Resumo Atividade Coletiva. iRacId='+iRacId,
-        '| cabeçalho Resumo:', racHeader, '| cabeçalho Participantes:', partHeader);
+    // Ativ. Coletiva, ligada ao Resumo por ID da atividade (ou, sem ID, por
+    // data + equipe + responsável + tipo) — ver criarLigacaoAtividades.
+    var ligacaoAtiv = criarLigacaoAtividades(partRows, racHeader);
+    if(!ligacaoAtiv){
+      console.warn('[Participantes Ativ. Coletiva] não foi possível ligar "Total de Profissionais da EMulti" ao Resumo Atividade Coletiva — usando a coluna da própria aba Resumo. cabeçalho Resumo:', racHeader, '| cabeçalho Participantes:', partHeader);
     }
     // Se NENHUMA das duas colunas de profissionais for encontrada, o
     // painel não tem como saber quantos profissionais participaram de
@@ -1419,9 +1470,9 @@
     var atividadesTotaisFonte = totalRelatorioAc > atividadesTotaisListas
       ? "TOTAL RELATÓRIO AC" : "Resumo Atividade Coletiva";
     var atividadesCompartilhadasListas = racFiltradas.filter(function(r){
-      var idAtiv = ligacaoPartOk ? String(r[iRacId]||"").trim() : "";
-      var totalProf = (idAtiv && totalEmultiPorAtividade.hasOwnProperty(idAtiv))
-        ? totalEmultiPorAtividade[idAtiv]
+      var totalEmultiPart = ligacaoAtiv ? ligacaoAtiv.total(r) : undefined;
+      var totalProf = (totalEmultiPart !== undefined)
+        ? totalEmultiPart
         : (iRacTotalProf>=0 && r[iRacTotalProf]!=="" ? toInt(r[iRacTotalProf]) : 1+toInt(r[iRacProfEnv]));
       var tipoOk = iRacTipo<0 || TIPOS_ATIV_COLETIVA_COMPARTILHADA.indexOf(normalizarTexto(r[iRacTipo])) >= 0;
       return totalProf >= 2 && tipoOk;
@@ -3089,7 +3140,6 @@
     var partRowsBrutas = wsPart ? sheetToRows(wsPart).filter(function(r){
       return r.some(function(c){ return String(c).trim() !== ""; });
     }) : [];
-    var totalEmultiMapa = partRowsBrutas.length ? mapaTotalProfEmultiPorAtividade(partRowsBrutas) : null;
     var totalEmultiCalc = partRowsBrutas.length ? criarCalculadoraTotalProfEmulti(partRowsBrutas[0]) : null;
     wb.SheetNames.forEach(function(name){
       var rows = sheetToRows(wb.Sheets[name]).filter(function(r){
@@ -3122,28 +3172,25 @@
       //   atividade); se não existir, é acrescentada no fim.
       var nomeExib = displayListName(name);
       if(nomeExib === "Participantes Ativ. Coletiva" && totalEmultiCalc && totalEmultiCalc.disponivel
-         && colIndex(headers, "total_prof_emulti") < 0){
+         && colTotalProfEmulti(headers) < 0){
         var calcLinha = totalEmultiCalc.calcular;
         headers = headers.concat([TOTAL_PROF_EMULTI_HEADER]);
         dataRows = dataRows.map(function(r){ return r.concat([calcLinha(r)]); });
-      } else if(nomeExib === "Resumo Atividade Coletiva" && totalEmultiMapa){
-        var iId = colIndex(headers, "id_atividade");
-        if(iId >= 0){
-          var iTot = colIndex(headers, "total_prof_emulti");
-          if(iTot < 0) iTot = colIndex(headers, "qtd_total_profissionais");
+      } else if(nomeExib === "Resumo Atividade Coletiva" && partRowsBrutas.length){
+        var ligacao = criarLigacaoAtividades(partRowsBrutas, headers);
+        if(ligacao){
+          var iTot = colTotalProfEmulti(headers);
           var acrescentar = iTot < 0;
-          if(acrescentar){ headers = headers.concat([TOTAL_PROF_EMULTI_HEADER]); }
+          if(acrescentar){ headers = headers.concat([TOTAL_PROF_EMULTI_HEADER]); iTot = headers.length-1; }
           dataRows = dataRows.map(function(r){
             var nova = r.slice();
-            var id = String(r[iId]||"").trim();
-            if(id && totalEmultiMapa.hasOwnProperty(id)){
-              if(acrescentar) nova[headers.length-1] = totalEmultiMapa[id];
-              else nova[iTot] = totalEmultiMapa[id];
-            } else if(acrescentar){
-              nova[headers.length-1] = "";
-            }
+            var v = ligacao.total(r);
+            if(v !== undefined) nova[iTot] = v;
+            else if(acrescentar) nova[iTot] = "";
             return nova;
           });
+        } else {
+          console.warn('[Resumo Atividade Coletiva] não foi possível ligar às linhas de Participantes Ativ. Coletiva (sem ID em comum e sem data/equipe/responsável nas duas abas). cabeçalho Resumo:', headers, '| cabeçalho Participantes:', partRowsBrutas[0]);
         }
       }
       latestSheets[name] = {headers: headers, rows: dataRows};
