@@ -4206,22 +4206,22 @@
   injectKpiStyles();
   // Meta "Ótimo" de cada escala (o valor a partir do qual o indicador vira
   // Ótimo — ver OV_LEGEND_*): M1 > 3 (escala 0–4), M2 > 5% (escala 0–8),
-  // Desempenho > 7,5 (escala 0–10). 100% do donut = esse valor atingido.
-  var KPI_META_OTIMA = {4:3, 8:5, 10:7.5};
+  // Desempenho = nota 10 (máxima da escala 0–10). 100% do donut = esse valor atingido.
+  var KPI_META_OTIMA = {4:3, 8:5, 10:10};
   function kpiDonutHTML(value, domainMax, st){
     var meta = KPI_META_OTIMA[domainMax];
     if(value==null || isNaN(value) || !meta) return '';
     var pct = (value/meta)*100;
     var frac = Math.max(0, Math.min(1, value/meta));
     var r = 26, c = 2*Math.PI*r;
-    return '<div class="kpi-donut" title="'+fmtDec(pct,0)+'% da meta Ótimo (100% = '+fmtDec(meta,meta%1?1:0)+')">'
+    return '<div class="kpi-donut" title="'+fmtDec(pct,0)+'% '+(domainMax===10?'da nota máxima':'da meta Ótimo')+' (100% = '+fmtDec(meta,meta%1?1:0)+')">'
       + '<svg viewBox="0 0 64 64">'
       +   '<circle cx="32" cy="32" r="'+r+'" fill="none" stroke="'+st.badgeText+'" stroke-opacity=".16" stroke-width="8"/>'
       +   '<circle cx="32" cy="32" r="'+r+'" fill="none" stroke="'+st.badgeText+'" stroke-width="8" stroke-linecap="round"'
       +     ' stroke-dasharray="'+(frac*c).toFixed(2)+' '+c.toFixed(2)+'" transform="rotate(-90 32 32)"/>'
       +   '<text x="32" y="36.5" text-anchor="middle" font-size="13" font-weight="800" fill="'+st.badgeText+'">'+fmtDec(pct,0)+'%</text>'
       + '</svg>'
-      + '<span class="kpi-donut-label">da meta Ótimo</span>'
+      + '<span class="kpi-donut-label">'+(domainMax===10?'da nota máxima':'da meta Ótimo')+'</span>'
       + '</div>';
   }
   function kpiPanelHTML(st, iconKind, valueHtml, caption, value, domainMax){
