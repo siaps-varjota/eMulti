@@ -3819,23 +3819,32 @@
     // Mais recente primeiro, mesma ordem da tabela de Série histórica.
     serieTendencia.slice().reverse().forEach(function(p){
       var mesLabel = monthShortLabel(p.mes);
+      // Diferença de numerador/denominador (oficial - calculado): mostra
+      // ONDE está a divergência de valor (M1/M2), não só o tamanho dela.
+      function fmtDif(v){ return v!=null ? (v>=0?'+':'')+fmtInt(v) : '—'; }
       if(p.m1Oficial){
         var difM1 = (p.m1!=null && p.m1Calculado!=null) ? (p.m1 - p.m1Calculado) : null;
         registrarDivergencia(statM1, difM1, mesLabel);
+        var difNumM1 = (p.numeradorM1!=null && p.numeradorM1Calculado!=null) ? (p.numeradorM1 - p.numeradorM1Calculado) : null;
+        var difDenM1 = (p.denominadorM1!=null && p.denominadorM1Calculado!=null) ? (p.denominadorM1 - p.denominadorM1Calculado) : null;
         linhas.push([
           mesLabel, 'M1',
           fmtInt(p.numeradorM1Calculado)+' / '+fmtInt(p.denominadorM1Calculado), p.m1Calculado!=null ? fmtDec(p.m1Calculado,2) : '—',
           fmtInt(p.numeradorM1)+' / '+fmtInt(p.denominadorM1), p.m1!=null ? fmtDec(p.m1,2) : '—',
+          fmtDif(difNumM1), fmtDif(difDenM1),
           difM1!=null ? (difM1>=0?'+':'')+fmtDec(difM1,2) : '—'
         ]);
       }
       if(p.m2Oficial){
         var difM2 = (p.m2!=null && p.m2Calculado!=null) ? (p.m2 - p.m2Calculado) : null;
         registrarDivergencia(statM2, difM2, mesLabel);
+        var difNumM2 = (p.numeradorM2!=null && p.numeradorM2Calculado!=null) ? (p.numeradorM2 - p.numeradorM2Calculado) : null;
+        var difDenM2 = (p.denominadorM2!=null && p.denominadorM2Calculado!=null) ? (p.denominadorM2 - p.denominadorM2Calculado) : null;
         linhas.push([
           mesLabel, 'M2',
           fmtInt(p.numeradorM2Calculado)+' / '+fmtInt(p.denominadorM2Calculado), p.m2Calculado!=null ? fmtDec(p.m2Calculado,2)+'%' : '—',
           fmtInt(p.numeradorM2)+' / '+fmtInt(p.denominadorM2), p.m2!=null ? fmtDec(p.m2,2)+'%' : '—',
+          fmtDif(difNumM2), fmtDif(difDenM2),
           difM2!=null ? (difM2>=0?'+':'')+fmtDec(difM2,2)+'%' : '—'
         ]);
       }
@@ -3873,12 +3882,12 @@
     doc.setFont('helvetica','normal');
     doc.setFontSize(9);
     doc.setTextColor(81,96,90);
-    doc.text('M1 = atendimentos por pessoa (numerador ÷ denominador). M2 = % de ações compartilhadas (numerador ÷ denominador × 100). Diferença = oficial - calculado.', margin, y);
+    doc.text('M1 = atendimentos por pessoa (numerador ÷ denominador). M2 = % de ações compartilhadas (numerador ÷ denominador × 100). Todas as diferenças = oficial - calculado.', margin, y);
     y += 14;
 
     doc.autoTable({
       startY: y,
-      head: [['Mês','Indicador','Numerador/Denominador (calculado)','Valor (calculado)','Numerador/Denominador (oficial)','Valor (oficial)','Diferença']],
+      head: [['Mês','Indicador','Numerador/Denominador (calculado)','Valor (calculado)','Numerador/Denominador (oficial)','Valor (oficial)','Dif. numerador','Dif. denominador','Diferença']],
       body: linhas,
       theme: 'grid',
       margin: {left:margin, right:margin, bottom:34},
