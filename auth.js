@@ -90,6 +90,70 @@ function esconderErro(elemento) {
   elemento.style.display = 'none';
 }
 
+// ── Botão "mostrar/ocultar senha" ──
+// Injeta o botão via JS (não depende de o HTML já ter o ícone/markup
+// pronto): envolve o campo num wrapper posicionado, encosta um botão
+// no canto direito e alterna o type do input entre password/text.
+function adicionarToggleSenha(input) {
+  if (!input || input.dataset.toggleSenha) return;
+  input.dataset.toggleSenha = '1';
+
+  const wrapper = document.createElement('div');
+  wrapper.style.position = 'relative';
+  input.parentNode.insertBefore(wrapper, input);
+  wrapper.appendChild(input);
+
+  input.style.boxSizing = 'border-box';
+  input.style.paddingRight = '42px';
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.setAttribute('aria-label', 'Mostrar senha');
+  btn.tabIndex = -1;
+  btn.textContent = '👁';
+  btn.style.cssText =
+    'position:absolute;right:6px;top:50%;transform:translateY(-50%);' +
+    'background:none;border:none;cursor:pointer;font-size:16px;line-height:1;' +
+    'padding:6px;color:#51605a;';
+  btn.addEventListener('click', function () {
+    const oculta = input.type === 'password';
+    input.type = oculta ? 'text' : 'password';
+    btn.textContent = oculta ? '🙈' : '👁';
+    btn.setAttribute('aria-label', oculta ? 'Ocultar senha' : 'Mostrar senha');
+  });
+  wrapper.appendChild(btn);
+}
+
+[loginSenha, newSenha, newSenhaConfirm].forEach(adicionarToggleSenha);
+
+// ── Botão "Sair" ──
+// Procura o botão de logout (por id comum, por [data-action] ou, em
+// último caso, por texto "Sair") e liga ao logoutPainelEmulti — antes
+// disso o botão existia no HTML mas não tinha nenhum listener.
+function ligarBotaoSair() {
+  let botao =
+    document.getElementById('logoutBtn') ||
+    document.getElementById('btnSair') ||
+    document.getElementById('sairBtn') ||
+    document.querySelector('[data-action="logout"], [data-action="sair"]');
+
+  if (!botao) {
+    const escopo = appShell || document;
+    const els = escopo.querySelectorAll('button, a');
+    botao = Array.prototype.find.call(els, function (el) {
+      return el.textContent.trim().toLowerCase() === 'sair';
+    });
+  }
+
+  if (botao && !botao.dataset.logoutLigado) {
+    botao.dataset.logoutLigado = '1';
+    botao.addEventListener('click', function (e) {
+      e.preventDefault();
+      window.logoutPainelEmulti();
+    });
+  }
+}
+
 // ── Login ──
 loginForm.addEventListener('submit', async function (e) {
   e.preventDefault();
@@ -200,6 +264,7 @@ function mostrarApp() {
   if (typeof window.iniciarPainelEmulti === 'function') {
     window.iniciarPainelEmulti();
   }
+  ligarBotaoSair();
   window.dispatchEvent(new CustomEvent('painel-emulti:login'));
 }
 
