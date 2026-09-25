@@ -4280,7 +4280,12 @@
   // Ícone do painel por indicador: M1 (pulse) → pessoas, M2 (users) → compartilhamento, Desempenho → troféu.
   function kpiPanelIcon(kind){ return kind==='pulse' ? 'users' : (kind==='users' ? 'share' : 'trophy'); }
   function kpiPanelHTML(st, iconKind, valueHtml, caption, value, domainMax){
-    return '<div class="kpi-panel" style="--kpi-accent:'+st.badgeText+';--kpi-bg:'+st.badgeBg+';">'
+    // Número grande, ícone e "% da meta" usam a MESMA cor da borda do
+    // cartão (st.accent) — antes usavam st.badgeText, que é uma cor à
+    // parte (pensada pro contraste do badge "→ Suficiente" etc.) e por
+    // isso destoava da borda em alguns status (ex.: Suficiente ficava
+    // avermelhado enquanto a borda é laranja).
+    return '<div class="kpi-panel" style="--kpi-accent:'+st.accent+';--kpi-bg:'+st.badgeBg+';">'
       +   '<div class="kpi-main">'
       +     '<div class="kpi-icon"><svg viewBox="0 0 24 24">'+OV_ICONS[iconKind]+'</svg></div>'
       +     '<div class="kpi-value">'+valueHtml+'</div>'
