@@ -4267,12 +4267,14 @@
     var pct = (value/meta)*100;
     var frac = Math.max(0, Math.min(1, value/meta));
     var r = 26, c = 2*Math.PI*r;
+    // Anel também na cor da borda (st.accent), igual ao número grande —
+    // st.badgeText ficou só pro texto do selo "→ Suficiente" etc.
     return '<div class="kpi-donut" title="'+fmtDec(pct,0)+'% '+(domainMax===10?'da nota máxima':'da meta Ótimo')+' (100% = '+fmtDec(meta,meta%1?1:0)+')">'
       + '<svg viewBox="0 0 64 64">'
-      +   '<circle cx="32" cy="32" r="'+r+'" fill="none" stroke="'+st.badgeText+'" stroke-opacity=".16" stroke-width="8"/>'
-      +   '<circle cx="32" cy="32" r="'+r+'" fill="none" stroke="'+st.badgeText+'" stroke-width="8" stroke-linecap="round"'
+      +   '<circle cx="32" cy="32" r="'+r+'" fill="none" stroke="'+st.accent+'" stroke-opacity=".16" stroke-width="8"/>'
+      +   '<circle cx="32" cy="32" r="'+r+'" fill="none" stroke="'+st.accent+'" stroke-width="8" stroke-linecap="round"'
       +     ' stroke-dasharray="'+(frac*c).toFixed(2)+' '+c.toFixed(2)+'" transform="rotate(-90 32 32)"/>'
-      +   '<text x="32" y="36.5" text-anchor="middle" font-size="13" font-weight="800" fill="'+st.badgeText+'">'+fmtDec(pct,0)+'%</text>'
+      +   '<text x="32" y="36.5" text-anchor="middle" font-size="13" font-weight="800" fill="'+st.accent+'">'+fmtDec(pct,0)+'%</text>'
       + '</svg>'
       + '<span class="kpi-donut-label">'+(domainMax===10?'da nota máxima':'da meta Ótimo')+'</span>'
       + '</div>';
