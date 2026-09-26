@@ -3083,7 +3083,7 @@
     btn.type = 'button';
     btn.className = 'tab';
     btn.setAttribute('data-tab', 'analises');
-    btn.textContent = 'Análises';
+    btn.textContent = 'Frequência e Retorno';
     tabRef.parentElement.appendChild(btn);
 
     var panel = document.createElement('div');
