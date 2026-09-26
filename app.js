@@ -2560,7 +2560,11 @@
   function profissionalBadgeHtml(nomePrincipal, extras){
     var nomeHtml = escapeHtml(nomePrincipal || '—');
     if(!extras || !extras.length) return nomeHtml;
-    var payload = extras.map(function(o){ return {n:o.nome, d: o.data ? fmtBRDate(o.data) : ''}; });
+    // "t" (tipo: Atendimento / Participação em Atividade Coletiva) é
+    // opcional — a tabela "Pacientes em risco de abandono" não informa
+    // (só usa Atendimentos), e o popover simplesmente não mostra a linha
+    // de tipo nesse caso (ver abrirProfPopover).
+    var payload = extras.map(function(o){ return {n:o.nome, d: o.data ? fmtBRDate(o.data) : '', t: o.tipo || ''}; });
     var attr = encodeURIComponent(JSON.stringify(payload));
     return nomeHtml
       + ' <button type="button" class="prof-mais-btn" data-prof-extra="'+attr+'" title="Ver outros profissionais envolvidos">+'+extras.length+'</button>';
@@ -3221,34 +3225,65 @@
   // nenhum link/aba externa. monthValues vazio = todos os meses
   // disponíveis (sem filtro); com meses marcados, só entram atendimentos/
   // participações daqueles meses.
+  // Rótulo do tipo de evento, usado tanto pra decidir o "responsável" do
+  // último evento quanto pro texto exibido no popover "Também atendido por"
+  // (ver abrirProfPopover).
+  var TIPO_EVENTO_ATENDIMENTO = 'Atendimento';
+  var TIPO_EVENTO_PARTICIPACAO = 'Participação em Atividade Coletiva';
   function pessoasAtendidasParaMeses(monthValues){
-    var pessoasSet = {}; // nome em maiúsculas -> {nome, at, part, datas:[Date,...], profissionais:{nome:true}, ultimaDataPorProf:{nome:Date}, ultimaData:Date|null, ultimoProfissionais:{nome:true}}
+    // nome em maiúsculas -> {nome, at, part, datas:[Date,...],
+    // profissionais:{nome:true} (todo mundo que já atendeu, histórico
+    // completo — usado só em profissionalCol/busca/PDF),
+    // infoPorProf:{nome:{data:Date,tipo:string}} (última ocorrência DE
+    // CADA profissional, com o tipo do evento — alimenta o popover),
+    // ultimaData:Date|null (data do evento mais recente da pessoa, De
+    // QUALQUER tipo), ultimoTipo:string|null, ultimoProfissionalPrincipal:
+    // string|null (o ÚNICO nome que aparece na coluna "Profissional")}
+    var pessoasSet = {};
     function dentroDoFiltro(d){
       if(!monthValues || !monthValues.length) return true;
       return !!d && monthValues.indexOf(monthOptionValue(d)) >= 0;
     }
-    // Atualiza, pra uma pessoa, o(s) profissional(is) do evento MAIS
-    // RECENTE (por data) — usado como "Profissional Responsável" da linha
-    // (ver profissionalCol, mais abaixo), no mesmo padrão de empate por
-    // data usado em construirHistoricosPacientes/risco de abandono: se
-    // outro evento já tiver a mesma data (mais recente), os profissionais
-    // se acumulam (>1 "responsável" nesse empate); se for mais recente que
-    // o guardado, substitui.
-    function atualizarUltimoGeral(p, d, profsDoEvento){
-      if(!d || !profsDoEvento.length) return;
+    // Critério de desempate/priorização de nome: profissional da eMulti
+    // primeiro, depois ordem alfabética — mesmo padrão já usado em
+    // listaProf/ultimoArr antes desta função existir.
+    function prioridadeMenor(a, b){
+      var eA = nomeEhDaEmulti(a) ? 0 : 1, eB = nomeEhDaEmulti(b) ? 0 : 1;
+      if(eA !== eB) return eA - eB;
+      return a.localeCompare(b, 'pt-BR');
+    }
+    // Decide QUEM é o profissional responsável pelo evento mais recente da
+    // pessoa (Atendimento ou Participação em Atividade Coletiva) — é esse
+    // único nome (nunca uma lista) que a coluna "Profissional" mostra sem
+    // badge. "principal" já vem escolhido por quem chamou (o profissional
+    // do atendimento, ou o Responsável da atividade coletiva — ver
+    // chamadas abaixo); em caso de empate exato de data entre dois
+    // eventos diferentes, desempata pela mesma prioridade usada no resto
+    // da tela, em vez de juntar os dois nomes.
+    function atualizarUltimoGeral(p, d, tipo, principal){
+      if(!d || !principal) return;
       if(!p.ultimaData || d.getTime() > p.ultimaData.getTime()){
         p.ultimaData = d;
-        p.ultimoProfissionais = {};
-        profsDoEvento.forEach(function(nome){ p.ultimoProfissionais[nome] = true; });
-      } else if(d.getTime() === p.ultimaData.getTime()){
-        profsDoEvento.forEach(function(nome){ p.ultimoProfissionais[nome] = true; });
+        p.ultimoTipo = tipo;
+        p.ultimoProfissionalPrincipal = principal;
+      } else if(d.getTime() === p.ultimaData.getTime()
+          && prioridadeMenor(principal, p.ultimoProfissionalPrincipal) < 0){
+        p.ultimoTipo = tipo;
+        p.ultimoProfissionalPrincipal = principal;
       }
     }
-    function registrarProf(p, prof, d){
+    // Guarda, POR PROFISSIONAL, a data e o tipo (Atendimento/Participação)
+    // da ocorrência mais recente dele com esta pessoa — alimenta só o
+    // popover "Também atendido por" (histórico completo, além do
+    // responsável do último evento).
+    function registrarProf(p, prof, d, tipo){
       p.profissionais[prof] = true;
-      if(d && (!p.ultimaDataPorProf[prof] || d.getTime() > p.ultimaDataPorProf[prof].getTime())){
-        p.ultimaDataPorProf[prof] = d;
+      if(d && (!p.infoPorProf[prof] || d.getTime() > p.infoPorProf[prof].data.getTime())){
+        p.infoPorProf[prof] = {data:d, tipo:tipo};
       }
+    }
+    function novaPessoa(nome){
+      return {nome:nome, at:0, part:0, datas:[], profissionais:{}, infoPorProf:{}, ultimaData:null, ultimoTipo:null, ultimoProfissionalPrincipal:null};
     }
     var atCached = latestSheets[suffixedName("Atendimentos")];
     if(atCached){
@@ -3261,14 +3296,14 @@
           var d = parseBRDate(r[iData]);
           if(!nome || !dentroDoFiltro(d)) return;
           var chave = nome.toUpperCase();
-          if(!pessoasSet[chave]) pessoasSet[chave] = {nome:nome, at:0, part:0, datas:[], profissionais:{}, ultimaDataPorProf:{}, ultimaData:null, ultimoProfissionais:{}};
+          if(!pessoasSet[chave]) pessoasSet[chave] = novaPessoa(nome);
           var p = pessoasSet[chave];
           p.at++;
           if(d) p.datas.push(d);
           var prof = iProfAt >= 0 ? String(r[iProfAt]||"").trim() : '';
           if(prof){
-            registrarProf(p, prof, d);
-            atualizarUltimoGeral(p, d, [prof]);
+            registrarProf(p, prof, d, TIPO_EVENTO_ATENDIMENTO);
+            atualizarUltimoGeral(p, d, TIPO_EVENTO_ATENDIMENTO, prof);
           }
         });
       }
@@ -3277,6 +3312,11 @@
     if(partCached){
       var iPData = colIndex(partCached.headers, "data");
       var iPNome = colIndex(partCached.headers, "participante");
+      // colsProfissionaisParticipantes traz o Responsável primeiro (quando
+      // preenchido), seguido de profissional 1..5 — profsDoEvento[0] abaixo
+      // é sempre o primeiro NOME NÃO VAZIO nessa ordem, então já é o
+      // Responsável da atividade sempre que a coluna dele estiver
+      // preenchida (mesma prioridade usada em nomesEnvolvidosParticipacao).
       var iProfPartCols = colsProfissionaisParticipantes(partCached.headers);
       if(iPData >= 0 && iPNome >= 0){
         partCached.rows.forEach(function(r){
@@ -3284,16 +3324,16 @@
           var d = parseBRDate(r[iPData]);
           if(!nome || nome.indexOf("(sem lista nominal") === 0 || !dentroDoFiltro(d)) return;
           var chave = nome.toUpperCase();
-          if(!pessoasSet[chave]) pessoasSet[chave] = {nome:nome, at:0, part:0, datas:[], profissionais:{}, ultimaDataPorProf:{}, ultimaData:null, ultimoProfissionais:{}};
+          if(!pessoasSet[chave]) pessoasSet[chave] = novaPessoa(nome);
           var p = pessoasSet[chave];
           p.part++;
           if(d) p.datas.push(d);
           var profsDoEvento = [];
           iProfPartCols.forEach(function(idx){
             var prof = String(r[idx]||"").trim();
-            if(prof){ registrarProf(p, prof, d); profsDoEvento.push(prof); }
+            if(prof){ registrarProf(p, prof, d, TIPO_EVENTO_PARTICIPACAO); profsDoEvento.push(prof); }
           });
-          atualizarUltimoGeral(p, d, profsDoEvento);
+          if(profsDoEvento.length) atualizarUltimoGeral(p, d, TIPO_EVENTO_PARTICIPACAO, profsDoEvento[0]);
         });
       }
     }
@@ -3316,47 +3356,37 @@
     return {
       headers: ["Nome","Atendimentos","Participantes Ativ. Coletiva","Total","Profissional"].concat(dataHeaders),
       rows: pessoasLista.map(function(p){
-        // Uma pessoa com só 1 atendimento (e nenhuma coletiva) tem
-        // exatamente 1 profissional aqui — é esse que aparece nesta
-        // coluna, e ela fica filtrável junto com "Atendimentos" = 1
-        // pelo filtro de coluna já existente na lista. Com mais de um
-        // profissional envolvido, mostra todos separados por vírgula.
-        // Profissional(is) da eMulti (cadastrado na aba PROFISSIONAIS)
-        // aparece(m) primeiro — o resto continua em ordem alfabética.
-        var listaProf = Object.keys(p.profissionais).sort(function(a,b){
-          var eA = nomeEhDaEmulti(a) ? 0 : 1;
-          var eB = nomeEhDaEmulti(b) ? 0 : 1;
-          if(eA !== eB) return eA - eB;
-          return a.localeCompare(b,'pt-BR');
-        });
+        // profissionalCol: lista completa (todo mundo que já atendeu essa
+        // pessoa, histórico inteiro) — continua igual a antes, usada só
+        // por busca/filtro/PDF (ver data-cell-text em
+        // renderListCard/cellFullText), NÃO é o que aparece na tela.
+        // Profissional(is) da eMulti aparece(m) primeiro, resto em ordem
+        // alfabética.
+        var listaProf = Object.keys(p.profissionais).sort(prioridadeMenor);
         var profissionalCol = listaProf.length ? listaProf.join(', ') : '—';
         var row = [p.nome, p.at, p.part, p.at+p.part, profissionalCol];
         for(var i=0;i<maxDatas;i++){
           row.push(p.datas[i] ? fmtBRDate(p.datas[i]) : "—");
         }
-        // Célula "Profissional" exibida na tela: só o(s) profissional(is)
-        // RESPONSÁVEL(is) (quem esteve no evento mais recente — ver
-        // ultimoProfissionais/atualizarUltimoGeral) + um badge "+N" com
-        // popover pros demais, só quando a pessoa tem mais de 1
-        // profissional no total (listaProf.length > 1) — mesmo padrão da
-        // tabela "Pacientes em risco de abandono" (profissionalCelulaHtml).
-        // profissionalCol (acima) continua sendo a lista completa
-        // (usada por busca/filtro/PDF — ver data-cell-text em
-        // renderListCard/cellFullText).
-        var ultimoArr = Object.keys(p.ultimoProfissionais || {}).sort(function(a,b){
-          var eA = nomeEhDaEmulti(a) ? 0 : 1, eB = nomeEhDaEmulti(b) ? 0 : 1;
-          if(eA !== eB) return eA - eB;
-          return a.localeCompare(b,'pt-BR');
-        });
-        var nomePrincipal = ultimoArr.length ? ultimoArr.join(', ') : (listaProf[0] || '—');
-        var extras = listaProf.length > 1
-          ? listaProf.filter(function(nome){ return ultimoArr.indexOf(nome) === -1; })
-              .map(function(nome){ return {nome:nome, data:(p.ultimaDataPorProf||{})[nome] || null}; })
-              .sort(function(a,b){
-                var ta = a.data ? a.data.getTime() : 0, tb = b.data ? b.data.getTime() : 0;
-                return tb - ta;
-              })
-          : [];
+        // Célula "Profissional" exibida na tela: SEMPRE um único nome — o
+        // profissional responsável pelo evento mais recente da pessoa
+        // (Atendimento ou Participação em Atividade Coletiva; ver
+        // atualizarUltimoGeral) — mais um badge "+N" (só quando há outros
+        // profissionais no histórico) cujo popover mostra cada um deles
+        // com nome, data e o tipo (Atendimento / Participação em
+        // Atividade Coletiva) da última vez em que atendeu essa pessoa
+        // (ver profissionalBadgeHtml/abrirProfPopover).
+        var nomePrincipal = p.ultimoProfissionalPrincipal || listaProf[0] || '—';
+        var extras = listaProf
+          .filter(function(nome){ return nome !== nomePrincipal; })
+          .map(function(nome){
+            var info = p.infoPorProf[nome];
+            return {nome:nome, data: info ? info.data : null, tipo: info ? info.tipo : null};
+          })
+          .sort(function(a,b){
+            var ta = a.data ? a.data.getTime() : 0, tb = b.data ? b.data.getTime() : 0;
+            return tb - ta;
+          });
         row.profissionalHtml = profissionalBadgeHtml(nomePrincipal, extras);
         return row;
       })
@@ -3599,9 +3629,11 @@
       + '.prof-pop{position:fixed;z-index:10000;background:#fff;border:1px solid #E3E8E1;border-radius:10px;box-shadow:0 12px 30px rgba(0,0,0,.18);padding:10px 12px;min-width:220px;max-width:300px;display:none}'
       + '.prof-pop.is-open{display:block}'
       + '.prof-pop-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:#8B978F;margin-bottom:6px}'
-      + '.prof-pop-item{display:flex;justify-content:space-between;gap:10px;font-size:13px;color:#1B2E27;padding:3px 0;border-bottom:1px dashed #E3E8E1}'
+      + '.prof-pop-item{font-size:13px;color:#1B2E27;padding:3px 0;border-bottom:1px dashed #E3E8E1}'
       + '.prof-pop-item:last-child{border-bottom:none}'
-      + '.prof-pop-item span:last-child{color:#5B6B62;white-space:nowrap;font-weight:600}';
+      + '.prof-pop-item-row{display:flex;justify-content:space-between;gap:10px}'
+      + '.prof-pop-item-row span:last-child{color:#5B6B62;white-space:nowrap;font-weight:600}'
+      + '.prof-pop-tipo{margin-top:2px;font-size:11px;color:#5B6B62;font-style:italic}';
     var el = document.createElement('style');
     el.id = 'partModalStyles';
     el.textContent = css;
@@ -3643,7 +3675,8 @@
     el.innerHTML = '<div class="prof-pop-title">Também atendido por</div>'
       + (itens.length
           ? itens.map(function(it){
-              return '<div class="prof-pop-item"><span>'+escapeHtml(it.nome)+'</span><span>'+escapeHtml(it.data||'—')+'</span></div>';
+              var tipoHtml = it.tipo ? '<div class="prof-pop-tipo">'+escapeHtml(it.tipo)+'</div>' : '';
+              return '<div class="prof-pop-item"><div class="prof-pop-item-row"><span>'+escapeHtml(it.nome)+'</span><span>'+escapeHtml(it.data||'—')+'</span></div>'+tipoHtml+'</div>';
             }).join('')
           : '<div class="prof-pop-item"><span>—</span></div>');
     el.classList.add('is-open');
@@ -3674,7 +3707,7 @@
     var itens = [];
     try{
       itens = (JSON.parse(decodeURIComponent(raw)) || []).map(function(it){
-        return {nome: it.n, data: it.d};
+        return {nome: it.n, data: it.d, tipo: it.t};
       });
     }catch(e){}
     abrirProfPopover(btn, itens);
