@@ -2406,6 +2406,62 @@
     }).join('') + '</div>';
   }
 
+  // Cabeçalhos da tabela "Pacientes em risco de abandono", na mesma ordem
+  // das células montadas em linhaRiscoHtml — usado tanto pro <thead>
+  // quanto pro comparador de ordenação (compareRiscoPorColuna).
+  var RISCO_HEADERS = ['Paciente','Profissional','Equipe','Consultas','Última consulta','Dias sem voltar'];
+  // Colunas oferecidas no "Filtrar por coluna…" da tabela de risco — cada
+  // uma expõe o MESMO texto exibido na célula (fmtInt/fmtBRDate/etc.), pra
+  // bater exatamente com o que aparece na tela. "Profissional" fica de
+  // fora porque já tem o filtro dedicado ao lado (Profissional da última
+  // consulta); o índice aqui é só a posição no <select>, não o índice da
+  // coluna na tabela (ver RISCO_HEADERS pra esse outro índice).
+  var RISCO_COLUNAS_FILTRAVEIS = [
+    {label:'Paciente', getValor: function(r){ return r.nome; }},
+    {label:'Equipe', getValor: function(r){ return r.equipe; }},
+    {label:'Consultas', numeric:true, getValor: function(r){ return fmtInt(r.totalConsultas); }},
+    {label:'Última consulta', isDate:true, getValor: function(r){ return fmtBRDate(r.ultima); }},
+    {label:'Dias sem voltar', numeric:true, getValor: function(r){ return fmtInt(r.diasDesde)+' dias'; }}
+  ];
+  // Valores distintos de uma coluna filtrável, na ordem certa pro tipo:
+  // cronológica (isDate), numérica (numeric) ou alfanumérica (padrão) —
+  // mesmo critério já usado pros filtros de coluna da aba Listas.
+  function valoresDistintosRisco(colDef, dados){
+    var seen = {}, values = [];
+    dados.forEach(function(r){
+      var v = colDef.getValor(r);
+      v = (v===undefined||v===null) ? '' : String(v).trim();
+      if(!v || seen[v]) return;
+      seen[v] = true;
+      values.push(v);
+    });
+    if(colDef.isDate){
+      values.sort(function(a,b){
+        var da = parseBRDate(a), db = parseBRDate(b);
+        return (da ? da.getTime() : 0) - (db ? db.getTime() : 0);
+      });
+    } else if(colDef.numeric){
+      values.sort(function(a,b){ return parseFloat(a.replace(',','.')) - parseFloat(b.replace(',','.')); });
+    } else {
+      values.sort(function(a,b){ return a.localeCompare(b, 'pt-BR'); });
+    }
+    return values;
+  }
+  // Comparador usado pela ordenação alfanumérica ao clicar num cabeçalho
+  // (ver wireRiscoFiltros) — opera direto sobre os dados (não sobre texto
+  // já renderizado), pra ordenar a lista INTEIRA filtrada antes do corte
+  // dos 40 exibidos, e não só as linhas já visíveis na tela.
+  function compareRiscoPorColuna(a, b, idx){
+    switch(idx){
+      case 3: return a.totalConsultas - b.totalConsultas;
+      case 5: return a.diasDesde - b.diasDesde;
+      case 4: return a.ultima - b.ultima;
+      case 1: return String(a.profissional).localeCompare(String(b.profissional), 'pt-BR', {numeric:true, sensitivity:'base'});
+      case 2: return String(a.equipe).localeCompare(String(b.equipe), 'pt-BR', {numeric:true, sensitivity:'base'});
+      default: return String(a.nome).localeCompare(String(b.nome), 'pt-BR', {numeric:true, sensitivity:'base'});
+    }
+  }
+
   // Uma linha da tabela de risco — função à parte porque agora é usada
   // tanto no render inicial quanto toda vez que o filtro (profissional ou
   // busca) muda (ver renderTabelaRisco, dentro de wireRiscoFiltros).
@@ -2431,22 +2487,39 @@
   function riscoTableHtml(risco){
     if(!risco.length) return '<p class="footnote">Nenhum paciente na janela de risco no momento (ou ainda não há intervalo histórico suficiente pra calcular).</p>';
     // A tabela/contador/rodapé começam vazios de propósito — quem preenche
-    // (e reage ao filtro de profissional + busca) é wireRiscoFiltros, logo
-    // depois deste HTML entrar no DOM. Isso garante que o quantitativo
-    // mostrado na tela E o PDF sempre reflitam o filtro atual, em vez de
-    // só esconder linhas já renderizadas da lista completa.
+    // (e reage ao filtro de profissional + coluna + busca) é
+    // wireRiscoFiltros, logo depois deste HTML entrar no DOM. Isso garante
+    // que o quantitativo mostrado na tela E o PDF sempre reflitam o filtro
+    // atual, em vez de só esconder linhas já renderizadas da lista
+    // completa.
     var pdfBtnHtml = '<button type="button" class="pdf-btn" id="btnRiscoPdf">'
       + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h1a1.5 1.5 0 0 0 0-3H9v5"/><path d="M13 12v5h1a2 2 0 0 0 0-5z"/><path d="M18.5 12H17v5"/><path d="M17 14.5h1.3"/></svg>'
       + '<span>Gerar PDF</span></button>';
+    // Filtro por coluna (Paciente/Equipe/Consultas/Última consulta/Dias sem
+    // voltar — "Profissional" fica de fora porque já tem o filtro dedicado
+    // ao lado): mesmo padrão visual (select + multisseleção de valores) das
+    // listas da aba Listas — ver RISCO_COLUNAS_FILTRAVEIS/wireRiscoFiltros.
+    var colOptionsHtml = '<option value="">Filtrar por coluna…</option>'
+      + RISCO_COLUNAS_FILTRAVEIS.map(function(c, i){ return '<option value="'+i+'">'+escapeHtml(c.label)+'</option>'; }).join('');
+    var colFilterHtml = '<div class="filter-pair">'
+      + '<select class="filter-col" id="riscoFilterCol">'+colOptionsHtml+'</select>'
+      + '<div class="ms-wrap filter-val-ms ms-disabled" id="riscoFilterValMs"></div>'
+      + '</div>';
+    // Cabeçalhos clicáveis (ordenação alfanumérica, mesmo padrão visual
+    // .sortable-th/.sort-ind usado na aba Listas) — ver ordenarTabelaRisco.
+    var theadHtml = RISCO_HEADERS.map(function(h, i){
+      return '<th class="sortable-th" data-risco-col-idx="'+i+'">'+escapeHtml(h)+'<span class="sort-ind"></span></th>';
+    }).join('');
     return '<div style="display:flex;justify-content:flex-end;margin-bottom:8px;">'+pdfBtnHtml+'</div>'
       + '<p class="list-meta" id="riscoListMeta"></p>'
       + '<div class="list-filters">'
       +   '<div class="list-month-filter"><label class="list-month-filter-label">Profissional (última consulta)</label>'
       +     '<div class="ms-wrap" id="riscoProfMs"></div></div>'
+      +   colFilterHtml
       + '</div>'
       + '<input class="list-search" type="text" placeholder="Filtrar nesta lista…" id="riscoSearchInput">'
       + '<div class="table-wrap"><table class="data-table"><thead><tr>'
-      + '<th>Paciente</th><th>Profissional</th><th>Equipe</th><th>Consultas</th><th>Última consulta</th><th>Dias sem voltar</th>'
+      + theadHtml
       + '</tr></thead><tbody id="riscoTbody"></tbody></table></div>'
       + '<p class="footnote" id="riscoFootnote"></p>';
   }
@@ -2493,22 +2566,80 @@
 
     if(searchEl) searchEl.addEventListener('input', renderTabelaRisco);
 
+    // Filtro por coluna (Paciente/Equipe/Consultas/Última consulta/Dias sem
+    // voltar): select da coluna + multisseleção de valores, mesmo padrão da
+    // aba Listas — a multisseleção de valores fica desabilitada até uma
+    // coluna ser escolhida (ver RISCO_COLUNAS_FILTRAVEIS/valoresDistintosRisco).
+    var colSelectEl = document.getElementById('riscoFilterCol');
+    var colValWrapEl = document.getElementById('riscoFilterValMs');
+    var colValMs = colValWrapEl ? createMultiSelect(colValWrapEl, {
+      placeholder: 'Todos os valores', multi:true, search:true, showTags:true,
+      onChange: function(){ renderTabelaRisco(); }
+    }) : null;
+    if(colSelectEl){
+      colSelectEl.addEventListener('change', function(){
+        var idx = colSelectEl.value !== '' ? parseInt(colSelectEl.value, 10) : null;
+        if(idx === null || !colValMs){
+          if(colValMs){ colValMs.setOptions([]); colValMs.setSelected([]); }
+          if(colValWrapEl) colValWrapEl.classList.add('ms-disabled');
+        } else {
+          var valores = valoresDistintosRisco(RISCO_COLUNAS_FILTRAVEIS[idx], todos);
+          colValMs.setOptions(valores.map(function(v){ return {value:v, label:v}; }));
+          colValMs.setSelected([]);
+          colValWrapEl.classList.remove('ms-disabled');
+        }
+        renderTabelaRisco();
+      });
+    }
+
+    // Ordenação alfanumérica ao clicar no cabeçalho — ordena a lista
+    // FILTRADA inteira (não só as linhas já visíveis), antes do corte dos
+    // 40 exibidos na tela, pra bater com o que o rodapé/PDF mostram (ver
+    // compareRiscoPorColuna). Clicar de novo no mesmo cabeçalho inverte a
+    // direção; clicar em outro reinicia em ordem crescente.
+    var sortColIdx = null, sortDir = 'asc';
+    var theadThs = Array.prototype.slice.call(document.querySelectorAll('[data-risco-col-idx]'));
+    theadThs.forEach(function(th){
+      th.addEventListener('click', function(){
+        var idx = parseInt(th.getAttribute('data-risco-col-idx'), 10);
+        sortDir = (sortColIdx === idx && sortDir === 'asc') ? 'desc' : 'asc';
+        sortColIdx = idx;
+        theadThs.forEach(function(h){ h.classList.remove('sort-asc','sort-desc'); });
+        th.classList.add(sortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+        renderTabelaRisco();
+      });
+    });
+
     function renderTabelaRisco(){
       var selecionados = profMs ? profMs.getSelected() : [];
       var termo = searchEl ? searchEl.value.trim().toLowerCase() : '';
+      var colIdxFiltro = (colSelectEl && colSelectEl.value !== '') ? parseInt(colSelectEl.value, 10) : null;
+      var valoresColSelecionados = colValMs ? colValMs.getSelected() : [];
       riscoFiltrado = todos.filter(function(r){
         var profsLinha = r.ultimoProfissionais || [];
         var matchesProf = !selecionados.length || selecionados.some(function(v){ return profsLinha.indexOf(v) >= 0; });
         var matchesTexto = !termo || textoBusca(r).indexOf(termo) !== -1;
-        return matchesProf && matchesTexto;
+        var matchesColuna = (colIdxFiltro === null || !valoresColSelecionados.length)
+          || valoresColSelecionados.indexOf(RISCO_COLUNAS_FILTRAVEIS[colIdxFiltro].getValor(r)) >= 0;
+        return matchesProf && matchesTexto && matchesColuna;
       });
+      if(sortColIdx !== null){
+        riscoFiltrado.sort(function(a,b){
+          var cmp = compareRiscoPorColuna(a, b, sortColIdx);
+          return sortDir === 'asc' ? cmp : -cmp;
+        });
+      }
 
       var visiveis = riscoFiltrado.slice(0,40);
       tbody.innerHTML = visiveis.length
         ? visiveis.map(function(r){ return linhaRiscoHtml(r, selecionados); }).join('')
         : '<tr><td colspan="6" class="footnote" style="padding:14px 12px;">Nenhum paciente encontrado com esse filtro.</td></tr>';
 
-      if(metaEl) metaEl.textContent = fmtInt(visiveis.length) + (visiveis.length===1 ? ' paciente' : ' pacientes');
+      // Quantitativo mostrado acima da tabela: reflete o TOTAL filtrado
+      // (riscoFiltrado, sem cap), não a quantidade de linhas que de fato
+      // aparecem no HTML (visiveis, sempre no máximo 40) — antes ficava
+      // preso em "40" mesmo quando o filtro reduzia a lista pra menos.
+      if(metaEl) metaEl.textContent = fmtInt(riscoFiltrado.length) + (riscoFiltrado.length===1 ? ' paciente' : ' pacientes');
       if(footnoteEl){
         footnoteEl.textContent = riscoFiltrado.length > 40
           ? 'Mostrando os 40 pacientes há mais tempo sem voltar na tela (de '+fmtInt(riscoFiltrado.length)+' no total com o filtro atual) — o PDF traz a lista completa do filtro.'
