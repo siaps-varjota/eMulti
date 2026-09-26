@@ -558,6 +558,18 @@
   function escapeHtml(s){
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
+  // Texto "completo" de uma célula pra busca/filtro-por-coluna/PDF: normalmente
+  // é só o texto renderizado (cell.textContent), mas algumas células (ex.: a
+  // coluna "Profissional" de "Pessoas Atendidas", que exibe só o profissional
+  // responsável + um badge "+N") guardam o valor original completo em
+  // data-cell-text (URI-encoded) — ver renderListCard — porque o texto
+  // renderizado na tela não é mais igual ao dado bruto usado pra filtrar.
+  function cellFullText(cell){
+    if(!cell) return '';
+    var raw = cell.getAttribute ? cell.getAttribute('data-cell-text') : null;
+    if(raw === null || raw === undefined) return cell.textContent.trim();
+    try{ return decodeURIComponent(raw); }catch(e){ return cell.textContent.trim(); }
+  }
   // Debounce simples: só executa fn depois que o usuário parou de disparar
   // o evento por `ms` milissegundos (ex.: parar de digitar). Evita
   // recalcular uma lista inteira (potencialmente 1000+ linhas) a cada tecla.
@@ -2536,14 +2548,25 @@
   // outros profissionais vão codificados em data-prof-extra (JSON +
   // encodeURIComponent, pra não depender de escapeHtml lidar com aspas em
   // atributo) e são lidos pelo listener delegado em wireRiscoFiltros.
-  function profissionalCelulaHtml(r){
-    var extra = r.outrosProfissionais || [];
-    var nomePrincipal = escapeHtml(r.profissionalUltimo || r.profissional || '—');
-    if(!extra.length) return nomePrincipal;
-    var payload = extra.map(function(o){ return {n:o.nome, d: o.data ? fmtBRDate(o.data) : ''}; });
+  // Monta a célula "Profissional" no padrão "1 nome + badge +N com
+  // popover pros demais": usada tanto pela tabela "Pacientes em risco de
+  // abandono" (profissionalCelulaHtml, abaixo) quanto por "Pessoas
+  // Atendidas" (pessoasAtendidasParaMeses/renderListCard). extras é um
+  // array de {nome, data:Date|null}; a data já formatada
+  // (fmtBRDate) vai codificada em data-prof-extra (JSON +
+  // encodeURIComponent, pra não depender de escapeHtml lidar com aspas em
+  // atributo) e é lida pelo listener delegado que abre o popover
+  // (abrirProfPopover) — ver wireRiscoFiltros e wireListasProfPopover.
+  function profissionalBadgeHtml(nomePrincipal, extras){
+    var nomeHtml = escapeHtml(nomePrincipal || '—');
+    if(!extras || !extras.length) return nomeHtml;
+    var payload = extras.map(function(o){ return {n:o.nome, d: o.data ? fmtBRDate(o.data) : ''}; });
     var attr = encodeURIComponent(JSON.stringify(payload));
-    return nomePrincipal
-      + ' <button type="button" class="prof-mais-btn" data-prof-extra="'+attr+'" title="Ver outros profissionais que atenderam este paciente">+'+extra.length+'</button>';
+    return nomeHtml
+      + ' <button type="button" class="prof-mais-btn" data-prof-extra="'+attr+'" title="Ver outros profissionais envolvidos">+'+extras.length+'</button>';
+  }
+  function profissionalCelulaHtml(r){
+    return profissionalBadgeHtml(r.profissionalUltimo || r.profissional, r.outrosProfissionais);
   }
 
   function riscoTableHtml(risco){
@@ -2629,21 +2652,9 @@
 
     var riscoFiltrado = todos.slice(); // resultado do filtro atual (lista completa, sem cap de 40) — é o que o PDF usa
 
-    // Listener delegado (1 só, sobrevive aos re-renders de tbody.innerHTML)
-    // pro botão "+N" da coluna Profissional — ver profissionalCelulaHtml.
-    tbody.addEventListener('click', function(ev){
-      var btn = ev.target.closest ? ev.target.closest('.prof-mais-btn') : null;
-      if(!btn) return;
-      ev.stopPropagation();
-      var raw = btn.getAttribute('data-prof-extra') || '';
-      var itens = [];
-      try{
-        itens = (JSON.parse(decodeURIComponent(raw)) || []).map(function(it){
-          return {nome: it.n, data: it.d};
-        });
-      }catch(e){}
-      abrirProfPopover(btn, itens);
-    });
+    // O clique no botão "+N" da coluna Profissional é tratado por um
+    // listener global único no document — ver logo depois de
+    // abrirProfPopover, mais abaixo no arquivo.
 
     var profMs = profMsEl ? createMultiSelect(profMsEl, {
       placeholder: 'Todos', multi:true, search: profsOpts.length>8, showTags:true,
@@ -3211,10 +3222,33 @@
   // disponíveis (sem filtro); com meses marcados, só entram atendimentos/
   // participações daqueles meses.
   function pessoasAtendidasParaMeses(monthValues){
-    var pessoasSet = {}; // nome em maiúsculas -> {nome, at, part, datas:[Date,...], profissionais:{nome:true}}
+    var pessoasSet = {}; // nome em maiúsculas -> {nome, at, part, datas:[Date,...], profissionais:{nome:true}, ultimaDataPorProf:{nome:Date}, ultimaData:Date|null, ultimoProfissionais:{nome:true}}
     function dentroDoFiltro(d){
       if(!monthValues || !monthValues.length) return true;
       return !!d && monthValues.indexOf(monthOptionValue(d)) >= 0;
+    }
+    // Atualiza, pra uma pessoa, o(s) profissional(is) do evento MAIS
+    // RECENTE (por data) — usado como "Profissional Responsável" da linha
+    // (ver profissionalCol, mais abaixo), no mesmo padrão de empate por
+    // data usado em construirHistoricosPacientes/risco de abandono: se
+    // outro evento já tiver a mesma data (mais recente), os profissionais
+    // se acumulam (>1 "responsável" nesse empate); se for mais recente que
+    // o guardado, substitui.
+    function atualizarUltimoGeral(p, d, profsDoEvento){
+      if(!d || !profsDoEvento.length) return;
+      if(!p.ultimaData || d.getTime() > p.ultimaData.getTime()){
+        p.ultimaData = d;
+        p.ultimoProfissionais = {};
+        profsDoEvento.forEach(function(nome){ p.ultimoProfissionais[nome] = true; });
+      } else if(d.getTime() === p.ultimaData.getTime()){
+        profsDoEvento.forEach(function(nome){ p.ultimoProfissionais[nome] = true; });
+      }
+    }
+    function registrarProf(p, prof, d){
+      p.profissionais[prof] = true;
+      if(d && (!p.ultimaDataPorProf[prof] || d.getTime() > p.ultimaDataPorProf[prof].getTime())){
+        p.ultimaDataPorProf[prof] = d;
+      }
     }
     var atCached = latestSheets[suffixedName("Atendimentos")];
     if(atCached){
@@ -3227,11 +3261,15 @@
           var d = parseBRDate(r[iData]);
           if(!nome || !dentroDoFiltro(d)) return;
           var chave = nome.toUpperCase();
-          if(!pessoasSet[chave]) pessoasSet[chave] = {nome:nome, at:0, part:0, datas:[], profissionais:{}};
-          pessoasSet[chave].at++;
-          if(d) pessoasSet[chave].datas.push(d);
+          if(!pessoasSet[chave]) pessoasSet[chave] = {nome:nome, at:0, part:0, datas:[], profissionais:{}, ultimaDataPorProf:{}, ultimaData:null, ultimoProfissionais:{}};
+          var p = pessoasSet[chave];
+          p.at++;
+          if(d) p.datas.push(d);
           var prof = iProfAt >= 0 ? String(r[iProfAt]||"").trim() : '';
-          if(prof) pessoasSet[chave].profissionais[prof] = true;
+          if(prof){
+            registrarProf(p, prof, d);
+            atualizarUltimoGeral(p, d, [prof]);
+          }
         });
       }
     }
@@ -3246,13 +3284,16 @@
           var d = parseBRDate(r[iPData]);
           if(!nome || nome.indexOf("(sem lista nominal") === 0 || !dentroDoFiltro(d)) return;
           var chave = nome.toUpperCase();
-          if(!pessoasSet[chave]) pessoasSet[chave] = {nome:nome, at:0, part:0, datas:[], profissionais:{}};
-          pessoasSet[chave].part++;
-          if(d) pessoasSet[chave].datas.push(d);
+          if(!pessoasSet[chave]) pessoasSet[chave] = {nome:nome, at:0, part:0, datas:[], profissionais:{}, ultimaDataPorProf:{}, ultimaData:null, ultimoProfissionais:{}};
+          var p = pessoasSet[chave];
+          p.part++;
+          if(d) p.datas.push(d);
+          var profsDoEvento = [];
           iProfPartCols.forEach(function(idx){
             var prof = String(r[idx]||"").trim();
-            if(prof) pessoasSet[chave].profissionais[prof] = true;
+            if(prof){ registrarProf(p, prof, d); profsDoEvento.push(prof); }
           });
+          atualizarUltimoGeral(p, d, profsDoEvento);
         });
       }
     }
@@ -3293,6 +3334,30 @@
         for(var i=0;i<maxDatas;i++){
           row.push(p.datas[i] ? fmtBRDate(p.datas[i]) : "—");
         }
+        // Célula "Profissional" exibida na tela: só o(s) profissional(is)
+        // RESPONSÁVEL(is) (quem esteve no evento mais recente — ver
+        // ultimoProfissionais/atualizarUltimoGeral) + um badge "+N" com
+        // popover pros demais, só quando a pessoa tem mais de 1
+        // profissional no total (listaProf.length > 1) — mesmo padrão da
+        // tabela "Pacientes em risco de abandono" (profissionalCelulaHtml).
+        // profissionalCol (acima) continua sendo a lista completa
+        // (usada por busca/filtro/PDF — ver data-cell-text em
+        // renderListCard/cellFullText).
+        var ultimoArr = Object.keys(p.ultimoProfissionais || {}).sort(function(a,b){
+          var eA = nomeEhDaEmulti(a) ? 0 : 1, eB = nomeEhDaEmulti(b) ? 0 : 1;
+          if(eA !== eB) return eA - eB;
+          return a.localeCompare(b,'pt-BR');
+        });
+        var nomePrincipal = ultimoArr.length ? ultimoArr.join(', ') : (listaProf[0] || '—');
+        var extras = listaProf.length > 1
+          ? listaProf.filter(function(nome){ return ultimoArr.indexOf(nome) === -1; })
+              .map(function(nome){ return {nome:nome, data:(p.ultimaDataPorProf||{})[nome] || null}; })
+              .sort(function(a,b){
+                var ta = a.data ? a.data.getTime() : 0, tb = b.data ? b.data.getTime() : 0;
+                return tb - ta;
+              })
+          : [];
+        row.profissionalHtml = profissionalBadgeHtml(nomePrincipal, extras);
         return row;
       })
     };
@@ -3597,6 +3662,23 @@
     el.style.left = left + 'px';
     el.style.top = top + 'px';
   }
+  // Listener delegado ÚNICO (no document, sobrevive a qualquer re-render)
+  // pro botão "+N" da coluna Profissional — usado tanto pela tabela
+  // "Pacientes em risco de abandono" quanto por "Pessoas Atendidas" (e
+  // qualquer outra lista futura que use profissionalBadgeHtml).
+  document.addEventListener('click', function(ev){
+    var btn = ev.target.closest ? ev.target.closest('.prof-mais-btn') : null;
+    if(!btn) return;
+    ev.stopPropagation();
+    var raw = btn.getAttribute('data-prof-extra') || '';
+    var itens = [];
+    try{
+      itens = (JSON.parse(decodeURIComponent(raw)) || []).map(function(it){
+        return {nome: it.n, data: it.d};
+      });
+    }catch(e){}
+    abrirProfPopover(btn, itens);
+  });
   // Valor sentinela (não é um índice numérico de coluna) usado no <select>
   // "Filtrar por coluna…" pra representar o filtro virtual "Profissional
   // da eMulti", que substitui as 5 colunas "profissional 1".."profissional
@@ -3810,6 +3892,16 @@
       var dateColIdx = dateColIndexForList(cached.headers);
       listDateColIdx[name] = dateColIdx;
       var idxsProfNumerados = colsProfissionaisNumerados(cached.headers);
+      // Coluna "Profissional" de "Pessoas Atendidas" (isPessoasAtendidas):
+      // a célula mostra só o profissional responsável (evento mais
+      // recente) + badge "+N" com popover pros demais (ver
+      // pessoasAtendidasParaMeses/profissionalBadgeHtml), mas o VALOR de
+      // busca/filtro/PDF continua sendo a lista completa de nomes
+      // (cached.rows[i][idxProfissionalPessoas], igual sempre foi) — ela
+      // vai guardada em data-cell-text (URI-encoded) pra buscas/filtros/
+      // PDF lerem em vez do texto realmente renderizado na tela (ver
+      // cellFullText, applyFilters e gerarPdfLista).
+      var idxProfissionalPessoas = isPessoasAtendidas ? cached.headers.indexOf('Profissional') : -1;
       // Só a lista "Participantes Ativ. Coletiva" ganha o resumo em selo —
       // as 5 colunas "profissional 1".."profissional 5" ficam ocultas
       // (classe .part-col-oculta) e no lugar delas entram "AÇÃO M2" e
@@ -3835,6 +3927,10 @@
         return '<tr>'+cached.headers.map(function(h,i){
           var v = r[i];
           var oculta = isParticipantesColetiva && idxsProfNumerados.indexOf(i) !== -1;
+          if(i === idxProfissionalPessoas){
+            var textoCompleto = (v===undefined||v===null?'':String(v));
+            return '<td data-cell-text="'+encodeURIComponent(textoCompleto)+'">'+(r.profissionalHtml || escapeHtml(textoCompleto))+'</td>';
+          }
           return '<td'+(oculta ? ' class="part-col-oculta"' : '')+'>'+escapeHtml(v===undefined||v===null?'':v)+'</td>';
         }).join('') + celulasExtra + '</tr>';
       }).join('');
@@ -3983,24 +4079,24 @@
       });
       var visibleCount = 0;
       card.querySelectorAll('tbody tr').forEach(function(tr, rowIdx){
-        var matchesText = !term || tr.textContent.toLowerCase().indexOf(term) !== -1;
+        var matchesText = !term || Array.prototype.map.call(tr.children, function(td){ return cellFullText(td); }).join(' ').toLowerCase().indexOf(term) !== -1;
         var matchesCols = activeFilters.every(function(f){
           if(f.profEmulti){
             // Bate se QUALQUER uma das 5 colunas "profissional N" desta
             // linha tiver um dos nomes marcados no filtro.
             return f.colIdxs.some(function(ci){
               var cell = tr.children[ci];
-              return cell && f.vals.indexOf(cell.textContent.trim()) >= 0;
+              return cell && f.vals.indexOf(cellFullText(cell)) >= 0;
             });
           }
           var cell = tr.children[f.colIdx];
           if(!cell) return false;
           var headerName = (cached && cached.headers) ? cached.headers[f.colIdx] : '';
           if(headerName === DIAS_SEM_ATENDIMENTO_HEADER){
-            var bucket = diasBucketLabel(cell.textContent.trim());
+            var bucket = diasBucketLabel(cellFullText(cell));
             return !!bucket && f.vals.indexOf(bucket) >= 0;
           }
-          return f.vals.indexOf(cell.textContent.trim()) >= 0;
+          return f.vals.indexOf(cellFullText(cell)) >= 0;
         });
         var matchesMonth = true;
         if(selectedMonths.length && dateColIdx != null && dateColIdx >= 0){
@@ -4329,7 +4425,7 @@
     var todasLinhas = card.querySelectorAll('tbody tr');
     var linhasVisiveis = Array.prototype.filter.call(todasLinhas, function(tr){ return tr.style.display !== 'none'; })
       .map(function(tr){
-        var celulas = Array.prototype.map.call(tr.children, function(td){ return td.textContent.trim(); });
+        var celulas = Array.prototype.map.call(tr.children, function(td){ return cellFullText(td); });
         return idxsPdfOcultos.length ? celulas.filter(function(c,i){ return idxsPdfOcultos.indexOf(i) === -1; }) : celulas;
       });
     if(!linhasVisiveis.length){
