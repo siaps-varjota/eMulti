@@ -30,21 +30,32 @@
   // ---- Filtro principal da Visão geral: Quadrimestre + Mês (opcional) ----
   // Quadrimestres fixos do ano civil: Q1 Jan–Abr, Q2 Mai–Ago, Q3 Set–Dez.
   var QUAD_LABELS = ['Jan–Abr (Q1)', 'Mai–Ago (Q2)', 'Set–Dez (Q3)'];
-  // Quadrimestre selecionado (ano + índice 0/1/2). Começa no quadrimestre
-  // que contém o mês atual; muda quando o usuário mexe no filtro de Quadrimestre.
-  var quadSelecionado = quadrimestreDoMes(new Date());
+  // Quadrimestre(s) selecionado(s): agora os filtros "Ano" e
+  // "Quadrimestre" do topo são multisseleção INDEPENDENTES (ver
+  // renderAnoQuadSelects, mais abaixo) — quadsSelecionados guarda todo
+  // combo {ano, qIndex} resultante do cruzamento das duas seleções (ex.:
+  // anos [2025,2026] + quadrimestres [Q1,Q3] marcados = 4 combos). Nunca
+  // fica vazio (renderAnoQuadSelects garante isso, do mesmo jeito que
+  // currentEquipes sempre tem pelo menos 1 equipe marcada). Quando há
+  // mais de 1 combo, os meses de TODOS eles entram como uma união única
+  // (ver mesesDosQuadsSelecionadosUniao/mesesElapsedDosQuadsSelecionadosUniao,
+  // logo abaixo de mesesElapsedDoQuadrimestre) — mesma ideia da média de
+  // vários meses já usada pelo filtro de Mês, só que aplicada aos meses
+  // de cada quadrimestre marcado. Começa no quadrimestre que contém o mês
+  // atual.
+  var quadsSelecionados = [quadrimestreDoMes(new Date())];
   // Data(s) escolhida(s) no filtro de Mês. Array vazio = usa a MÉDIA dos
-  // 4 meses do quadrimestre selecionado. Um ou mais meses marcados: cada
-  // mês entra com o SEU PRÓPRIO resultado (já calculado com a janela
-  // móvel de JANELA_MESES meses terminando nele — ver
+  // meses do(s) quadrimestre(s) selecionado(s). Um ou mais meses
+  // marcados: cada mês entra com o SEU PRÓPRIO resultado (já calculado
+  // com a janela móvel de JANELA_MESES meses terminando nele — ver
   // calcularJanelaPeriodo) e, havendo mais de um, os resultados são
   // combinados pela média (mesma lógica já usada pra média do
   // quadrimestre, ver mediaDeMeses).
   // PADRÃO: já começa com o mês atual marcado (em vez de vazio/média) —
   // populateMonthSelectForQuad, mais abaixo, descarta esse valor inicial
-  // se por algum motivo o mês atual não pertencer ao quadrimestre
-  // selecionado (quadSelecionado também parte do mês atual, então isso
-  // não deve acontecer no carregamento normal da página).
+  // se por algum motivo o mês atual não pertencer ao(s) quadrimestre(s)
+  // selecionado(s) (quadsSelecionados também parte do mês atual, então
+  // isso não deve acontecer no carregamento normal da página).
   var refMonthDates = [startOfMonth(new Date())];
   function quadrimestreDoMes(d){
     return {ano: d.getFullYear(), qIndex: Math.floor(d.getMonth()/4)};
@@ -95,6 +106,60 @@
     });
     return elapsed.length ? elapsed : meses.slice(0,1);
   }
+  // ---- Combinação de múltiplos quadrimestres/anos (quadsSelecionados) ----
+  // Com os filtros "Ano" e "Quadrimestre" agora em multisseleção
+  // independente, quadsSelecionados pode ter mais de 1 combo {ano,
+  // qIndex} ao mesmo tempo. As 3 funções abaixo tratam esse conjunto como
+  // se fosse "um quadrimestre só", pra todo o resto do painel (Visão
+  // geral, Meta do quadrimestre, Tendência etc.) continuar funcionando
+  // sem precisar saber quantos combos estão marcados: a união de todos os
+  // meses envolvidos, ordenada cronologicamente, sem repetir mês (isso
+  // importa se dois combos compartilharem algum mês, o que não deveria
+  // acontecer entre quadrimestres distintos, mas evita duplicar de
+  // qualquer forma).
+  function mesesDosQuadsSelecionadosUniao(){
+    var vistos = {}, meses = [];
+    quadsSelecionados.forEach(function(c){
+      mesesDoQuadrimestre(c.ano, c.qIndex).forEach(function(m){
+        var v = monthOptionValue(m);
+        if(!vistos[v]){ vistos[v] = true; meses.push(m); }
+      });
+    });
+    meses.sort(function(a,b){ return a-b; });
+    return meses;
+  }
+  function mesesElapsedDosQuadsSelecionadosUniao(){
+    var vistos = {}, meses = [];
+    quadsSelecionados.forEach(function(c){
+      mesesElapsedDoQuadrimestre(c.ano, c.qIndex).forEach(function(m){
+        var v = monthOptionValue(m);
+        if(!vistos[v]){ vistos[v] = true; meses.push(m); }
+      });
+    });
+    meses.sort(function(a,b){ return a-b; });
+    return meses;
+  }
+  // Último mês (dia 1) entre todos os combos marcados — usado como
+  // "âncora" quando nenhum mês específico está selecionado no filtro de
+  // Mês (ver anchorMonthDate) e pro cálculo do "quadrimestre anterior"
+  // (calcularQuadrimestreAnterior).
+  function ultimoMesDosQuadsSelecionados(){
+    var max = null;
+    quadsSelecionados.forEach(function(c){
+      var d = new Date(c.ano, c.qIndex*4+3, 1);
+      if(!max || d.getTime() > max.getTime()) max = d;
+    });
+    return max || startOfMonth(new Date());
+  }
+  // Rótulo textual combinando todos os combos marcados, ex.: "Set–Dez
+  // (Q3)/2026" (1 combo) ou "Jan–Abr (Q1)/2025 + Set–Dez (Q3)/2026" (2+
+  // combos) — usado no texto "Média de …" ao lado dos filtros.
+  function labelQuadsSelecionados(){
+    return quadsSelecionados.slice()
+      .sort(function(a,b){ return (a.ano-b.ano) || (a.qIndex-b.qIndex); })
+      .map(function(c){ return QUAD_LABELS[c.qIndex]+'/'+c.ano; })
+      .join(' + ');
+  }
   // Período de um único mês (do dia 1 ao último dia do mesmo mês).
   function periodoMesUnico(d){
     var inicio = new Date(d.getFullYear(), d.getMonth(), 1, 0,0,0,0);
@@ -115,7 +180,7 @@
   // selecionado.
   function anchorMonthDate(){
     if(refMonthDates.length) return refMonthDates[refMonthDates.length-1];
-    return new Date(quadSelecionado.ano, quadSelecionado.qIndex*4+3, 1);
+    return ultimoMesDosQuadsSelecionados();
   }
   // Só as abas de dados BRUTOS — o painel calcula M1/M2 sozinho a partir
   // delas (não lê mais nenhum valor pronto da aba "Indicadores M1 e M2").
@@ -251,43 +316,80 @@
     }
     return pontos;
   }
-  // Popula o #quadMs com quadrimestres do ano atual e dos 2 anteriores
-  // (mais recente primeiro), e o #mesMs com os 4 meses do quadrimestre
-  // atualmente selecionado + uma opção vazia ("média"). Os dois são
-  // widgets de valor único (multi:false) com o mesmo visual arredondado
-  // do seletor de Equipe.
-  var quadMs = null, mesMs = null;
-  function populateQuadSelect(){
-    var container = document.getElementById('quadMs');
-    if(!container || quadMs) return; // já populado (não recria a cada render)
-    quadMs = createMultiSelect(container, {
-      placeholder: 'Selecione', multi: false, search: false,
-      onChange: function(keys){
-        var parts = keys[0].split('-');
-        quadSelecionado = {ano: +parts[0], qIndex: +parts[1]};
-        refMonthDates = []; // volta a mostrar a média do quadrimestre escolhido
-        populateMonthSelectForQuad();
-        aplicarMesReferencia(false);
-      }
+  // Popula #anoMs (anos disponíveis: ano atual + 2 anteriores) e #quadMs
+  // (Q1/Q2/Q3, sem ano — o ano agora é um filtro à parte), os dois em
+  // multisseleção independente. quadsSelecionados vira o PRODUTO de todo
+  // ano marcado em anoMs por todo quadrimestre marcado em quadMs (ex.:
+  // anos [2025,2026] + quadrimestres [Q1,Q3] marcados = os 4 combos
+  // 2025-Q1, 2025-Q3, 2026-Q1, 2026-Q3 — ver recomputarQuadsSelecionados).
+  // Como os dois filtros são independentes, não dá mais pra esconder
+  // "quadrimestre futuro" (dependeria de quais anos estão marcados), então
+  // as 3 opções de quadrimestre ficam sempre visíveis — quadrimestres
+  // ainda não iniciados simplesmente não têm nenhum mês "decorrido" (ver
+  // mesesElapsedDoQuadrimestre), então entram como projeção normalmente.
+  var quadMs = null, anoMs = null, mesMs = null;
+  // Remove duplicatas de um array de strings e ordena — usado só pra
+  // sincronizar os widgets anoMs/quadMs com quadsSelecionados.
+  function valoresUnicosOrdenados(arr){
+    var vistos = {}, out = [];
+    arr.forEach(function(v){ if(!vistos[v]){ vistos[v] = true; out.push(v); } });
+    return out.sort();
+  }
+  // Cruza a seleção atual de anoMs com a de quadMs e atualiza
+  // quadsSelecionados. Se o usuário limpar por completo um dos dois
+  // filtros (0 anos ou 0 quadrimestres marcados), restaura nos dois
+  // widgets a última seleção válida em vez de deixar o painel sem nenhum
+  // combo — mesmo princípio do filtro de Equipe, que sempre mantém pelo
+  // menos 1 equipe marcada.
+  function recomputarQuadsSelecionados(){
+    var anos = anoMs ? anoMs.getSelected().map(Number) : [];
+    var qIdxs = quadMs ? quadMs.getSelected().map(Number) : [];
+    if(!anos.length || !qIdxs.length){
+      if(anoMs) anoMs.setSelected(valoresUnicosOrdenados(quadsSelecionados.map(function(c){ return String(c.ano); })));
+      if(quadMs) quadMs.setSelected(valoresUnicosOrdenados(quadsSelecionados.map(function(c){ return String(c.qIndex); })));
+      return;
+    }
+    var combos = [];
+    anos.forEach(function(ano){
+      qIdxs.forEach(function(qIndex){ combos.push({ano:ano, qIndex:qIndex}); });
+    });
+    combos.sort(function(a,b){ return (a.ano-b.ano) || (a.qIndex-b.qIndex); });
+    quadsSelecionados = combos;
+    refMonthDates = []; // volta a mostrar a média do(s) quadrimestre(s) escolhido(s)
+    populateMonthSelectForQuad();
+    aplicarMesReferencia(false);
+  }
+  function populateAnoQuadSelects(){
+    var anoContainer = document.getElementById('anoMs');
+    var quadContainer = document.getElementById('quadMs');
+    if(!anoContainer || !quadContainer || quadMs) return; // já populado (não recria a cada render)
+    anoMs = createMultiSelect(anoContainer, {
+      placeholder: 'Selecione', multi: true, search: false, showTags: true,
+      onChange: function(){ recomputarQuadsSelecionados(); }
     });
     var anoAtual = new Date().getFullYear();
-    var opts = [];
-    for(var ano=anoAtual; ano>=anoAtual-2; ano--){
-      for(var q=2; q>=0; q--){
-        if(ano===anoAtual && q > quadSelecionado.qIndex) continue; // não mostra quadrimestre futuro do ano atual
-        opts.push({value: ano+'-'+q, label: QUAD_LABELS[q]+'/'+ano});
-      }
-    }
-    quadMs.setOptions(opts);
-    quadMs.setSelected([quadSelecionado.ano+'-'+quadSelecionado.qIndex]);
+    var anoOpts = [];
+    for(var ano=anoAtual; ano>=anoAtual-2; ano--){ anoOpts.push({value:String(ano), label:String(ano)}); }
+    anoMs.setOptions(anoOpts);
+
+    quadMs = createMultiSelect(quadContainer, {
+      placeholder: 'Selecione', multi: true, search: false, showTags: true,
+      onChange: function(){ recomputarQuadsSelecionados(); }
+    });
+    quadMs.setOptions(QUAD_LABELS.map(function(label, idx){ return {value:String(idx), label:label}; }));
+
+    anoMs.setSelected(valoresUnicosOrdenados(quadsSelecionados.map(function(c){ return String(c.ano); })));
+    quadMs.setSelected(valoresUnicosOrdenados(quadsSelecionados.map(function(c){ return String(c.qIndex); })));
     populateMonthSelectForQuad();
   }
-  // Preenche #mesMs com os 4 meses do quadrimestre selecionado — agora em
-  // multisseleção: marcar 1+ meses troca o resultado pro(s) mês(es)
-  // escolhido(s) (cada um com sua janela móvel própria, combinados pela
-  // média quando há mais de um); nenhum marcado = média do quadrimestre
-  // inteiro. As opções são refeitas toda vez que o quadrimestre muda; o
-  // widget em si (mesMs) é criado uma única vez.
+  // Preenche #mesMs com os meses do(s) quadrimestre(s) selecionado(s)
+  // (união de todos os combos marcados — ver
+  // mesesDosQuadsSelecionadosUniao) — em multisseleção: marcar 1+ meses
+  // troca o resultado pro(s) mês(es) escolhido(s) (cada um com sua janela
+  // móvel própria, combinados pela média quando há mais de um); nenhum
+  // marcado = média de todos os meses selecionados. As opções são
+  // refeitas toda vez que a seleção de Ano/Quadrimestre muda; o widget em
+  // si (mesMs) é criado uma única vez.
   function populateMonthSelectForQuad(){
     var container = document.getElementById('mesMs');
     if(!container) return;
@@ -303,13 +405,14 @@
         }
       });
     }
-    var meses = mesesDoQuadrimestre(quadSelecionado.ano, quadSelecionado.qIndex);
+    var meses = mesesDosQuadsSelecionadosUniao();
     var mesesValidos = meses.map(monthOptionValue);
     var opts = meses.map(function(d){
       return {value: monthOptionValue(d), label: monthOptionLabel(d)};
     });
-    // Ao trocar de quadrimestre, mantém só a seleção que ainda faz parte
-    // do novo quadrimestre (evita "mês fantasma" de outro período).
+    // Ao trocar de quadrimestre/ano, mantém só a seleção que ainda faz
+    // parte do novo conjunto de meses (evita "mês fantasma" de outro
+    // período).
     refMonthDates = refMonthDates.filter(function(d){ return mesesValidos.indexOf(monthOptionValue(d)) >= 0; });
     mesMs.setOptions(opts);
     mesMs.setSelected(refMonthDates.map(monthOptionValue));
@@ -5156,7 +5259,7 @@
   // disponíveis (aí o cartão mostra "Sem histórico" pra aquele indicador).
   function calcularQuadrimestreAnterior(){
     if(!latestWb) return {m1:null, m2:null, notaFinal:null};
-    var anchorAtual = new Date(quadSelecionado.ano, quadSelecionado.qIndex*4+3, 1);
+    var anchorAtual = ultimoMesDosQuadsSelecionados();
     var anchorAnterior = addMonths(anchorAtual, -4);
     var pontos = calcularSerieTendencia(latestWb, anchorAnterior, 4);
     function media(campo){
@@ -5557,9 +5660,9 @@
   }
 
   function calcularMetasQuadrimestre(numerador, denominador, thresholds, unidade, unidadeFaltam){
-    var meses = mesesDoQuadrimestre(quadSelecionado.ano, quadSelecionado.qIndex);
+    var meses = mesesDosQuadsSelecionadosUniao();
     var inicioQuad = new Date(meses[0].getFullYear(), meses[0].getMonth(), 1, 0,0,0,0);
-    var fimQuad = new Date(meses[3].getFullYear(), meses[3].getMonth()+1, 0, 23,59,59,999);
+    var fimQuad = new Date(meses[meses.length-1].getFullYear(), meses[meses.length-1].getMonth()+1, 0, 23,59,59,999);
     var hoje = new Date();
     var diasQuad = Math.round((fimQuad-inicioQuad)/86400000)+1;
     var semanasQuad = diasQuad/7;
@@ -5571,7 +5674,7 @@
       return {
         label: t.label, color: t.color, unidade: unidade, unidadeFaltam: unidadeFaltam || unidade,
         alvo: alvo,
-        mediaMes: alvo/4,
+        mediaMes: alvo/meses.length,
         mediaSemana: alvo/semanasQuad,
         faltam: faltam,
         semanasRestantes: semanasRestantes,
@@ -5862,7 +5965,7 @@
     renderPerformanceProfissionais(performanceProfissionais || []);
     renderAnalises(analisesData || null);
     document.getElementById('statusState').style.display = 'none';
-    populateQuadSelect();
+    populateAnoQuadSelects();
     document.getElementById('topEquipe').textContent = record.equipe || '—';
     document.getElementById('topPeriodo').textContent = record.periodo
       ? 'Período: ' + record.periodo.inicio + ' a ' + record.periodo.fim
@@ -6280,8 +6383,8 @@
       // entrar na média de M1/M2) e outra isolada, só o mês em si (pra
       // somar contagens de contexto e montar "Pessoas atendidas" sem
       // sobrepor dados de meses vizinhos).
-      var meses = mesesDoQuadrimestre(quadSelecionado.ano, quadSelecionado.qIndex);
-      var mesesUsados = mesesElapsedDoQuadrimestre(quadSelecionado.ano, quadSelecionado.qIndex);
+      var meses = mesesDosQuadsSelecionadosUniao();
+      var mesesUsados = mesesElapsedDosQuadsSelecionadosUniao();
       var mesesProjecaoLabel = mesesUsados.length < meses.length
         ? mesesUsados.map(monthShortLabel).join('+')
         : null;
@@ -6294,9 +6397,9 @@
       extracted = mediaDeMeses(resultadosMensais, resultadosJanela, mesesProjecaoLabel);
       periodo = {
         inicio: fmtBRDate(periodoMesUnico(meses[0]).inicio),
-        fim: fmtBRDate(periodoMesUnico(meses[3]).fim)
+        fim: fmtBRDate(periodoMesUnico(meses[meses.length-1]).fim)
       };
-      periodoDatas = {inicio: periodoMesUnico(meses[0]).inicio, fim: periodoMesUnico(meses[3]).fim};
+      periodoDatas = {inicio: periodoMesUnico(meses[0]).inicio, fim: periodoMesUnico(meses[meses.length-1]).fim};
     }
 
     var performanceProfissionais = calcularPerformanceProfissionais(latestWb, periodoDatas);
@@ -6310,13 +6413,14 @@
 
     var serie = calcularSerieTendencia(latestWb, anchorMonthDate(), TREND_MESES);
 
-    if(quadMs) quadMs.setSelected([quadSelecionado.ano+'-'+quadSelecionado.qIndex]);
+    if(anoMs) anoMs.setSelected(valoresUnicosOrdenados(quadsSelecionados.map(function(c){ return String(c.ano); })));
+    if(quadMs) quadMs.setSelected(valoresUnicosOrdenados(quadsSelecionados.map(function(c){ return String(c.qIndex); })));
     if(mesMs) mesMs.setSelected(refMonthDates.map(monthOptionValue));
     var winEl = document.getElementById('refWindowLabel');
     if(winEl){
       winEl.innerHTML = refMonthDates.length
         ? 'Resultado de <b>'+refMonthLabel()+'</b> — janela de '+JANELA_MESES+' meses cada ('+periodo.inicio+' a '+periodo.fim+')'
-        : 'Média de <b>'+QUAD_LABELS[quadSelecionado.qIndex]+'/'+quadSelecionado.ano+'</b> ('+periodo.inicio+' a '+periodo.fim+')';
+        : 'Média de <b>'+labelQuadsSelecionados()+'</b> ('+periodo.inicio+' a '+periodo.fim+')';
     }
 
     if(!saveHistory){
@@ -6386,8 +6490,8 @@
         fim: periodoMesUnico(refMonthDates[refMonthDates.length-1]).fim
       };
     }
-    var meses = mesesDoQuadrimestre(quadSelecionado.ano, quadSelecionado.qIndex);
-    return {inicio: periodoMesUnico(meses[0]).inicio, fim: periodoMesUnico(meses[3]).fim};
+    var meses = mesesDosQuadsSelecionadosUniao();
+    return {inicio: periodoMesUnico(meses[0]).inicio, fim: periodoMesUnico(meses[meses.length-1]).fim};
   }
   window.debugAtendimentosEmulti = function(){
     if(!latestWb){
