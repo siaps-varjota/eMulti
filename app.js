@@ -434,9 +434,11 @@
         classificacaoM1: classificacaoM1,
         atividadesTotais: soma('atividadesTotais'),
         atividadesCompartilhadas: soma('atividadesCompartilhadas'),
+        atividadesTotaisJanela: campoExibicao('atividadesTotais'),
         reunioesTotais: soma('reunioesTotais'),
         reunioesCompartilhadas: soma('reunioesCompartilhadas'),
         reunioesCompartilhadasContrib: soma('reunioesCompartilhadasContrib'),
+        reunioesTotaisJanela: campoExibicao('reunioesTotais'),
         denominadorM2: soma('denominadorM2'),
         numeradorM2: soma('numeradorM2'),
         atividadesCompartilhadasJanela: campoExibicao('atividadesCompartilhadas'),
@@ -1184,7 +1186,7 @@
     "Atendimento individual (M1) só conta quando o profissional responsável (coluna 'profissional' da aba Atendimentos) está cadastrado na aba PROFISSIONAIS como sendo da eMulti — atendimentos de profissionais de fora da eMulti não entram no numerador.",
     "Participação coletiva (M1) só conta quando pelo menos um dos profissionais da atividade (coluna do Responsável — identificada pelo nome do cabeçalho ou, se não encontrada por nome, pela 4ª coluna da tabela — ou 'Profissional 1' a 'Profissional 5' da aba Participantes Ativ. Coletiva) está cadastrado na aba PROFISSIONAIS como sendo da eMulti — participações conduzidas só por profissionais de fora da eMulti não entram no numerador.",
     "M2 oficial soma 3 componentes: atendimentos individuais compartilhados, atividades coletivas compartilhadas e compartilhamento de cuidado (PEC). Esta extração só consegue aproximar as parcelas de 'atividades coletivas' e 'reuniões'. Regra de ação compartilhada aplicada: pelo menos 1 profissional identificado (CNS/CPF) da eMulti — seja como responsável ou como profissional envolvido, não precisa ser especificamente o responsável — e 2 ou mais profissionais distintos no total; compartilhamentos com eSB ou com qualquer profissional da APS contam igual, desde que identificados. Ainda não é possível checar CBO/CNS propriamente ditos (só o cadastro da aba PROFISSIONAIS), nem aplicar a regra de descartar ação específica duplicada quando a mesma pessoa/grupo também teve ação compartilhada registrada no mesmo dia.",
-    "Atendimentos individuais compartilhados e compartilhamento de cuidado (PEC) NÃO entram no numerador do M2 aqui (a Lista de Atendimentos do e-SUS não indica se um atendimento individual teve mais de um profissional) — por isso o M2 calculado aqui tende a ficar ABAIXO do valor oficial do indicador.",
+    "Atendimentos individuais compartilhados e compartilhamento de cuidado (PEC) NÃO entram no numerador do M2 aqui (a Lista de Atendimentos do e-SUS não indica se um atendimento individual teve mais de um profissional; e não há aba equivalente pra solicitações de compartilhamento de cuidado no PEC) — por isso o M2 calculado aqui tende a ficar ABAIXO do valor oficial do indicador. O denominador do M2 é o TOTAL de ações da eMulti no período: atendimentos individuais + atividades coletivas (todas, específicas e compartilhadas, incluindo reuniões) — sem contar solicitações de compartilhamento de cuidado no PEC, pelo mesmo motivo.",
     "Atividade Coletiva só conta como 'compartilhada' aqui quando tem pelo menos 1 profissional da eMulti (coluna 'Total de Profissionais da EMulti', de Participantes Ativ. Coletiva) e 2 ou mais profissionais no total ('Qtd total de profissionais') — sem restrição de tipo de atividade (todos os tipos contam).",
     "Reuniões (Resumo Reuniões) só contam pra M2 quando o 'Tipo' é Reunião de Equipe, Reunião com outras equipes de saúde ou Reunião intersetorial/Conselho local de saúde/Controle social (códigos 01-03) E têm 2+ participantes E o tema 'Discussão de caso / Projeto terapêutico singular' marcado na coluna 'Temas da reunião' (a célula pode ter vários temas). Reuniões que não batem essas condições aparecem no total de reuniões, mas não entram como 'compartilhadas'.",
     "'Desempenho quadrimestral' NÃO é uma fórmula oficial do Ministério da Saúde — é uma síntese própria: Nota final = pontos M1 × 6 + pontos M2 × 4 (pontos por classificação: Regular=0,25, Suficiente=0,5, Bom=0,75, Ótimo=1), classificada como Regular < 2,6, Suficiente 2,6 a 4,9, Bom 5 a 7,5, Ótimo > 7,5 — pra dar uma visão geral rápida; os indicadores oficiais continuam sendo M1 e M2 separados.",
@@ -1588,7 +1590,20 @@
     var numeradorM2 = atividadesCompartilhadasFonte === "TOTAL RELATÓRIO AC"
       ? atividadesCompartilhadas
       : atividadesCompartilhadas + reunioesCompartilhadas;
-    var denominadorM2 = atendimentosIndividuais + numeradorM2;
+    // Denominador M2, conforme a NT 44/2026-CGIAD/DEAPS/SAPS/MS: TOTAL de
+    // ações da eMulti no período — atendimentos individuais (específicos
+    // + compartilhados), atividades coletivas (específicas +
+    // compartilhadas, incluindo reuniões) e solicitações respondidas de
+    // compartilhamento de cuidado no PEC. Usa os TOTAIS de cada aba
+    // (atendimentosIndividuais, atividadesTotais, reunioesTotais), não o
+    // numerador — o numerador é só a parcela COMPARTILHADA, que já está
+    // contida dentro desses totais (não deve ser somada de novo aqui).
+    // Compartilhamento de cuidado no PEC não é rastreável nesta extração
+    // (não existe aba equivalente), então o denominador calculado aqui
+    // tende a ficar um pouco ABAIXO do valor oficial, na mesma direção do
+    // numerador (ver nota metodológica sobre atendimentos compartilhados
+    // e PEC).
+    var denominadorM2 = atendimentosIndividuais + atividadesTotais + reunioesTotais;
     var m2 = denominadorM2 ? (numeradorM2/denominadorM2*100) : null;
     var classificacaoM2 = classificarM2(m2);
     // Parcela de reuniões que de fato ENTROU no numerador (0 nos meses em
@@ -5459,12 +5474,14 @@
     var denM1CalcGauge = d.denominadorM1CalculadoJanela!=null ? d.denominadorM1CalculadoJanela
       : (d.denominadorM1Calculado!=null ? d.denominadorM1Calculado : d.denominadorM1);
     var atividadesCompGauge = d.atividadesCompartilhadasJanela!=null ? d.atividadesCompartilhadasJanela : d.atividadesCompartilhadas;
+    var atividadesTotaisGauge = d.atividadesTotaisJanela!=null ? d.atividadesTotaisJanela : d.atividadesTotais;
     // Usa a parcela que de fato entrou no numerador (0 nos meses em que a
     // fonte foi TOTAL RELATÓRIO AC) — não o total bruto de reuniões — pra
     // os segmentos do stackbar baterem com numM2Gauge (ver
     // reunioesCompartilhadasContrib em calcularIndicadoresDoPeriodo).
     var reunioesCompGauge = d.reunioesCompartilhadasContribJanela!=null ? d.reunioesCompartilhadasContribJanela
       : (d.reunioesCompartilhadasContrib!=null ? d.reunioesCompartilhadasContrib : d.reunioesCompartilhadas);
+    var reunioesTotaisGauge = d.reunioesTotaisJanela!=null ? d.reunioesTotaisJanela : d.reunioesTotais;
 
     // ---- Composição (4 cartões: Numerador/Denominador de M1 e M2) ----
     var numM1Bar = stackbar([
@@ -5479,9 +5496,11 @@
         {label:'Reuniões compartilhadas', value:reunioesCompGauge, color:'#C68A3D'}
       ], numM2Gauge);
     var denM2Bar = stackbar([
-        {label:'Atendimentos individuais (base)', value:(denM2Gauge!=null && numM2Gauge!=null) ? denM2Gauge-numM2Gauge : atendIndGauge, color:'#CBD3C4'},
-        {label:'Atividades coletivas compartilhadas', value:atividadesCompGauge, color:'#153F35'},
-        {label:'Reuniões compartilhadas', value:reunioesCompGauge, color:'#C68A3D'}
+        {label:'Atendimentos individuais', value:atendIndGauge||0, color:'#CBD3C4'},
+        {label:'Atividades coletivas (específicas)', value:(atividadesTotaisGauge!=null && atividadesCompGauge!=null) ? Math.max(0, atividadesTotaisGauge-atividadesCompGauge) : 0, color:'#E7DFC9'},
+        {label:'Atividades coletivas compartilhadas', value:atividadesCompGauge||0, color:'#153F35'},
+        {label:'Reuniões (específicas)', value:(reunioesTotaisGauge!=null && reunioesCompGauge!=null) ? Math.max(0, reunioesTotaisGauge-reunioesCompGauge) : 0, color:'#F1E6D2'},
+        {label:'Reuniões compartilhadas', value:reunioesCompGauge||0, color:'#C68A3D'}
       ], denM2Gauge);
 
     document.getElementById('compRow').innerHTML =
