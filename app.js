@@ -3077,6 +3077,152 @@
     var nomes = ["profissional 1","profissional 2","profissional 3","profissional 4","profissional 5"];
     return nomes.map(function(n){ return colIndex(headerRow, n); }).filter(function(i){ return i>=0; });
   }
+  // ---------- "Participantes Ativ. Coletiva": selo AÇÃO M2 + modal Detalhes ----------
+  // Em vez de mostrar "Responsavel Atividade" + "profissional 1" a
+  // "profissional 5" como 5 colunas soltas, a lista resume tudo num selo
+  // "AÇÃO M2" (Compartilhada quando 2+ profissionais estão envolvidos na
+  // mesma participação, Específica quando só 1) e um botão "Detalhes" que
+  // abre a ficha completa da linha. As colunas originais continuam no DOM
+  // (só ficam ocultas via CSS — classe .part-col-oculta), então os filtros
+  // já existentes ("Profissional da eMulti", busca, exportar PDF) seguem
+  // funcionando sem duplicar lógica (ver ajuste em gerarPdfLista).
+  function nomesEnvolvidosParticipacao(headers, row){
+    var envolvidos = [];
+    var iResp = colIndex(headers, "Responsavel Atividade");
+    if(iResp >= 0){
+      var vResp = String(row[iResp]||"").trim();
+      if(vResp) envolvidos.push({rotulo:"Responsável pela atividade", nome:vResp});
+    }
+    colsProfissionaisNumerados(headers).forEach(function(ci, i){
+      var v = String(row[ci]||"").trim();
+      if(v) envolvidos.push({rotulo:"Profissional "+(i+1), nome:v});
+    });
+    return envolvidos;
+  }
+  function classificarAcaoM2Participacao(headers, row){
+    var qtd = nomesEnvolvidosParticipacao(headers, row).length;
+    if(qtd >= 2) return {classe:"compartilhada", label:"Compartilhada", qtd:qtd};
+    if(qtd === 1) return {classe:"especifica", label:"Específica", qtd:qtd};
+    return {classe:"semregistro", label:"Sem registro", qtd:qtd};
+  }
+  function acaoM2BadgeHTML(classificacao){
+    var icone = classificacao.classe === "compartilhada"
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="12" r="2.5"/><circle cx="17" cy="6" r="2.5"/><circle cx="17" cy="18" r="2.5"/><path d="M8.2 10.8l6.6-3.6M8.2 13.2l6.6 3.6"/></svg>'
+      : classificacao.classe === "especifica"
+        ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/></svg>'
+        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>';
+    return '<span class="acao-m2-badge acao-m2-'+classificacao.classe+'">'+icone+'<span>'+escapeHtml(classificacao.label)+'</span></span>';
+  }
+  function detalhesBtnHTML(listName, rowIdx){
+    return '<button type="button" class="detalhes-part-btn" data-detalhes-part-list="'+escapeHtml(listName)+'" data-detalhes-part-idx="'+rowIdx+'">'
+      + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>'
+      + '<span>Detalhes</span></button>';
+  }
+  function valorColunaParticipacao(headers, row, nomeCol){
+    var idx = colIndex(headers, nomeCol);
+    if(idx < 0) return '';
+    var v = row[idx];
+    return String(v===undefined||v===null?'':v).trim();
+  }
+  function montarDetalhesParticipacaoHTML(headers, row){
+    var participante = valorColunaParticipacao(headers, row, 'participante') || valorColunaParticipacao(headers, row, 'nome');
+    var data = valorColunaParticipacao(headers, row, 'data_hora') || valorColunaParticipacao(headers, row, 'data');
+    var equipe = valorColunaParticipacao(headers, row, 'equipe_unidade');
+    var tipoAtividade = valorColunaParticipacao(headers, row, 'tipo_atividade');
+    var totalProfEmulti = colTotalProfEmulti(headers) >= 0 ? valorColunaParticipacao(headers, row, TOTAL_PROF_EMULTI_HEADER) : '';
+    var classificacao = classificarAcaoM2Participacao(headers, row);
+    var envolvidos = nomesEnvolvidosParticipacao(headers, row);
+
+    var envolvidosHtml = envolvidos.length
+      ? envolvidos.map(function(p){
+          return '<div class="part-modal-prof"><b>'+escapeHtml(p.rotulo)+':</b> '+escapeHtml(p.nome)+'</div>';
+        }).join('')
+      : '<div class="part-modal-prof part-modal-prof-vazio">Nenhum profissional registrado nesta linha.</div>';
+
+    var camposGrid = [
+      equipe ? {label:'Equipe / Unidade', valor:equipe} : null,
+      tipoAtividade ? {label:'Tipo de Atividade', valor:tipoAtividade} : null
+    ].filter(Boolean);
+    var infoBoxes = camposGrid.length
+      ? '<div class="part-modal-grid">' + camposGrid.map(function(c){
+          return '<div><div class="part-modal-label">'+escapeHtml(c.label)+'</div><div class="part-modal-value">'+escapeHtml(c.valor)+'</div></div>';
+        }).join('') + '</div>'
+      : '';
+
+    var notaClassificacao = classificacao.classe === 'compartilhada'
+      ? classificacao.qtd+' profissionais envolvidos — conta como Ação Compartilhada (M2).'
+      : classificacao.classe === 'especifica'
+        ? 'Apenas 1 profissional envolvido — conta como Ação Específica (individual).'
+        : 'Nenhum profissional identificado nesta linha para classificar a ação.';
+
+    return '<div class="part-modal-head"><span class="part-modal-eyebrow">Detalhes da Participação</span></div>'
+      + '<h3 class="part-modal-title">'+escapeHtml(participante || 'Participação em atividade coletiva')+'</h3>'
+      + (data ? '<div class="part-modal-sub">Data: '+escapeHtml(data)+'</div>' : '')
+      + infoBoxes
+      + '<div class="part-modal-section"><div class="part-modal-section-title">Profissionais Envolvidos</div>'+envolvidosHtml+'</div>'
+      + '<div class="part-modal-section part-modal-enquadramento">'
+        + '<div class="part-modal-section-title">Enquadramento (AÇÃO M2)</div>'
+        + acaoM2BadgeHTML(classificacao)
+        + '<div class="part-modal-nota">'+escapeHtml(notaClassificacao)+'</div>'
+        + (totalProfEmulti ? '<div class="part-modal-nota">Total de profissionais da eMulti nesta atividade: '+escapeHtml(totalProfEmulti)+'</div>' : '')
+      + '</div>';
+  }
+  var partModalEl = null;
+  function partModalGarantirEl(){
+    if(partModalEl) return partModalEl;
+    var el = document.createElement('div');
+    el.className = 'part-modal-overlay';
+    el.id = 'partDetalhesOverlay';
+    el.innerHTML = '<div class="part-modal-card"><button type="button" class="part-modal-close" aria-label="Fechar">&times;</button><div class="part-modal-body"></div></div>';
+    document.body.appendChild(el);
+    el.addEventListener('click', function(ev){ if(ev.target === el) fecharDetalhesParticipacao(); });
+    el.querySelector('.part-modal-close').addEventListener('click', fecharDetalhesParticipacao);
+    partModalEl = el;
+    return el;
+  }
+  function fecharDetalhesParticipacao(){
+    if(partModalEl) partModalEl.classList.remove('is-open');
+  }
+  function abrirDetalhesParticipacao(headers, row){
+    var el = partModalGarantirEl();
+    el.querySelector('.part-modal-body').innerHTML = montarDetalhesParticipacaoHTML(headers, row);
+    el.classList.add('is-open');
+  }
+  function injectPartModalStyles(){
+    if(document.getElementById('partModalStyles')) return;
+    var css = ''
+      + '.part-col-oculta{display:none}'
+      + '.acao-m2-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:12.5px;font-weight:700;white-space:nowrap}'
+      + '.acao-m2-badge svg{width:14px;height:14px;flex:none}'
+      + '.acao-m2-compartilhada{background:#E7EEFB;color:#2F5FCB}'
+      + '.acao-m2-especifica{background:#E3F3E8;color:#1F7A45}'
+      + '.acao-m2-semregistro{background:#F1F1EF;color:#7A7A72}'
+      + '.detalhes-part-btn{display:inline-flex;align-items:center;gap:5px;border:none;background:none;color:#1F8A57;font-weight:700;font-size:12.5px;cursor:pointer;padding:4px 2px;white-space:nowrap}'
+      + '.detalhes-part-btn svg{width:15px;height:15px;flex:none}'
+      + '.detalhes-part-btn:hover{text-decoration:underline}'
+      + '.part-modal-overlay{position:fixed;inset:0;background:rgba(15,25,20,.55);display:flex;align-items:center;justify-content:center;padding:16px;z-index:9999;opacity:0;pointer-events:none;transition:opacity .15s}'
+      + '.part-modal-overlay.is-open{opacity:1;pointer-events:auto}'
+      + '.part-modal-card{position:relative;background:#fff;border-radius:16px;max-width:480px;width:100%;max-height:88vh;overflow:auto;padding:20px 20px 22px;box-shadow:0 20px 60px rgba(0,0,0,.25)}'
+      + '.part-modal-close{position:absolute;top:10px;right:12px;border:none;background:none;font-size:24px;line-height:1;color:#8B978F;cursor:pointer}'
+      + '.part-modal-eyebrow{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#153F35;background:#EEF3EA;padding:4px 9px;border-radius:8px}'
+      + '.part-modal-title{margin:10px 0 2px;font-size:18px;font-weight:800;color:#1B2E27}'
+      + '.part-modal-sub{font-size:13px;color:#8B978F;margin-bottom:12px}'
+      + '.part-modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;background:#F7F9F6;border-radius:12px;padding:12px;margin:10px 0}'
+      + '.part-modal-label{font-size:11px;font-weight:700;text-transform:uppercase;color:#8B978F;margin-bottom:2px}'
+      + '.part-modal-value{font-size:13.5px;font-weight:700;color:#1B2E27}'
+      + '.part-modal-section{margin-top:14px}'
+      + '.part-modal-section-title{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:#153F35;margin-bottom:6px}'
+      + '.part-modal-prof{font-size:13.5px;color:#1B2E27;padding:4px 0;border-bottom:1px dashed #E3E8E1}'
+      + '.part-modal-prof:last-child{border-bottom:none}'
+      + '.part-modal-prof-vazio{color:#8B978F;font-style:italic}'
+      + '.part-modal-enquadramento{background:#F2F7F3;border-radius:12px;padding:12px}'
+      + '.part-modal-nota{font-size:12.5px;color:#4B5850;margin-top:6px;font-style:italic}';
+    var el = document.createElement('style');
+    el.id = 'partModalStyles';
+    el.textContent = css;
+    document.head.appendChild(el);
+  }
+  injectPartModalStyles();
   // Valor sentinela (não é um índice numérico de coluna) usado no <select>
   // "Filtrar por coluna…" pra representar o filtro virtual "Profissional
   // da eMulti", que substitui as 5 colunas "profissional 1".."profissional
@@ -3283,14 +3429,32 @@
       hasTable = true;
       var dateColIdx = dateColIndexForList(cached.headers);
       listDateColIdx[name] = dateColIdx;
-      var theadHtml = '<tr>'+cached.headers.map(function(h){ return '<th>'+escapeHtml(h)+'</th>'; }).join('')+'</tr>';
-      var bodyHtml = cached.rows.map(function(r){
+      var idxsProfNumerados = colsProfissionaisNumerados(cached.headers);
+      // Só a lista "Participantes Ativ. Coletiva" ganha o resumo em selo —
+      // as 5 colunas "profissional 1".."profissional 5" ficam ocultas
+      // (classe .part-col-oculta) e no lugar delas entram "AÇÃO M2" e
+      // "Ações" (botão "Detalhes"). Os índices das colunas não mudam —
+      // só a exibição — pra não quebrar filtros/PDF que dependem deles.
+      var isParticipantesColetiva = (displayListName(name) === "Participantes Ativ. Coletiva") && idxsProfNumerados.length > 0;
+      var theadHtml = '<tr>'+cached.headers.map(function(h,i){
+          var oculta = isParticipantesColetiva && idxsProfNumerados.indexOf(i) !== -1;
+          return '<th'+(oculta ? ' class="part-col-oculta"' : '')+'>'+escapeHtml(h)+'</th>';
+        }).join('')
+        + (isParticipantesColetiva ? '<th>AÇÃO M2</th><th>Ações</th>' : '')
+        + '</tr>';
+      var bodyHtml = cached.rows.map(function(r, rowIdx){
+        var celulasExtra = '';
+        if(isParticipantesColetiva){
+          var classificacao = classificarAcaoM2Participacao(cached.headers, r);
+          celulasExtra = '<td>'+acaoM2BadgeHTML(classificacao)+'</td>'
+            + '<td>'+detalhesBtnHTML(name, rowIdx)+'</td>';
+        }
         return '<tr>'+cached.headers.map(function(h,i){
           var v = r[i];
-          return '<td>'+escapeHtml(v===undefined||v===null?'':v)+'</td>';
-        }).join('')+'</tr>';
+          var oculta = isParticipantesColetiva && idxsProfNumerados.indexOf(i) !== -1;
+          return '<td'+(oculta ? ' class="part-col-oculta"' : '')+'>'+escapeHtml(v===undefined||v===null?'':v)+'</td>';
+        }).join('') + celulasExtra + '</tr>';
       }).join('');
-      var idxsProfNumerados = colsProfissionaisNumerados(cached.headers);
       // Nas colunas normais (índice numérico), pula "profissional 1" a
       // "profissional 5" — elas viram UMA opção só ("Profissional da
       // eMulti"), inserida na posição da primeira delas.
@@ -3665,6 +3829,16 @@
         gerarPdfLista(btn.getAttribute('data-pdf-btn'), btn.closest('.list-card'), btn);
       });
     });
+
+    el.querySelectorAll('[data-detalhes-part-idx]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var listName = btn.getAttribute('data-detalhes-part-list');
+        var idx = parseInt(btn.getAttribute('data-detalhes-part-idx'), 10);
+        var cachedLista = latestSheets[listName];
+        if(!cachedLista || !cachedLista.rows[idx]) return;
+        abrirDetalhesParticipacao(cachedLista.headers, cachedLista.rows[idx]);
+      });
+    });
   }
 
   // ---------- Exportar lista em PDF ----------
@@ -3687,10 +3861,25 @@
       alert('Não foi possível carregar a biblioteca de geração de PDF (verifique a conexão com a internet) — tente novamente.');
       return;
     }
-    var headers = Array.prototype.map.call(card.querySelectorAll('thead th'), function(th){ return th.textContent.trim(); });
+    // Colunas ocultas na tela (ex.: "profissional 1".."5" da lista
+    // "Participantes Ativ. Coletiva", resumidas no selo "AÇÃO M2" — ver
+    // renderListCard) também ficam fora do PDF. headersOriginal preserva a
+    // posição/nome de TODAS as colunas (mesmos índices usados pelos
+    // seletores de filtro, ver filtrosAtivos abaixo); headers/linhasVisiveis
+    // (usados na tabela do PDF) já saem sem essas colunas.
+    var thEls = Array.prototype.slice.call(card.querySelectorAll('thead th'));
+    var headersOriginal = thEls.map(function(th){ return th.textContent.trim(); });
+    var idxsPdfOcultos = [];
+    thEls.forEach(function(th, i){ if(th.classList.contains('part-col-oculta')) idxsPdfOcultos.push(i); });
+    var headers = idxsPdfOcultos.length
+      ? headersOriginal.filter(function(h,i){ return idxsPdfOcultos.indexOf(i) === -1; })
+      : headersOriginal;
     var todasLinhas = card.querySelectorAll('tbody tr');
     var linhasVisiveis = Array.prototype.filter.call(todasLinhas, function(tr){ return tr.style.display !== 'none'; })
-      .map(function(tr){ return Array.prototype.map.call(tr.children, function(td){ return td.textContent.trim(); }); });
+      .map(function(tr){
+        var celulas = Array.prototype.map.call(tr.children, function(td){ return td.textContent.trim(); });
+        return idxsPdfOcultos.length ? celulas.filter(function(c,i){ return idxsPdfOcultos.indexOf(i) === -1; }) : celulas;
+      });
     if(!linhasVisiveis.length){
       alert('Nenhuma linha visível com os filtros atuais dessa lista — ajuste os filtros antes de gerar o PDF.');
       return;
@@ -3711,7 +3900,7 @@
       var colIdx = colSelect && colSelect.value !== '' ? parseInt(colSelect.value, 10) : null;
       var vals = (valWrap && valWrap._msInstance) ? valWrap._msInstance.getSelected() : [];
       if(colIdx !== null && vals.length){
-        filtrosAtivos.push(headers[colIdx]+': '+vals.join(', '));
+        filtrosAtivos.push(headersOriginal[colIdx]+': '+vals.join(', '));
       }
     });
 
