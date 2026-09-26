@@ -33,14 +33,19 @@
   // Quadrimestre selecionado (ano + índice 0/1/2). Começa no quadrimestre
   // que contém o mês atual; muda quando o usuário mexe no filtro de Quadrimestre.
   var quadSelecionado = quadrimestreDoMes(new Date());
-  // Data(s) escolhida(s) no filtro de Mês. Array vazio = padrão => usa a
-  // MÉDIA dos 4 meses do quadrimestre selecionado. Um ou mais meses
-  // marcados: cada mês entra com o SEU PRÓPRIO resultado (já calculado
-  // com a janela móvel de JANELA_MESES meses terminando nele — ver
+  // Data(s) escolhida(s) no filtro de Mês. Array vazio = usa a MÉDIA dos
+  // 4 meses do quadrimestre selecionado. Um ou mais meses marcados: cada
+  // mês entra com o SEU PRÓPRIO resultado (já calculado com a janela
+  // móvel de JANELA_MESES meses terminando nele — ver
   // calcularJanelaPeriodo) e, havendo mais de um, os resultados são
   // combinados pela média (mesma lógica já usada pra média do
   // quadrimestre, ver mediaDeMeses).
-  var refMonthDates = [];
+  // PADRÃO: já começa com o mês atual marcado (em vez de vazio/média) —
+  // populateMonthSelectForQuad, mais abaixo, descarta esse valor inicial
+  // se por algum motivo o mês atual não pertencer ao quadrimestre
+  // selecionado (quadSelecionado também parte do mês atual, então isso
+  // não deve acontecer no carregamento normal da página).
+  var refMonthDates = [startOfMonth(new Date())];
   function quadrimestreDoMes(d){
     return {ano: d.getFullYear(), qIndex: Math.floor(d.getMonth()/4)};
   }
