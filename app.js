@@ -2320,6 +2320,7 @@
         profissionalUltimo: ultimoProfissionaisArr.join(', ') || '—',
         outrosProfissionais: outrosProfissionais,
         ultimoProfissionais: ultimoProfissionaisArr,
+        todosProfissionais: todosProfs,
         equipe: equipeTxt || '—'
       });
     });
@@ -2576,6 +2577,8 @@
       + '<div class="list-filters">'
       +   '<div class="list-month-filter"><label class="list-month-filter-label">Profissional (última consulta)</label>'
       +     '<div class="ms-wrap" id="riscoProfMs"></div></div>'
+      +   '<div class="list-month-filter"><label class="list-month-filter-label">Profissional</label>'
+      +     '<div class="ms-wrap" id="riscoProfAnyMs"></div></div>'
       +   colFilterHtml
       + '</div>'
       + '<input class="list-search" type="text" placeholder="Filtrar nesta lista…" id="riscoSearchInput">'
@@ -2607,6 +2610,13 @@
     var profsSet = {};
     todos.forEach(function(r){ (r.ultimoProfissionais||[]).forEach(function(nome){ profsSet[nome] = true; }); });
     var profsOpts = Object.keys(profsSet).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); })
+      .map(function(nome){ return {value:nome, label:nome}; });
+    // Opções do filtro "Profissional" (independente de última consulta):
+    // qualquer profissional que já atendeu PELO MENOS UM paciente em risco
+    // em QUALQUER consulta do histórico dele, não só a mais recente.
+    var profsAnySet = {};
+    todos.forEach(function(r){ (r.todosProfissionais||[]).forEach(function(nome){ profsAnySet[nome] = true; }); });
+    var profsAnyOpts = Object.keys(profsAnySet).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); })
       .map(function(nome){ return {value:nome, label:nome}; });
 
     // Texto de busca de cada paciente, pré-montado (mesmas colunas
@@ -2640,6 +2650,13 @@
       onChange: function(){ renderTabelaRisco(); }
     }) : null;
     if(profMs) profMs.setOptions(profsOpts);
+
+    var profAnyMsEl = document.getElementById('riscoProfAnyMs');
+    var profAnyMs = profAnyMsEl ? createMultiSelect(profAnyMsEl, {
+      placeholder: 'Todos', multi:true, search: profsAnyOpts.length>8, showTags:true,
+      onChange: function(){ renderTabelaRisco(); }
+    }) : null;
+    if(profAnyMs) profAnyMs.setOptions(profsAnyOpts);
 
     if(searchEl) searchEl.addEventListener('input', renderTabelaRisco);
 
@@ -2689,16 +2706,24 @@
 
     function renderTabelaRisco(){
       var selecionados = profMs ? profMs.getSelected() : [];
+      var selecionadosAny = profAnyMs ? profAnyMs.getSelected() : [];
       var termo = searchEl ? searchEl.value.trim().toLowerCase() : '';
       var colIdxFiltro = (colSelectEl && colSelectEl.value !== '') ? parseInt(colSelectEl.value, 10) : null;
       var valoresColSelecionados = colValMs ? colValMs.getSelected() : [];
       riscoFiltrado = todos.filter(function(r){
         var profsLinha = r.ultimoProfissionais || [];
         var matchesProf = !selecionados.length || selecionados.some(function(v){ return profsLinha.indexOf(v) >= 0; });
+        // "Profissional" (independente de ser a última consulta ou não):
+        // olha pra r.todosProfissionais (qualquer profissional que já
+        // atendeu o paciente em algum momento do histórico) — diferente do
+        // filtro "Profissional (última consulta)" acima, que só olha
+        // r.ultimoProfissionais.
+        var profsLinhaAny = r.todosProfissionais || [];
+        var matchesProfAny = !selecionadosAny.length || selecionadosAny.some(function(v){ return profsLinhaAny.indexOf(v) >= 0; });
         var matchesTexto = !termo || textoBusca(r).indexOf(termo) !== -1;
         var matchesColuna = (colIdxFiltro === null || !valoresColSelecionados.length)
           || valoresColSelecionados.indexOf(RISCO_COLUNAS_FILTRAVEIS[colIdxFiltro].getValor(r)) >= 0;
-        return matchesProf && matchesTexto && matchesColuna;
+        return matchesProf && matchesProfAny && matchesTexto && matchesColuna;
       });
       if(sortColIdx !== null){
         riscoFiltrado.sort(function(a,b){
