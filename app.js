@@ -1120,6 +1120,20 @@
     }
     return -1;
   }
+  // Coluna do profissional "Responsável" na aba "Participantes Ativ.
+  // Coletiva": SEMPRE a 4ª coluna (índice 3) da tabela — é onde esse
+  // profissional fica registrado nessa aba (junto com Profissional 1 a
+  // 5, na mesma linha). Não busca mais por nome de cabeçalho: a tentativa
+  // anterior de achar por nome ("responsavel"/"Responsável"/"Responsavel
+  // Atividade") não batia com o cabeçalho real da planilha e, pior,
+  // podia achar por engano outra coluna antes de chegar no fallback
+  // posicional — por isso a posição fixa é a fonte principal agora, com
+  // busca por nome só como reforço se a tabela tiver 4 colunas ou menos
+  // (não deveria acontecer nesta aba).
+  function colRespParticipantes(headerRow){
+    if(headerRow && headerRow.length > 3) return 3;
+    return colIndex(headerRow, "responsavel");
+  }
   function toInt(v){
     var n = parseInt(String(v===undefined||v===null?"":v).trim(), 10);
     return isNaN(n) ? 0 : n;
@@ -1164,7 +1178,7 @@
     "Cálculo feito pelo próprio painel, direto dos dados brutos extraídos do e-SUS PEC (Atendimentos + Registro Tardio + Atividade Coletiva + Reuniões) para esta equipe/EMULTI, seguindo as fórmulas das Notas Metodológicas M1 (NT 43/2026-CGIAD/DEAPS/SAPS/MS) e M2 (NT 44/2026-CGIAD/DEAPS/SAPS/MS), na janela dos últimos 4 meses (ver 'Período' no topo da página) — não um quadrimestre fixo do calendário.",
     "M1 usa NOME da pessoa (a nota oficial usa CPF/CNS) — pessoas diferentes com o mesmo nome seriam contadas como se fossem uma só.",
     "Atendimento individual (M1) só conta quando o profissional responsável (coluna 'profissional' da aba Atendimentos) está cadastrado na aba PROFISSIONAIS como sendo da eMulti — atendimentos de profissionais de fora da eMulti não entram no numerador.",
-    "Participação coletiva (M1) só conta quando pelo menos um dos profissionais da atividade (colunas 'Responsavel Atividade' ou 'Profissional 1' a 'Profissional 5' da aba Participantes Ativ. Coletiva) está cadastrado na aba PROFISSIONAIS como sendo da eMulti — participações conduzidas só por profissionais de fora da eMulti não entram no numerador. Quando a linha de Participantes não traz o 'Responsavel Atividade' preenchido, ele é buscado na aba Resumo Atividade Coletiva (por ID da atividade ou por data+equipe+tipo) antes de aplicar esse filtro.",
+    "Participação coletiva (M1) só conta quando pelo menos um dos profissionais da atividade (coluna do Responsável — identificada pelo nome do cabeçalho ou, se não encontrada por nome, pela 4ª coluna da tabela — ou 'Profissional 1' a 'Profissional 5' da aba Participantes Ativ. Coletiva) está cadastrado na aba PROFISSIONAIS como sendo da eMulti — participações conduzidas só por profissionais de fora da eMulti não entram no numerador.",
     "M2 oficial soma 3 componentes: atendimentos individuais compartilhados, atividades coletivas compartilhadas e compartilhamento de cuidado (PEC). Esta extração só consegue aproximar as parcelas de 'atividades coletivas' e 'reuniões'. Regra de ação compartilhada aplicada: pelo menos 1 profissional identificado (CNS/CPF) da eMulti — seja como responsável ou como profissional envolvido, não precisa ser especificamente o responsável — e 2 ou mais profissionais distintos no total; compartilhamentos com eSB ou com qualquer profissional da APS contam igual, desde que identificados. Ainda não é possível checar CBO/CNS propriamente ditos (só o cadastro da aba PROFISSIONAIS), nem aplicar a regra de descartar ação específica duplicada quando a mesma pessoa/grupo também teve ação compartilhada registrada no mesmo dia.",
     "Atendimentos individuais compartilhados e compartilhamento de cuidado (PEC) NÃO entram no numerador do M2 aqui (a Lista de Atendimentos do e-SUS não indica se um atendimento individual teve mais de um profissional) — por isso o M2 calculado aqui tende a ficar ABAIXO do valor oficial do indicador.",
     "Atividade Coletiva só conta como 'compartilhada' aqui quando o tipo_atividade é Educação em saúde, Atendimento em grupo, Avaliação/Procedimento coletivo ou Mobilização social (códigos 04-07) E tem pelo menos 1 profissional da eMulti (coluna 'Total de Profissionais da EMulti', de Participantes Ativ. Coletiva) e 2 ou mais profissionais no total ('Qtd total de profissionais').",
@@ -1198,8 +1212,10 @@
   }
   function criarCalculadoraTotalProfEmulti(partHeader){
     var iReal = colTotalProfEmulti(partHeader);
-    var profCols = ["Responsavel Atividade","profissional 1","profissional 2","profissional 3","profissional 4","profissional 5"]
-      .map(function(n){ return colIndex(partHeader, n); })
+    var profCols = [colRespParticipantes(partHeader)].concat(
+        ["profissional 1","profissional 2","profissional 3","profissional 4","profissional 5"]
+          .map(function(n){ return colIndex(partHeader, n); })
+      )
       .filter(function(i){ return i >= 0; });
     var podeVirtual = profissionaisRoster.length > 0 && profCols.length > 0;
     return {
@@ -1288,95 +1304,6 @@
       }
     };
   }
-  // Liga cada linha de "Participantes Ativ. Coletiva" a uma linha de
-  // "Resumo Atividade Coletiva" pra DESCOBRIR o profissional Responsável
-  // da atividade quando a própria linha de Participantes não traz essa
-  // coluna preenchida. Isso acontece porque o e-SUS às vezes só registra
-  // o responsável no nível da atividade agregada (Resumo), não em cada
-  // linha de participação — e sem o responsável, tanto o filtro "tem
-  // profissional da eMulti" (M1) quanto a contagem de profissionais
-  // envolvidos (classificação Compartilhada/Específica do M2) ignoram um
-  // profissional que na verdade participou (ex.: responsável da eMulti +
-  // 1 profissional externo = deveria contar como 2, não como 1).
-  // Ligação por id_atividade quando as duas abas têm; senão por
-  // data+equipe+tipo (SEM usar responsável na chave, já que é
-  // exatamente o dado que está faltando e queremos descobrir). Em caso
-  // de ambiguidade (mais de um responsável diferente pra mesma chave),
-  // não arrisca: não preenche nada pra aquela chave.
-  function criarLigacaoResponsavelAtividade(racRows, partHeader){
-    if(!racRows || racRows.length < 2) return null;
-    var racHeader = racRows[0];
-    var racBody = racRows.slice(1);
-    var rR = colIndex(racHeader, "responsavel");
-    if(rR < 0) return null;
-    function eqKey(v){
-      var t = normalizeText(v);
-      for(var i=0;i<EQUIPES.length;i++){ if(t.indexOf(EQUIPES[i].matchKeyword) !== -1) return EQUIPES[i].key; }
-      return t.trim();
-    }
-    function dataKey(v){
-      var d = parseBRDate(v);
-      return d ? (d.getFullYear()+"-"+d.getMonth()+"-"+d.getDate()) : String(v||"").trim();
-    }
-    function limpa(v){ return normalizeText(v).replace(/\s+/g," ").trim(); }
-    var idP = colIndex(partHeader, "id_atividade"), idR = colIndex(racHeader, "id_atividade");
-    var dP = colIndex(partHeader,"data"), dR = colIndex(racHeader,"data");
-    var eP = colIndex(partHeader,"equipe_unidade"); if(eP<0) eP = equipeColIndex(partHeader);
-    var eR = colIndex(racHeader,"equipe_unidade"); if(eR<0) eR = equipeColIndex(racHeader);
-    var tP = colIndex(partHeader,"tipo_atividade"), tR = colIndex(racHeader,"tipo_atividade");
-    var niveis = [];
-    if(idP>=0 && idR>=0){
-      niveis.push({kp:function(r){ return String(r[idP]||"").trim(); },
-                   kr:function(r){ return String(r[idR]||"").trim(); }});
-    }
-    if(dP>=0 && dR>=0 && eP>=0 && eR>=0 && tP>=0 && tR>=0){
-      niveis.push({kp:function(r){ return [dataKey(r[dP]), eqKey(r[eP]), limpa(r[tP])].join("|"); },
-                   kr:function(r){ return [dataKey(r[dR]), eqKey(r[eR]), limpa(r[tR])].join("|"); }});
-    }
-    if(dP>=0 && dR>=0 && eP>=0 && eR>=0){
-      niveis.push({kp:function(r){ return [dataKey(r[dP]), eqKey(r[eP])].join("|"); },
-                   kr:function(r){ return [dataKey(r[dR]), eqKey(r[eR])].join("|"); }});
-    }
-    if(!niveis.length) return null;
-    niveis.forEach(function(nv){
-      nv.mapa = {};
-      racBody.forEach(function(r){
-        var k = nv.kr(r);
-        var resp = limpa(r[rR]) ? String(r[rR]).trim() : "";
-        if(!k || !resp || /^\|+$/.test(k)) return;
-        if(nv.mapa.hasOwnProperty(k) && nv.mapa[k] !== resp) nv.mapa[k] = null; // ambíguo
-        else nv.mapa[k] = resp;
-      });
-    });
-    return function(partRow){
-      for(var i=0;i<niveis.length;i++){
-        var k = niveis[i].kp(partRow);
-        if(k && niveis[i].mapa.hasOwnProperty(k) && niveis[i].mapa[k]) return niveis[i].mapa[k];
-      }
-      return undefined;
-    };
-  }
-  // Aplica o backfill acima a uma matriz [header, ...linhas] de
-  // Participantes Ativ. Coletiva, devolvendo uma nova matriz (não
-  // modifica a original) com a coluna "Responsavel Atividade" preenchida
-  // onde estava vazia e havia uma ligação não-ambígua com o Resumo.
-  function preencherResponsavelAusente(partRowsMatriz, racRowsMatriz){
-    if(!partRowsMatriz || !partRowsMatriz.length) return partRowsMatriz;
-    var partHeader = partRowsMatriz[0];
-    var iResp = colIndex(partHeader, "Responsavel Atividade");
-    if(iResp < 0) return partRowsMatriz;
-    var ligacao = criarLigacaoResponsavelAtividade(racRowsMatriz, partHeader);
-    if(!ligacao) return partRowsMatriz;
-    var corpo = partRowsMatriz.slice(1).map(function(r){
-      if(String(r[iResp]||"").trim()) return r;
-      var achado = ligacao(r);
-      if(!achado) return r;
-      var nova = r.slice();
-      nova[iResp] = achado;
-      return nova;
-    });
-    return [partHeader].concat(corpo);
-  }
 
   // Motor de cálculo: recebe o "workbook" (abas já em formato de matriz de
   // linhas) e o período {inicio, fim} (objetos Date) e calcula M1, M2 e o
@@ -1423,14 +1350,6 @@
 
     // ---------- Participantes Ativ. Coletiva ----------
     var partRows = rowsOf("Participantes Ativ. Coletiva");
-    // Preenche o "Responsavel Atividade" ausente em linhas de Participantes
-    // usando a aba Resumo Atividade Coletiva (ver preencherResponsavelAusente
-    // / criarLigacaoResponsavelAtividade) ANTES de qualquer filtro usar essa
-    // coluna — sem isso, uma participação cujo responsável é da eMulti mas
-    // não veio preenchido nesta aba entrava como "sem profissional eMulti"
-    // no M1 e como "1 profissional só" (Específica) no M2, quando na
-    // verdade deveria contar o responsável.
-    partRows = preencherResponsavelAusente(partRows, rowsOf("Resumo Atividade Coletiva"));
     var partHeader = partRows[0] || [];
     var iPData = colIndex(partHeader, "data");
     var iPNome = colIndex(partHeader, "participante");
@@ -1440,7 +1359,7 @@
     // cadastrado na aba PROFISSIONAIS como sendo da eMulti. Sem isso, o
     // numerador do M1 contaria participações coletivas conduzidas só por
     // profissionais de fora da eMulti (outros programas/equipes).
-    var iPResp = colIndex(partHeader, "Responsavel Atividade");
+    var iPResp = colRespParticipantes(partHeader);
     var iPProf1 = colIndex(partHeader, "profissional 1");
     var iPProf2 = colIndex(partHeader, "profissional 2");
     var iPProf3 = colIndex(partHeader, "profissional 3");
@@ -3157,8 +3076,11 @@
   // parava na primeira batida ("profissional 1"), então ignorava o
   // Responsável e as colunas 2 a 5.
   function colsProfissionaisParticipantes(headerRow){
-    var nomes = ["Responsavel Atividade","profissional 1","profissional 2","profissional 3","profissional 4","profissional 5"];
-    var idxs = nomes.map(function(n){ return colIndex(headerRow, n); }).filter(function(i){ return i>=0; });
+    var idxs = [colRespParticipantes(headerRow)].concat(
+        ["profissional 1","profissional 2","profissional 3","profissional 4","profissional 5"]
+          .map(function(n){ return colIndex(headerRow, n); })
+      )
+      .filter(function(i){ return i>=0; });
     if(idxs.length) return idxs;
     var single = profissionalColIndex(headerRow);
     return single >= 0 ? [single] : [];
@@ -3185,14 +3107,24 @@
   // funcionando sem duplicar lógica (ver ajuste em gerarPdfLista).
   function nomesEnvolvidosParticipacao(headers, row){
     var envolvidos = [];
-    var iResp = colIndex(headers, "Responsavel Atividade");
+    var iResp = colRespParticipantes(headers);
     if(iResp >= 0){
       var vResp = String(row[iResp]||"").trim();
-      if(vResp) envolvidos.push({rotulo:"Responsável pela atividade", nome:vResp});
+      if(vResp){
+        var respEhEmulti = nomeEhDaEmulti(vResp);
+        envolvidos.push({rotulo: respEhEmulti ? "Responsável (eMulti)" : "Responsável", nome:vResp});
+      }
     }
-    colsProfissionaisNumerados(headers).forEach(function(ci, i){
+    var secundarios = [];
+    colsProfissionaisNumerados(headers).forEach(function(ci){
       var v = String(row[ci]||"").trim();
-      if(v) envolvidos.push({rotulo:"Profissional "+(i+1), nome:v});
+      if(v) secundarios.push(v);
+    });
+    secundarios.forEach(function(nome, i){
+      envolvidos.push({
+        rotulo: "Profissional envolvido (secundário)" + (secundarios.length > 1 ? " "+(i+1) : ""),
+        nome: nome
+      });
     });
     return envolvidos;
   }
@@ -3435,20 +3367,6 @@
     var partRowsBrutas = wsPart ? sheetToRows(wsPart).filter(function(r){
       return r.some(function(c){ return String(c).trim() !== ""; });
     }) : [];
-    // Mesmo backfill do "Responsavel Atividade" ausente aplicado no motor
-    // de cálculo (ver preencherResponsavelAusente) — sem isso, a coluna
-    // "Total de Profissionais da EMulti" e o selo/modal "AÇÃO M2" da
-    // tabela ficavam em desacordo com M1/M2 calculados (uma participação
-    // podia aparecer como "Específica" na tela mas ter entrado como
-    // compartilhada no indicador, ou vice-versa).
-    var nomeRacAba = suffixedName("Resumo Atividade Coletiva");
-    var wsRac = wb.Sheets[nomeRacAba];
-    var racRowsBrutas = wsRac ? sheetToRows(wsRac).filter(function(r){
-      return r.some(function(c){ return String(c).trim() !== ""; });
-    }) : [];
-    if(partRowsBrutas.length && racRowsBrutas.length){
-      partRowsBrutas = preencherResponsavelAusente(partRowsBrutas, racRowsBrutas);
-    }
     var totalEmultiCalc = partRowsBrutas.length ? criarCalculadoraTotalProfEmulti(partRowsBrutas[0]) : null;
     wb.SheetNames.forEach(function(name){
       var rows = sheetToRows(wb.Sheets[name]).filter(function(r){
@@ -3498,17 +3416,6 @@
       //   SUBSTITUÍDA pelo valor de Participantes (ligação pelo ID da
       //   atividade); se não existir, é acrescentada no fim.
       var nomeExib = displayListName(name);
-      // Preenche o "Responsavel Atividade" ausente NESTA cópia de exibição
-      // (headers/dataRows lidos de novo aqui, independente de
-      // partRowsBrutas) ANTES de calcular a coluna "Total de Profissionais
-      // da EMulti" — senão a tabela e o modal "Detalhes" continuavam
-      // mostrando "Específica" pra participações cujo responsável só está
-      // na aba Resumo, mesmo com a lógica de cálculo já corrigida acima.
-      if(nomeExib === "Participantes Ativ. Coletiva" && racRowsBrutas.length){
-        var matrizBackfill = preencherResponsavelAusente([headers].concat(dataRows), racRowsBrutas);
-        headers = matrizBackfill[0];
-        dataRows = matrizBackfill.slice(1);
-      }
       if(nomeExib === "Participantes Ativ. Coletiva" && totalEmultiCalc && totalEmultiCalc.disponivel
          && colTotalProfEmulti(headers) < 0){
         var calcLinha = totalEmultiCalc.calcular;
