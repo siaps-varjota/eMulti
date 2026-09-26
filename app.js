@@ -2139,7 +2139,7 @@
       if(!nome || !d) return;
       if(!dataDentroDoFiltro(d)) return;
       var chave = nome.toUpperCase();
-      if(!porPaciente[chave]) porPaciente[chave] = {nome:nome, datas:[], profissionais:{}, consultasPorProf:{}, equipes:{}, ultimaData:null, ultimaProfissionais:{}, totalAtendimentos:0};
+      if(!porPaciente[chave]) porPaciente[chave] = {nome:nome, datas:[], profissionais:{}, consultasPorProf:{}, ultimaDataPorProf:{}, equipes:{}, ultimaData:null, ultimaProfissionais:{}, totalAtendimentos:0};
       var p = porPaciente[chave];
       var qtd = iQtd >= 0 ? Number(String(r[iQtd]||'').replace(',', '.')) : 1;
       if(!isFinite(qtd) || qtd < 0) qtd = 1;
@@ -2149,6 +2149,13 @@
       if(prof){
         p.profissionais[prof] = true;
         p.consultasPorProf[prof] = (p.consultasPorProf[prof] || 0) + 1;
+        // Última data em que ESSE profissional específico atendeu o
+        // paciente (independente de ser ou não quem fez a última consulta
+        // geral) — usada pro popover "Também atendido por" na lista de
+        // risco de abandono (ver risco.push, mais abaixo).
+        if(!p.ultimaDataPorProf[prof] || d.getTime() > p.ultimaDataPorProf[prof].getTime()){
+          p.ultimaDataPorProf[prof] = d;
+        }
       }
       // Guarda o(s) profissional(is) da consulta MAIS RECENTE (por data) de
       // cada paciente, pra poder destacar quem de fato atendeu na última
@@ -2290,6 +2297,19 @@
       }).join(', ');
       var profissionalTxt = todosProfs.join(', ');
       var ultimoProfissionaisArr = Object.keys(ultimosProfsSet).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); });
+      // Coluna "Profissional" da tabela: mostra só quem fez a ÚLTIMA
+      // consulta (ultimoProfissionaisArr — normalmente 1 nome, só vira 2+
+      // se houve empate de data). Os demais profissionais do histórico
+      // (todosProfs menos os da última consulta) viram itens de um popover
+      // "Também atendido por…", cada um com a data da SUA última consulta
+      // (ultimaDataPorProf), do mais recente pro mais antigo.
+      var outrosProfissionais = todosProfs
+        .filter(function(nomeProf){ return !ultimosProfsSet[nomeProf]; })
+        .map(function(nomeProf){ return {nome: nomeProf, data: (p.ultimaDataPorProf||{})[nomeProf] || null}; })
+        .sort(function(a,b){
+          var ta = a.data ? a.data.getTime() : 0, tb = b.data ? b.data.getTime() : 0;
+          return tb - ta;
+        });
       var equipeTxt = equipeLabelUnica || Object.keys(p.equipes||{}).sort().join(' + ');
       risco.push({
         nome:p.nome, diasDesde:diasDesde, ultima:ultima,
@@ -2297,6 +2317,8 @@
         consultasPorProf:p.consultasPorProf || {},
         profissional: profissionalTxt || '—',
         profissionalHtml: profissionalHtml || '—',
+        profissionalUltimo: ultimoProfissionaisArr.join(', ') || '—',
+        outrosProfissionais: outrosProfissionais,
         ultimoProfissionais: ultimoProfissionaisArr,
         equipe: equipeTxt || '—'
       });
@@ -2479,16 +2501,24 @@
     // profissional(is) em consultas anteriores. Isso fazia a coluna
     // "Consultas" exibida na tela não bater com o valor que a ordenação/
     // filtro realmente usam, parecendo que o filtro "não reconhecia" o
-    // número certo.
+    // número certo. (r.profissionalHtml não é mais usado na célula — ver
+    // profissionalCelulaHtml, abaixo — mas continua guardado em "risco"
+    // caso sirva de referência futura.)
     var temFiltroProf = profissionaisSelecionados && profissionaisSelecionados.length;
     var nomesVisiveis = temFiltroProf
       ? profissionaisSelecionados.filter(function(nome){
           return (r.consultasPorProf || {})[nome] > 0;
         })
       : [];
+    // Coluna "Profissional": com filtro específico marcado, mostra só quem
+    // foi filtrado (comportamento de antes). Sem filtro ("Todos"), mostra
+    // só quem fez a ÚLTIMA consulta (r.profissionalUltimo) + um badge
+    // "+N" quando o paciente também foi visto por outros profissionais
+    // antes — clicar no badge abre um popover com esses nomes e a data da
+    // última consulta de cada um (ver profissionalBadgeHtml/abrirProfPopover).
     var profissional = temFiltroProf
-      ? (nomesVisiveis.join(', ') || (r.profissionalHtml || escapeHtml(r.profissional)))
-      : (r.profissionalHtml || escapeHtml(r.profissional));
+      ? escapeHtml(nomesVisiveis.join(', ') || r.profissionalUltimo || r.profissional)
+      : profissionalCelulaHtml(r);
     var totalConsultas = (temFiltroProf && nomesVisiveis.length)
       ? nomesVisiveis.reduce(function(total, nome){
           return total + ((r.consultasPorProf || {})[nome] || 0);
@@ -2496,6 +2526,23 @@
       : r.totalConsultas;
     var profAttr = escapeHtml((r.ultimoProfissionais||[]).join('|'));
     return '<tr data-ultimo-prof="'+profAttr+'"><td>'+escapeHtml(r.nome)+'</td><td>'+profissional+'</td><td>'+escapeHtml(r.equipe)+'</td><td>'+fmtInt(totalConsultas)+'</td><td>'+fmtBRDate(r.ultima)+'</td><td>'+fmtInt(r.diasDesde)+' dias</td></tr>';
+  }
+
+  // Monta a célula "Profissional" no modo padrão (sem filtro de
+  // profissional marcado): nome de quem fez a última consulta, mais um
+  // botão "+N" (só quando há outros profissionais no histórico do
+  // paciente) que abre o popover com "Também atendido por…". Os dados dos
+  // outros profissionais vão codificados em data-prof-extra (JSON +
+  // encodeURIComponent, pra não depender de escapeHtml lidar com aspas em
+  // atributo) e são lidos pelo listener delegado em wireRiscoFiltros.
+  function profissionalCelulaHtml(r){
+    var extra = r.outrosProfissionais || [];
+    var nomePrincipal = escapeHtml(r.profissionalUltimo || r.profissional || '—');
+    if(!extra.length) return nomePrincipal;
+    var payload = extra.map(function(o){ return {n:o.nome, d: o.data ? fmtBRDate(o.data) : ''}; });
+    var attr = encodeURIComponent(JSON.stringify(payload));
+    return nomePrincipal
+      + ' <button type="button" class="prof-mais-btn" data-prof-extra="'+attr+'" title="Ver outros profissionais que atenderam este paciente">+'+extra.length+'</button>';
   }
 
   function riscoTableHtml(risco){
@@ -2571,6 +2618,22 @@
     }
 
     var riscoFiltrado = todos.slice(); // resultado do filtro atual (lista completa, sem cap de 40) — é o que o PDF usa
+
+    // Listener delegado (1 só, sobrevive aos re-renders de tbody.innerHTML)
+    // pro botão "+N" da coluna Profissional — ver profissionalCelulaHtml.
+    tbody.addEventListener('click', function(ev){
+      var btn = ev.target.closest ? ev.target.closest('.prof-mais-btn') : null;
+      if(!btn) return;
+      ev.stopPropagation();
+      var raw = btn.getAttribute('data-prof-extra') || '';
+      var itens = [];
+      try{
+        itens = (JSON.parse(decodeURIComponent(raw)) || []).map(function(it){
+          return {nome: it.n, data: it.d};
+        });
+      }catch(e){}
+      abrirProfPopover(btn, itens);
+    });
 
     var profMs = profMsEl ? createMultiSelect(profMsEl, {
       placeholder: 'Todos', multi:true, search: profsOpts.length>8, showTags:true,
@@ -3440,13 +3503,75 @@
       + '.part-modal-prof:last-child{border-bottom:none}'
       + '.part-modal-prof-vazio{color:#8B978F;font-style:italic}'
       + '.part-modal-enquadramento{background:#F2F7F3;border-radius:12px;padding:12px}'
-      + '.part-modal-nota{font-size:12.5px;color:#4B5850;margin-top:6px;font-style:italic}';
+      + '.part-modal-nota{font-size:12.5px;color:#4B5850;margin-top:6px;font-style:italic}'
+      + '.prof-mais-btn{display:inline-flex;align-items:center;justify-content:center;margin-left:6px;padding:1px 7px;border-radius:999px;border:1px solid #CFE0D6;background:#EEF3EA;color:#1F7A45;font-size:11px;font-weight:800;cursor:pointer;line-height:1.6;vertical-align:middle}'
+      + '.prof-mais-btn:hover{background:#E3F0E7}'
+      + '.prof-pop{position:fixed;z-index:10000;background:#fff;border:1px solid #E3E8E1;border-radius:10px;box-shadow:0 12px 30px rgba(0,0,0,.18);padding:10px 12px;min-width:220px;max-width:300px;display:none}'
+      + '.prof-pop.is-open{display:block}'
+      + '.prof-pop-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:#8B978F;margin-bottom:6px}'
+      + '.prof-pop-item{display:flex;justify-content:space-between;gap:10px;font-size:13px;color:#1B2E27;padding:3px 0;border-bottom:1px dashed #E3E8E1}'
+      + '.prof-pop-item:last-child{border-bottom:none}'
+      + '.prof-pop-item span:last-child{color:#5B6B62;white-space:nowrap;font-weight:600}';
     var el = document.createElement('style');
     el.id = 'partModalStyles';
     el.textContent = css;
     document.head.appendChild(el);
   }
   injectPartModalStyles();
+
+  // ---------- Popover "Também atendido por…" (coluna Profissional, lista
+  // de risco de abandono) ----------
+  // Um único elemento reaproveitado pra todos os botões "+N" (criado sob
+  // demanda no primeiro clique), posicionado perto do botão clicado via
+  // getBoundingClientRect. Fecha ao clicar fora, rolar a página ou
+  // redimensionar a janela.
+  var profPopEl = null;
+  function profPopGarantirEl(){
+    if(profPopEl) return profPopEl;
+    var el = document.createElement('div');
+    el.className = 'prof-pop';
+    document.body.appendChild(el);
+    profPopEl = el;
+    document.addEventListener('click', function(ev){
+      if(!profPopEl || !profPopEl.classList.contains('is-open')) return;
+      if(profPopEl.contains(ev.target)) return;
+      if(ev.target.closest && ev.target.closest('.prof-mais-btn')) return;
+      fecharProfPopover();
+    });
+    window.addEventListener('scroll', fecharProfPopover, true);
+    window.addEventListener('resize', fecharProfPopover);
+    document.addEventListener('keydown', function(ev){ if(ev.key === 'Escape') fecharProfPopover(); });
+    return el;
+  }
+  function fecharProfPopover(){
+    if(profPopEl) profPopEl.classList.remove('is-open');
+  }
+  // itens: [{nome, data}] já com "data" como TEXTO formatado (fmtBRDate já
+  // aplicado por quem chamou) — ver profissionalCelulaHtml.
+  function abrirProfPopover(btnEl, itens){
+    var el = profPopGarantirEl();
+    el.innerHTML = '<div class="prof-pop-title">Também atendido por</div>'
+      + (itens.length
+          ? itens.map(function(it){
+              return '<div class="prof-pop-item"><span>'+escapeHtml(it.nome)+'</span><span>'+escapeHtml(it.data||'—')+'</span></div>';
+            }).join('')
+          : '<div class="prof-pop-item"><span>—</span></div>');
+    el.classList.add('is-open');
+    // Reseta a posição antes de medir (garante que a largura/altura
+    // calculadas sejam as do conteúdo novo, não de um popover anterior
+    // maior/menor ainda no DOM).
+    el.style.left = '0px';
+    el.style.top = '0px';
+    var r = btnEl.getBoundingClientRect();
+    var rect = el.getBoundingClientRect();
+    var left = Math.min(r.left, window.innerWidth - rect.width - 10);
+    left = Math.max(8, left);
+    var top = r.bottom + 6;
+    if(top + rect.height > window.innerHeight - 8){ top = r.top - rect.height - 6; }
+    if(top < 8) top = 8;
+    el.style.left = left + 'px';
+    el.style.top = top + 'px';
+  }
   // Valor sentinela (não é um índice numérico de coluna) usado no <select>
   // "Filtrar por coluna…" pra representar o filtro virtual "Profissional
   // da eMulti", que substitui as 5 colunas "profissional 1".."profissional
