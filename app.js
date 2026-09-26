@@ -3192,6 +3192,12 @@
     if(document.getElementById('partModalStyles')) return;
     var css = ''
       + '.part-col-oculta{display:none}'
+      + '.sortable-th{cursor:pointer;user-select:none;white-space:nowrap}'
+      + '.sortable-th:hover{background:#EEF3EA}'
+      + '.sort-ind{display:inline-block;width:10px;margin-left:3px;opacity:.35;font-size:10px}'
+      + '.sortable-th.sort-asc .sort-ind,.sortable-th.sort-desc .sort-ind{opacity:1}'
+      + '.sortable-th.sort-asc .sort-ind::after{content:"▲"}'
+      + '.sortable-th.sort-desc .sort-ind::after{content:"▼"}'
       + '.acao-m2-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:12.5px;font-weight:700;white-space:nowrap}'
       + '.acao-m2-badge svg{width:14px;height:14px;flex:none}'
       + '.acao-m2-compartilhada{background:#E7EEFB;color:#2F5FCB}'
@@ -3230,6 +3236,12 @@
   // bate se QUALQUER uma delas tiver um profissional da eMulti marcado),
   // em vez do filtro normal de 1 coluna só.
   var PROF_EMULTI_FILTER_VALUE = 'prof_emulti';
+  // Valor sentinela do filtro virtual "AÇÃO M2" (Compartilhada/Específica),
+  // da lista "Participantes Ativ. Coletiva" — não é índice de coluna, é
+  // calculado na hora a partir da classificação de cada linha (ver
+  // classificarAcaoM2Participacao) e comparado com o texto já renderizado
+  // no selo da célula (ver applyFilters).
+  var ACAO_M2_FILTER_VALUE = 'acao_m2';
   // Nome exato da coluna calculada de dias sem atendimento (Busca-Ativa) —
   // usado tanto pro filtro de coluna (que agrupa em faixas, não valor a
   // valor) quanto pro cálculo em applyFilters.
@@ -3438,9 +3450,12 @@
       var isParticipantesColetiva = (displayListName(name) === "Participantes Ativ. Coletiva") && idxsProfNumerados.length > 0;
       var theadHtml = '<tr>'+cached.headers.map(function(h,i){
           var oculta = isParticipantesColetiva && idxsProfNumerados.indexOf(i) !== -1;
-          return '<th'+(oculta ? ' class="part-col-oculta"' : '')+'>'+escapeHtml(h)+'</th>';
+          if(oculta) return '<th class="part-col-oculta">'+escapeHtml(h)+'</th>';
+          return '<th class="sortable-th" data-col-idx="'+i+'">'+escapeHtml(h)+'<span class="sort-ind"></span></th>';
         }).join('')
-        + (isParticipantesColetiva ? '<th>AÇÃO M2</th><th>Ações</th>' : '')
+        + (isParticipantesColetiva
+            ? '<th class="sortable-th" data-col-idx="'+cached.headers.length+'">AÇÃO M2<span class="sort-ind"></span></th><th>Ações</th>'
+            : '')
         + '</tr>';
       var bodyHtml = cached.rows.map(function(r, rowIdx){
         var celulasExtra = '';
@@ -3466,7 +3481,8 @@
               : '';
           }
           return '<option value="'+i+'">'+escapeHtml(h)+'</option>';
-        }).join('');
+        }).join('')
+        + (isParticipantesColetiva ? '<option value="'+ACAO_M2_FILTER_VALUE+'">AÇÃO M2</option>' : '');
       var filterPairsHtml = [0,1,2].map(function(idx){
         return '<div class="filter-pair">'
           + '<select class="filter-col">'+colOptionsHtml+'</select>'
@@ -3585,10 +3601,16 @@
         var colSelect = pair.querySelector('.filter-col');
         var valWrap = pair.querySelector('.filter-val-ms');
         var isProfEmulti = colSelect && colSelect.value === PROF_EMULTI_FILTER_VALUE;
-        var colIdx = (colSelect && !isProfEmulti && colSelect.value !== '') ? parseInt(colSelect.value, 10) : null;
+        var isAcaoM2 = colSelect && colSelect.value === ACAO_M2_FILTER_VALUE;
+        var colIdx = (colSelect && !isProfEmulti && !isAcaoM2 && colSelect.value !== '') ? parseInt(colSelect.value, 10) : null;
         var vals = (valWrap && valWrap._msInstance) ? valWrap._msInstance.getSelected() : [];
         if(!vals.length) return;
         if(isProfEmulti){ activeFilters.push({profEmulti:true, colIdxs:idxsProfNumeradosFiltro, vals:vals}); }
+        // A célula do selo "AÇÃO M2" é sempre a primeira coluna acrescentada
+        // depois das colunas originais da planilha (ver renderListCard) —
+        // por isso a posição é sempre cached.headers.length, sem precisar
+        // de um índice fixo guardado em outro lugar.
+        else if(isAcaoM2){ activeFilters.push({colIdx: cached ? cached.headers.length : -1, vals:vals}); }
         else if(colIdx !== null){ activeFilters.push({colIdx:colIdx, vals:vals}); }
       });
       var visibleCount = 0;
@@ -3614,7 +3636,12 @@
         });
         var matchesMonth = true;
         if(selectedMonths.length && dateColIdx != null && dateColIdx >= 0){
-          var raw = cached && cached.rows[rowIdx] ? cached.rows[rowIdx][dateColIdx] : null;
+          // Lê a data direto da célula (não de cached.rows[rowIdx]): depois
+          // que a tabela pode ser reordenada clicando no cabeçalho (ver
+          // ordenarTabelaPorColuna), a linha na posição rowIdx do DOM já
+          // não corresponde necessariamente a cached.rows[rowIdx].
+          var dateCell = tr.children[dateColIdx];
+          var raw = dateCell ? dateCell.textContent.trim() : null;
           var d = parseBRDate(raw);
           var mv = d ? monthOptionValue(d) : null;
           matchesMonth = !!mv && selectedMonths.indexOf(mv) >= 0;
@@ -3763,11 +3790,25 @@
         var listName = card.querySelector('[data-list-filters]').getAttribute('data-list-filters');
         var cached = latestSheets[listName];
         var isProfEmulti = colSelect.value === PROF_EMULTI_FILTER_VALUE;
-        var colIdx = (!isProfEmulti && colSelect.value !== '') ? parseInt(colSelect.value, 10) : null;
-        if(colIdx === null && !isProfEmulti){
+        var isAcaoM2 = colSelect.value === ACAO_M2_FILTER_VALUE;
+        var colIdx = (!isProfEmulti && !isAcaoM2 && colSelect.value !== '') ? parseInt(colSelect.value, 10) : null;
+        if(colIdx === null && !isProfEmulti && !isAcaoM2){
           msInst.setOptions([]);
           msInst.setSelected([]);
           valWrap.classList.add('ms-disabled');
+        } else if(isAcaoM2){
+          // Valores fixos do selo (não vêm de uma coluna da planilha, são
+          // calculados linha a linha — ver classificarAcaoM2Participacao).
+          var seenAcao = {};
+          var valuesAcao = [];
+          (cached ? cached.rows : []).forEach(function(r){
+            var label = classificarAcaoM2Participacao(cached.headers, r).label;
+            if(!seenAcao[label]){ seenAcao[label] = true; valuesAcao.push(label); }
+          });
+          valuesAcao.sort(function(a,b){ return a.localeCompare(b, 'pt-BR'); });
+          msInst.setOptions(valuesAcao.map(function(v){ return {value:v, label:v}; }));
+          msInst.setSelected([]);
+          valWrap.classList.remove('ms-disabled');
         } else if(isProfEmulti){
           // Junta os valores distintos das 5 colunas "profissional N",
           // mas só os nomes cadastrados na aba PROFISSIONAIS (roster da
@@ -3839,6 +3880,49 @@
         abrirDetalhesParticipacao(cachedLista.headers, cachedLista.rows[idx]);
       });
     });
+
+    // Ordenação alfanumérica ao clicar no cabeçalho — vale pra QUALQUER
+    // coluna visível de QUALQUER lista (inclusive o selo "AÇÃO M2"), sem
+    // duplicar dado nenhum: só reordena os <tr> já existentes no <tbody> e
+    // reaplica os filtros/busca já ativos (applyFilters lê tudo direto do
+    // DOM, então continua batendo certinho depois da reordenação).
+    function ordenarTabelaPorColuna(th){
+      var card = th.closest('.list-card');
+      var table = th.closest('table');
+      var tbody = table ? table.querySelector('tbody') : null;
+      if(!card || !tbody) return;
+      var listName = card.getAttribute('data-list-card');
+      var colIdx = parseInt(th.getAttribute('data-col-idx'), 10);
+      var novaDir = th.getAttribute('data-sort-dir') === 'asc' ? 'desc' : 'asc';
+      table.querySelectorAll('.sortable-th').forEach(function(h){
+        if(h !== th){ h.removeAttribute('data-sort-dir'); h.classList.remove('sort-asc','sort-desc'); }
+      });
+      th.setAttribute('data-sort-dir', novaDir);
+      th.classList.remove('sort-asc','sort-desc');
+      th.classList.add(novaDir === 'asc' ? 'sort-asc' : 'sort-desc');
+      var isDateCol = (colIdx === listDateColIdx[listName]);
+      var linhas = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+      linhas.sort(function(a,b){
+        var celA = a.children[colIdx], celB = b.children[colIdx];
+        var textoA = celA ? celA.textContent.trim() : '';
+        var textoB = celB ? celB.textContent.trim() : '';
+        var cmp;
+        if(isDateCol){
+          var dA = parseBRDate(textoA), dB = parseBRDate(textoB);
+          var tA = dA ? dA.getTime() : (textoA ? Infinity : -Infinity);
+          var tB = dB ? dB.getTime() : (textoB ? Infinity : -Infinity);
+          cmp = tA - tB;
+        } else {
+          cmp = textoA.localeCompare(textoB, 'pt-BR', {numeric:true, sensitivity:'base'});
+        }
+        return novaDir === 'asc' ? cmp : -cmp;
+      });
+      linhas.forEach(function(tr){ tbody.appendChild(tr); });
+      applyFilters(card);
+    }
+    el.querySelectorAll('.sortable-th').forEach(function(th){
+      th.addEventListener('click', function(){ ordenarTabelaPorColuna(th); });
+    });
   }
 
   // ---------- Exportar lista em PDF ----------
@@ -3897,10 +3981,12 @@
     card.querySelectorAll('.filter-pair').forEach(function(pair){
       var colSelect = pair.querySelector('.filter-col');
       var valWrap = pair.querySelector('.filter-val-ms');
-      var colIdx = colSelect && colSelect.value !== '' ? parseInt(colSelect.value, 10) : null;
       var vals = (valWrap && valWrap._msInstance) ? valWrap._msInstance.getSelected() : [];
-      if(colIdx !== null && vals.length){
-        filtrosAtivos.push(headersOriginal[colIdx]+': '+vals.join(', '));
+      if(colSelect && colSelect.value !== '' && vals.length){
+        var rotuloColuna = colSelect.options[colSelect.selectedIndex]
+          ? colSelect.options[colSelect.selectedIndex].text
+          : colSelect.value;
+        filtrosAtivos.push(rotuloColuna+': '+vals.join(', '));
       }
     });
 
