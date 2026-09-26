@@ -20,7 +20,7 @@
   // calculado pelo painel a partir dos dados brutos (ver
   // aplicarOverrideOficial, mais abaixo) — o cálculo próprio continua
   // valendo só pros meses/indicadores sem dado oficial disponível.
-  var OFFICIAL_SHEET_NAME = "Q2-26";
+  var OFFICIAL_SHEET_NAME = "SIAPS-OFICIAL";
   // chave "centro|2026-05|M1" -> {numerador, denominador}
   var officialOverrides = {};
   // Quantos pontos (meses) mostrar nos gráficos de tendência — cada ponto
