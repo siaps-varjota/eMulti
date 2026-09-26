@@ -5950,6 +5950,74 @@
     return contagem;
   };
 
+  // window.debugAtividadesCompartilhadas(): imprime, linha a linha, TODAS
+  // as atividades de "Resumo Atividade Coletiva" dentro do período
+  // efetivo atual (mesma janela usada pelo card "Composição do
+  // numerador"), com o motivo exato pelo qual cada uma ENTROU ou NÃO
+  // entrou na contagem de "Atividades coletivas compartilhadas" — pra
+  // comparar linha a linha com um filtro manual feito direto na planilha
+  // (que normalmente só filtra Mês + Qtd total de profissionais + Total
+  // de Profissionais da EMulti, sem checar o tipo de atividade nem a
+  // ligação com Participantes Ativ. Coletiva, que são as duas checagens
+  // a mais que o painel aplica). Chame no console: debugAtividadesCompartilhadas()
+  window.debugAtividadesCompartilhadas = function(){
+    if(!latestWb){
+      console.warn('[debugAtividadesCompartilhadas] o painel ainda não carregou nenhuma planilha.');
+      return;
+    }
+    var periodo = periodoEfetivoAtual();
+    var TIPOS_OK = [
+      "educacao em saude", "atendimento em grupo",
+      "avaliacao/procedimento coletivo", "mobilizacao social"
+    ];
+    var racWs = latestWb.Sheets[suffixedName("Resumo Atividade Coletiva")];
+    var racRows = racWs ? sheetToRows(racWs) : [];
+    var racHeader = racRows[0] || [];
+    var iRacData = colIndex(racHeader, "data");
+    var iRacTipo = colIndex(racHeader, "tipo_atividade");
+    var iRacTotalProf = colIndex(racHeader, "qtd_total_profissionais");
+    var iRacProfEnv = colIndex(racHeader, "qtd_profissionais_envolvidos");
+    var partWs = latestWb.Sheets[suffixedName("Participantes Ativ. Coletiva")];
+    var partRows = partWs ? sheetToRows(partWs) : [];
+    var ligacaoAtiv = criarLigacaoAtividades(partRows, racHeader);
+    if(!ligacaoAtiv){
+      console.warn('[debugAtividadesCompartilhadas] não foi possível ligar "Total de Profissionais da EMulti" (aba Participantes Ativ. Coletiva) — coluna "Qtd total de profissionais" ainda é checada normalmente, mas a checagem "temEmulti" fica sempre true (não exclui nenhuma linha por isso).');
+    } else {
+      console.log('[debugAtividadesCompartilhadas] ligação Resumo → Participantes usando: ' + ligacaoAtiv.modo);
+    }
+    var linhas = racRows.slice(1)
+      .filter(function(r){ return withinPeriod(parseBRDate(r[iRacData]), periodo.inicio, periodo.fim); })
+      .map(function(r){
+        var totalEmultiPart = ligacaoAtiv ? ligacaoAtiv.total(r) : undefined;
+        var totalProfGeral = (iRacTotalProf>=0 && r[iRacTotalProf]!=="" && r[iRacTotalProf]!==undefined)
+          ? toInt(r[iRacTotalProf])
+          : 1+toInt(r[iRacProfEnv]);
+        var temEmulti = (totalEmultiPart === undefined) ? true : totalEmultiPart >= 1;
+        var tipoRaw = iRacTipo>=0 ? String(r[iRacTipo]||"").trim() : "";
+        var tipoOk = iRacTipo<0 || TIPOS_OK.indexOf(normalizarTexto(tipoRaw)) >= 0;
+        var conta = temEmulti && totalProfGeral >= 2 && tipoOk;
+        var motivoExclusao = conta ? "" :
+          (!tipoOk ? 'tipo_atividade fora dos 4 aceitos ("' + tipoRaw + '")'
+          : (totalProfGeral < 2 ? 'qtd_total_profissionais < 2 (' + totalProfGeral + ')'
+          : 'Total de Profissionais da EMulti = 0 (não achou ligação com Participantes)'));
+        return {
+          data: iRacData>=0 ? String(r[iRacData]) : "",
+          tipo_atividade: tipoRaw,
+          qtd_total_profissionais: totalProfGeral,
+          "Total Prof. EMulti (ligação)": totalEmultiPart===undefined ? "(sem ligação)" : totalEmultiPart,
+          "CONTA como compartilhada?": conta ? "SIM" : "não",
+          "motivo se não contou": motivoExclusao
+        };
+      });
+    var totalLinhas = linhas.length;
+    var totalCompartilhadas = linhas.filter(function(l){ return l["CONTA como compartilhada?"] === "SIM"; }).length;
+    console.log('[debugAtividadesCompartilhadas] equipe(s): '+currentEquipes.map(function(e){ return e.label; }).join(' + ')
+      +' | período: '+fmtBRDate(periodo.inicio)+' a '+fmtBRDate(periodo.fim)
+      +' | linhas no período: '+totalLinhas+' | contam como compartilhada: '+totalCompartilhadas);
+    console.table(linhas);
+    return linhas;
+  };
+
   function fetchAndLoad(){
     refreshBtn.classList.add('loading');
     refreshBtn.disabled = true;
