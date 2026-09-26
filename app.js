@@ -723,8 +723,13 @@
       +   '<span class="ms-btn-text"></span>'
       +   '<svg class="ms-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>'
       + '</button>'
-      + '<div class="ms-panel" style="display:none;"></div>'
-      + (cfg.showTags ? '<div class="ms-tags"></div>' : '');
+      + '<div class="ms-panel" style="display:none;"></div>';
+      // Obs.: não existe mais uma caixa de "tags" fora do botão listando
+      // cada valor selecionado (cfg.showTags é ignorado de propósito) — o
+      // valor selecionado só aparece DENTRO do próprio filtro (ms-btn-text,
+      // abaixo, ex.: "3 selecionados"), nunca plotado fora dele. Vale pra
+      // todo filtro (Profissional, Equipe, Mês, coluna etc.) em todas as
+      // tabelas do painel, já que todas usam este mesmo componente.
     var btn = container.querySelector('.ms-btn');
     var btnText = container.querySelector('.ms-btn-text');
     var panel = container.querySelector('.ms-panel');
@@ -2393,16 +2398,47 @@
     // em dia (ainda dentro da mediana) / em risco (na janela) / abandono
     // consumado (já passou de 3x a mediana sem voltar).
     var comRetorno = 0, emDiaCount = 0, abandonoConsumadoCount = 0;
+    // Registro "leve" com o mesmo formato usado pelo filtro da tabela de
+    // risco (nome/profissional/equipe/consultas/última consulta/dias sem
+    // voltar + ultimoProfissionais/todosProfissionais), mas pra TODO
+    // paciente com pelo menos 1 consulta — não só os que estão na janela
+    // de risco. É contra essa lista (kpiRegistros, abaixo) que os cards de
+    // estatística (Total no histórico / Com 2+ consultas / Em dia / Em
+    // risco / Abandono consumado) são recalculados a cada mudança nos
+    // filtros da tabela (ver wireRiscoFiltros), em vez de ficarem fixos no
+    // total geral independente do filtro.
+    var kpiRegistros = [];
     pacientes.forEach(function(p){
-      if(p.datas.length < 2) return;
-      comRetorno++;
-      var ultima = p.datas[p.datas.length-1];
-      var diasDesde = diffDias(ultima, hoje);
-      if(!medianaBase) return;
-      if(diasDesde <= medianaBase){ emDiaCount++; return; }
-      if(diasDesde > medianaBase*3){ abandonoConsumadoCount++; return; }
+      if(!p.datas.length) return;
       var todosProfs = Object.keys(p.profissionais).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); });
       var ultimosProfsSet = p.ultimaProfissionais || {};
+      var ultimoProfissionaisArrKpi = Object.keys(ultimosProfsSet).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); });
+      var equipeTxtKpi = equipeLabelUnica || Object.keys(p.equipes||{}).sort().join(' + ');
+      var ultima = p.datas[p.datas.length-1];
+      var diasDesde = diffDias(ultima, hoje);
+      var status = 'unica'; // 1 consulta só — entra em "Total no histórico", mas não nas demais contagens
+
+      if(p.datas.length >= 2){
+        comRetorno++;
+        if(!medianaBase){
+          status = 'semMediana'; // sem histórico suficiente ainda pra classificar
+        } else if(diasDesde <= medianaBase){
+          status = 'emDia'; emDiaCount++;
+        } else if(diasDesde > medianaBase*3){
+          status = 'abandono'; abandonoConsumadoCount++;
+        } else {
+          status = 'risco';
+        }
+      }
+
+      kpiRegistros.push({
+        nome: p.nome, status: status, diasDesde: diasDesde, ultima: ultima,
+        totalConsultas: p.datas.length, equipe: equipeTxtKpi || '—',
+        profissional: todosProfs.join(', ') || '—',
+        ultimoProfissionais: ultimoProfissionaisArrKpi, todosProfissionais: todosProfs
+      });
+
+      if(status !== 'risco') return;
       // Com 2+ profissionais no histórico do paciente, destaca em
       // negrito quem de fato fez a ÚLTIMA consulta (profissionalHtml,
       // usado na tela). O PDF continua em texto puro (profissional).
@@ -2411,7 +2447,7 @@
         return (todosProfs.length >= 2 && ultimosProfsSet[nomeProf]) ? '<b>'+escapado+'</b>' : escapado;
       }).join(', ');
       var profissionalTxt = todosProfs.join(', ');
-      var ultimoProfissionaisArr = Object.keys(ultimosProfsSet).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); });
+      var ultimoProfissionaisArr = ultimoProfissionaisArrKpi;
       // Coluna "Profissional" da tabela: mostra só quem fez a ÚLTIMA
       // consulta (ultimoProfissionaisArr — normalmente 1 nome, só vira 2+
       // se houve empate de data). Os demais profissionais do histórico
@@ -2425,7 +2461,7 @@
           var ta = a.data ? a.data.getTime() : 0, tb = b.data ? b.data.getTime() : 0;
           return tb - ta;
         });
-      var equipeTxt = equipeLabelUnica || Object.keys(p.equipes||{}).sort().join(' + ');
+      var equipeTxt = equipeTxtKpi;
       risco.push({
         nome:p.nome, diasDesde:diasDesde, ultima:ultima,
         totalConsultas:p.datas.length,
@@ -2456,7 +2492,8 @@
       comRetorno: comRetorno,
       emDiaCount: emDiaCount,
       abandonoConsumadoCount: abandonoConsumadoCount,
-      risco: risco
+      risco: risco,
+      kpiRegistros: kpiRegistros
     };
   }
 
@@ -2724,16 +2761,23 @@
   // riscoFiltrado, abaixo), pra que o quantitativo na tela, o rodapé
   // ("Mostrando X de Y") e o PDF gerado batam sempre com o filtro atual
   // (profissional da última consulta + busca), em vez do total geral.
-  function wireRiscoFiltros(risco){
+  function wireRiscoFiltros(risco, kpiRegistros, temMediana){
     var profMsEl = document.getElementById('riscoProfMs');
     var searchEl = document.getElementById('riscoSearchInput');
     var metaEl = document.getElementById('riscoListMeta');
     var footnoteEl = document.getElementById('riscoFootnote');
     var tbody = document.getElementById('riscoTbody');
     var btnPdf = document.getElementById('btnRiscoPdf');
+    var resumoEl = document.getElementById('analisesRiscoResumo');
     if(!tbody) return;
 
     var todos = risco || [];
+    // Base pros cards de estatística (Total no histórico / Com 2+
+    // consultas / Em dia / Em risco / Abandono consumado): cobre TODOS os
+    // pacientes (não só os em risco), filtrada com o MESMO predicado da
+    // tabela abaixo (ver filtroPredicado), pra esses números variarem
+    // junto com Profissional/Equipe/coluna/busca em vez de ficar fixos.
+    var kpiTodos = kpiRegistros || [];
     // Opções do filtro: qualquer profissional que apareça como responsável
     // pela ÚLTIMA consulta de PELO MENOS UM paciente em risco (lista
     // completa, não só os 40 exibidos na tela).
@@ -2822,27 +2866,64 @@
       });
     });
 
-    function renderTabelaRisco(){
+    // Predicado de filtro único, usado tanto pra lista "risco" exibida na
+    // tabela quanto (com os mesmos critérios) pros cards de estatística
+    // acima dela — kpiTodos cobre todos os pacientes, e como os campos
+    // (nome/profissional/equipe/totalConsultas/ultima/diasDesde/
+    // ultimoProfissionais/todosProfissionais) têm o mesmo formato nos dois
+    // casos, o mesmo predicado serve pra ambos.
+    function filtroPredicado(r){
       var selecionados = profMs ? profMs.getSelected() : [];
       var selecionadosAny = profAnyMs ? profAnyMs.getSelected() : [];
       var termo = searchEl ? searchEl.value.trim().toLowerCase() : '';
       var colIdxFiltro = (colSelectEl && colSelectEl.value !== '') ? parseInt(colSelectEl.value, 10) : null;
       var valoresColSelecionados = colValMs ? colValMs.getSelected() : [];
-      riscoFiltrado = todos.filter(function(r){
-        var profsLinha = r.ultimoProfissionais || [];
-        var matchesProf = !selecionados.length || selecionados.some(function(v){ return profsLinha.indexOf(v) >= 0; });
-        // "Profissional" (independente de ser a última consulta ou não):
-        // olha pra r.todosProfissionais (qualquer profissional que já
-        // atendeu o paciente em algum momento do histórico) — diferente do
-        // filtro "Profissional (última consulta)" acima, que só olha
-        // r.ultimoProfissionais.
-        var profsLinhaAny = r.todosProfissionais || [];
-        var matchesProfAny = !selecionadosAny.length || selecionadosAny.some(function(v){ return profsLinhaAny.indexOf(v) >= 0; });
-        var matchesTexto = !termo || textoBusca(r).indexOf(termo) !== -1;
-        var matchesColuna = (colIdxFiltro === null || !valoresColSelecionados.length)
-          || valoresColSelecionados.indexOf(RISCO_COLUNAS_FILTRAVEIS[colIdxFiltro].getValor(r)) >= 0;
-        return matchesProf && matchesProfAny && matchesTexto && matchesColuna;
+      var profsLinha = r.ultimoProfissionais || [];
+      var matchesProf = !selecionados.length || selecionados.some(function(v){ return profsLinha.indexOf(v) >= 0; });
+      // "Profissional" (independente de ser a última consulta ou não):
+      // olha pra r.todosProfissionais (qualquer profissional que já
+      // atendeu o paciente em algum momento do histórico) — diferente do
+      // filtro "Profissional (última consulta)" acima, que só olha
+      // r.ultimoProfissionais.
+      var profsLinhaAny = r.todosProfissionais || [];
+      var matchesProfAny = !selecionadosAny.length || selecionadosAny.some(function(v){ return profsLinhaAny.indexOf(v) >= 0; });
+      var matchesTexto = !termo || textoBusca(r).indexOf(termo) !== -1;
+      var matchesColuna = (colIdxFiltro === null || !valoresColSelecionados.length)
+        || valoresColSelecionados.indexOf(RISCO_COLUNAS_FILTRAVEIS[colIdxFiltro].getValor(r)) >= 0;
+      return matchesProf && matchesProfAny && matchesTexto && matchesColuna;
+    }
+
+    // Recalcula e redesenha os cards de estatística acima da tabela a
+    // partir da lista COMPLETA de pacientes (kpiTodos), já filtrada pelos
+    // mesmos critérios da tabela — assim os números variam junto com o
+    // filtro, em vez de refletirem sempre o total geral sem filtro.
+    function renderKpis(kpiFiltrados){
+      if(!resumoEl || !temMediana) return;
+      var comRetornoF = 0, emDiaF = 0, riscoF = 0, abandonoF = 0;
+      kpiFiltrados.forEach(function(r){
+        if(r.status === 'unica' || r.status === 'semMediana') return;
+        comRetornoF++;
+        if(r.status === 'emDia') emDiaF++;
+        else if(r.status === 'risco') riscoF++;
+        else if(r.status === 'abandono') abandonoF++;
       });
+      // "Em dia"/"Em risco"/"Abandono consumado" continuam comparados só
+      // com quem TEM 2+ consultas dentro do filtro atual (comRetornoF) —
+      // não com o total geral filtrado, que inclui "Consulta única".
+      function pctRetorno(n){ return comRetornoF ? Math.round(n/comRetornoF*100) : 0; }
+      resumoEl.innerHTML = ''
+        + '<div class="kpi-container">'
+        +   '<div class="kpi-item"><label>Total no histórico</label><span>'+fmtInt(kpiFiltrados.length)+'</span></div>'
+        +   '<div class="kpi-item"><label>Com 2+ consultas</label><span>'+fmtInt(comRetornoF)+'</span></div>'
+        +   '<div class="kpi-item"><label>Em dia</label><span>'+fmtInt(emDiaF)+' ('+pctRetorno(emDiaF)+'%)</span></div>'
+        +   '<div class="kpi-item"><label>Em risco</label><span>'+fmtInt(riscoF)+' ('+pctRetorno(riscoF)+'%)</span></div>'
+        +   '<div class="kpi-item"><label>Abandono consumado</label><span>'+fmtInt(abandonoF)+' ('+pctRetorno(abandonoF)+'%)</span></div>'
+        + '</div>';
+    }
+
+    function renderTabelaRisco(){
+      riscoFiltrado = todos.filter(filtroPredicado);
+      renderKpis(kpiTodos.filter(filtroPredicado));
       if(sortColIdx !== null){
         riscoFiltrado.sort(function(a,b){
           var cmp = compareRiscoPorColuna(a, b, sortColIdx);
@@ -2968,26 +3049,15 @@
     if(elRiscoResumo){
       if(!data.medianaBase){
         elRiscoResumo.innerHTML = '<p class="footnote" style="margin:0;">Ainda não há mediana histórica suficiente (1ª→2ª consulta) pra classificar quem está em dia, em risco ou em abandono consumado.</p>';
-      } else {
-        var comRetorno = data.comRetorno || 0;
-        function pctRetorno(n){ return comRetorno ? Math.round(n/comRetorno*100) : 0; }
-        // Importante: "Em risco" só faz sentido comparado com quem TEM
-        // 2+ consultas (comRetorno) — não com o total geral de pacientes,
-        // que inclui quem nunca voltou nem uma vez (Consulta única, no
-        // Perfil de frequência) e por isso nem entra nessa conta.
-        elRiscoResumo.innerHTML = ''
-          + '<div class="kpi-container">'
-          +   '<div class="kpi-item"><label>Total no histórico</label><span>'+fmtInt(data.totalPacientes)+'</span></div>'
-          +   '<div class="kpi-item"><label>Com 2+ consultas</label><span>'+fmtInt(comRetorno)+'</span></div>'
-          +   '<div class="kpi-item"><label>Em dia</label><span>'+fmtInt(data.emDiaCount)+' ('+pctRetorno(data.emDiaCount)+'%)</span></div>'
-          +   '<div class="kpi-item"><label>Em risco</label><span>'+fmtInt(data.risco.length)+' ('+pctRetorno(data.risco.length)+'%)</span></div>'
-          +   '<div class="kpi-item"><label>Abandono consumado</label><span>'+fmtInt(data.abandonoConsumadoCount)+' ('+pctRetorno(data.abandonoConsumadoCount)+'%)</span></div>'
-          + '</div>';
       }
+      // Quando há mediana, o conteúdo (cards Total/Com 2+/Em dia/Em
+      // risco/Abandono) é montado dentro de wireRiscoFiltros — ele já
+      // recalcula esses números toda vez que um filtro da tabela abaixo
+      // muda, em vez de deixá-los fixos no total geral sem filtro.
     }
     if(elRisco){
       elRisco.innerHTML = riscoTableHtml(data.risco);
-      wireRiscoFiltros(data.risco);
+      wireRiscoFiltros(data.risco, data.kpiRegistros, !!data.medianaBase);
     }
 
     var freqEl = document.getElementById('analisesFreqLegenda');
