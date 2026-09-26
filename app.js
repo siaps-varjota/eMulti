@@ -1514,7 +1514,12 @@
       // Sem ligação com Participantes não dá pra checar a eMulti: não
       // zera a atividade por isso (mantém só a regra de 2+ profissionais).
       var temEmulti = (totalEmultiPart === undefined) ? true : totalEmultiPart >= 1;
-      var tipoOk = iRacTipo<0 || TIPOS_ATIV_COLETIVA_COMPARTILHADA.indexOf(normalizarTexto(r[iRacTipo])) >= 0;
+      // Comparação por "contém" (não igualdade exata): a coluna
+      // tipo_atividade às vezes traz sufixos extras (ex.: "Avaliação /
+      // Procedimento coletivo CDS"), que com igualdade exata fariam a
+      // atividade cair fora da lista mesmo sendo um dos 4 tipos aceitos.
+      var tipoNormalizadoRac = normalizarTexto(r[iRacTipo]);
+      var tipoOk = iRacTipo<0 || TIPOS_ATIV_COLETIVA_COMPARTILHADA.some(function(t){ return tipoNormalizadoRac.indexOf(t) >= 0; });
       return temEmulti && totalProfGeral >= 2 && tipoOk;
     }).length;
     // Mesma regra do "atividadesTotais" acima, mas aplicada ao componente
@@ -5994,7 +5999,8 @@
           : 1+toInt(r[iRacProfEnv]);
         var temEmulti = (totalEmultiPart === undefined) ? true : totalEmultiPart >= 1;
         var tipoRaw = iRacTipo>=0 ? String(r[iRacTipo]||"").trim() : "";
-        var tipoOk = iRacTipo<0 || TIPOS_OK.indexOf(normalizarTexto(tipoRaw)) >= 0;
+        var tipoNormalizadoDebug = normalizarTexto(tipoRaw);
+        var tipoOk = iRacTipo<0 || TIPOS_OK.some(function(t){ return tipoNormalizadoDebug.indexOf(t) >= 0; });
         var conta = temEmulti && totalProfGeral >= 2 && tipoOk;
         var motivoExclusao = conta ? "" :
           (!tipoOk ? 'tipo_atividade fora dos 4 aceitos ("' + tipoRaw + '")'
