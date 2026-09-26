@@ -2922,6 +2922,7 @@
     }
 
     function renderTabelaRisco(){
+      var selecionados = profMs ? profMs.getSelected() : [];
       riscoFiltrado = todos.filter(filtroPredicado);
       renderKpis(kpiTodos.filter(filtroPredicado));
       if(sortColIdx !== null){
