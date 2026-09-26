@@ -2466,16 +2466,30 @@
   // tanto no render inicial quanto toda vez que o filtro (profissional ou
   // busca) muda (ver renderTabelaRisco, dentro de wireRiscoFiltros).
   function linhaRiscoHtml(r, profissionaisSelecionados){
-    var profs = profissionaisSelecionados && profissionaisSelecionados.length
-      ? profissionaisSelecionados
-      : (r.ultimoProfissionais || []);
-    var nomesVisiveis = profs.filter(function(nome){
-      return (r.consultasPorProf || {})[nome] > 0;
-    });
-    var profissional = nomesVisiveis.length
-      ? nomesVisiveis.join(', ')
+    // Só recalcula "Consultas"/"Profissional" a partir de um subconjunto de
+    // nomes quando o usuário de fato filtrou por profissional específico
+    // (profissionaisSelecionados não vazio). Sem esse filtro ("Todos"), usa
+    // sempre os valores "crus" do paciente (r.totalConsultas/r.profissionalHtml)
+    // — os MESMOS usados pela ordenação (compareRiscoPorColuna) e pelo filtro
+    // "Filtrar por coluna… → Consultas" (RISCO_COLUNAS_FILTRAVEIS). Antes,
+    // como fallback usava (r.ultimoProfissionais||[]) mesmo sem filtro
+    // aplicado, a célula acabava mostrando só a soma de consultas do(s)
+    // profissional(is) da ÚLTIMA consulta — um número menor/diferente do
+    // total real sempre que o paciente também foi atendido por outro(s)
+    // profissional(is) em consultas anteriores. Isso fazia a coluna
+    // "Consultas" exibida na tela não bater com o valor que a ordenação/
+    // filtro realmente usam, parecendo que o filtro "não reconhecia" o
+    // número certo.
+    var temFiltroProf = profissionaisSelecionados && profissionaisSelecionados.length;
+    var nomesVisiveis = temFiltroProf
+      ? profissionaisSelecionados.filter(function(nome){
+          return (r.consultasPorProf || {})[nome] > 0;
+        })
+      : [];
+    var profissional = temFiltroProf
+      ? (nomesVisiveis.join(', ') || (r.profissionalHtml || escapeHtml(r.profissional)))
       : (r.profissionalHtml || escapeHtml(r.profissional));
-    var totalConsultas = nomesVisiveis.length
+    var totalConsultas = (temFiltroProf && nomesVisiveis.length)
       ? nomesVisiveis.reduce(function(total, nome){
           return total + ((r.consultasPorProf || {})[nome] || 0);
         }, 0)
