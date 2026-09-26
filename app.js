@@ -1107,7 +1107,11 @@
       // Variação de nome pra coluna de participantes da aba Resumo Reuniões.
       qtd_participantes: ['qtd_participantes','quantidade de participantes','participantes','qtd de participantes'],
       // Coluna "Temas da reunião" da aba Resumo Reuniões (pode trazer mais de um tema na mesma célula).
-      temas_reuniao: ['temas_reuniao','temas da reuniao','temas_da_reuniao','temas','tema','tema_reuniao','tema da reuniao']
+      temas_reuniao: ['temas_reuniao','temas da reuniao','temas_da_reuniao','temas','tema','tema_reuniao','tema da reuniao'],
+      // Coluna "Tipo" da reunião na aba Resumo Reuniões (códigos 01-03:
+      // Reunião de Equipe, Reunião com outras equipes de saúde, Reunião
+      // intersetorial/Conselho local de saúde/Controle social).
+      tipo_reuniao: ['tipo_reuniao','tipo de reuniao','tipo_da_reuniao','tipo']
     };
     var wanted = String(name||'').trim().toLowerCase();
     var candidates = aliases[wanted] || [wanted];
@@ -1181,8 +1185,8 @@
     "Participação coletiva (M1) só conta quando pelo menos um dos profissionais da atividade (coluna do Responsável — identificada pelo nome do cabeçalho ou, se não encontrada por nome, pela 4ª coluna da tabela — ou 'Profissional 1' a 'Profissional 5' da aba Participantes Ativ. Coletiva) está cadastrado na aba PROFISSIONAIS como sendo da eMulti — participações conduzidas só por profissionais de fora da eMulti não entram no numerador.",
     "M2 oficial soma 3 componentes: atendimentos individuais compartilhados, atividades coletivas compartilhadas e compartilhamento de cuidado (PEC). Esta extração só consegue aproximar as parcelas de 'atividades coletivas' e 'reuniões'. Regra de ação compartilhada aplicada: pelo menos 1 profissional identificado (CNS/CPF) da eMulti — seja como responsável ou como profissional envolvido, não precisa ser especificamente o responsável — e 2 ou mais profissionais distintos no total; compartilhamentos com eSB ou com qualquer profissional da APS contam igual, desde que identificados. Ainda não é possível checar CBO/CNS propriamente ditos (só o cadastro da aba PROFISSIONAIS), nem aplicar a regra de descartar ação específica duplicada quando a mesma pessoa/grupo também teve ação compartilhada registrada no mesmo dia.",
     "Atendimentos individuais compartilhados e compartilhamento de cuidado (PEC) NÃO entram no numerador do M2 aqui (a Lista de Atendimentos do e-SUS não indica se um atendimento individual teve mais de um profissional) — por isso o M2 calculado aqui tende a ficar ABAIXO do valor oficial do indicador.",
-    "Atividade Coletiva só conta como 'compartilhada' aqui quando o tipo_atividade é Educação em saúde, Atendimento em grupo, Avaliação/Procedimento coletivo ou Mobilização social (códigos 04-07) E tem pelo menos 1 profissional da eMulti (coluna 'Total de Profissionais da EMulti', de Participantes Ativ. Coletiva) e 2 ou mais profissionais no total ('Qtd total de profissionais').",
-    "Reuniões (Resumo Reuniões) só contam pra M2 quando têm 2+ participantes E o tema 'Discussão de caso / Projeto terapêutico singular' marcado na coluna 'Temas da reunião' (a célula pode ter vários temas). Reuniões sem esse tema aparecem no total de reuniões, mas não entram como 'compartilhadas'. Ainda não é checado o tipo da reunião (códigos 01-03: equipe, outras equipes de saúde ou intersetorial).",
+    "Atividade Coletiva só conta como 'compartilhada' aqui quando tem pelo menos 1 profissional da eMulti (coluna 'Total de Profissionais da EMulti', de Participantes Ativ. Coletiva) e 2 ou mais profissionais no total ('Qtd total de profissionais') — sem restrição de tipo de atividade (todos os tipos contam).",
+    "Reuniões (Resumo Reuniões) só contam pra M2 quando o 'Tipo' é Reunião de Equipe, Reunião com outras equipes de saúde ou Reunião intersetorial/Conselho local de saúde/Controle social (códigos 01-03) E têm 2+ participantes E o tema 'Discussão de caso / Projeto terapêutico singular' marcado na coluna 'Temas da reunião' (a célula pode ter vários temas). Reuniões que não batem essas condições aparecem no total de reuniões, mas não entram como 'compartilhadas'.",
     "'Desempenho quadrimestral' NÃO é uma fórmula oficial do Ministério da Saúde — é uma síntese própria: Nota final = pontos M1 × 6 + pontos M2 × 4 (pontos por classificação: Regular=0,25, Suficiente=0,5, Bom=0,75, Ótimo=1), classificada como Regular < 2,6, Suficiente 2,6 a 4,9, Bom 5 a 7,5, Ótimo > 7,5 — pra dar uma visão geral rápida; os indicadores oficiais continuam sendo M1 e M2 separados.",
     "Abandono consumado: o paciente precisa ter pelo menos 2 consultas. O painel calcula a mediana histórica do intervalo entre a 1ª e a 2ª consulta dos pacientes analisados e mede os dias desde a última consulta de cada paciente. Quando esse intervalo é maior que 3 vezes a mediana histórica, o paciente é classificado como abandono consumado.",
     "Classificação do acompanhamento: Em dia = dias desde a última consulta ≤ mediana; Em risco = dias desde a última consulta > mediana e ≤ 3 × mediana; Abandono consumado = dias desde a última consulta > 3 × mediana. O painel não usa um número fixo de dias: o limite é calculado dinamicamente com base no comportamento histórico dos pacientes incluídos nos filtros da aba Análises.",
@@ -1417,13 +1421,11 @@
     var iRacTipo = colIndex(racHeader, "tipo_atividade");
     var iRacTotalProf = colIndex(racHeader, "qtd_total_profissionais");
     var iRacProfEnv = colIndex(racHeader, "qtd_profissionais_envolvidos");
-    // Só estes 4 tipos (códigos 04-07 da Atividade Coletiva) contam como
-    // "Atividade Coletiva Compartilhada" pra M2 — reuniões (códigos 01-03)
-    // vêm de outra aba (Resumo Reuniões) e têm regra própria.
-    var TIPOS_ATIV_COLETIVA_COMPARTILHADA = [
-      "educacao em saude", "atendimento em grupo",
-      "avaliacao/procedimento coletivo", "mobilizacao social"
-    ];
+    // Nenhum tipo de atividade é excluído aqui — qualquer atividade desta
+    // aba (junto com Participantes Ativ. Coletiva) conta como "Atividade
+    // Coletiva Compartilhada" pra M2, desde que bata os critérios de
+    // profissionais abaixo. A restrição de tipo só se aplica a reuniões
+    // (aba Resumo Reuniões — ver TIPOS_REUNIAO_COMPARTILHADA mais abaixo).
     var racFiltradas = racRows.slice(1).filter(function(r){
       return withinPeriod(parseBRDate(r[iRacData]), periodo.inicio, periodo.fim);
     });
@@ -1504,8 +1506,11 @@
     // Atividade coletiva COMPARTILHADA (numerador do M2): tem pelo menos 1
     // profissional da eMulti ("Total de Profissionais da EMulti" >= 1, vindo
     // de Participantes Ativ. Coletiva) E 2 ou mais profissionais no total
-    // ("Qtd total de profissionais" do Resumo Atividade Coletiva) — e o tipo
-    // de atividade é um dos 4 tipos aceitos.
+    // ("Qtd total de profissionais" do Resumo Atividade Coletiva). NÃO há
+    // restrição de tipo de atividade aqui — qualquer tipo, vindo de "Resumo
+    // Atividade Coletiva"/"Participantes Ativ. Coletiva", conta desde que
+    // bata essas duas condições. A restrição de tipo só existe pra reuniões
+    // (aba "Resumo Reuniões", ver TIPOS_REUNIAO_COMPARTILHADA abaixo).
     var atividadesCompartilhadasListas = racFiltradas.filter(function(r){
       var totalEmultiPart = ligacaoAtiv ? ligacaoAtiv.total(r) : undefined;
       var totalProfGeral = (iRacTotalProf>=0 && r[iRacTotalProf]!=="" && r[iRacTotalProf]!==undefined)
@@ -1514,13 +1519,7 @@
       // Sem ligação com Participantes não dá pra checar a eMulti: não
       // zera a atividade por isso (mantém só a regra de 2+ profissionais).
       var temEmulti = (totalEmultiPart === undefined) ? true : totalEmultiPart >= 1;
-      // Comparação por "contém" (não igualdade exata): a coluna
-      // tipo_atividade às vezes traz sufixos extras (ex.: "Avaliação /
-      // Procedimento coletivo CDS"), que com igualdade exata fariam a
-      // atividade cair fora da lista mesmo sendo um dos 4 tipos aceitos.
-      var tipoNormalizadoRac = normalizarTexto(r[iRacTipo]);
-      var tipoOk = iRacTipo<0 || TIPOS_ATIV_COLETIVA_COMPARTILHADA.some(function(t){ return tipoNormalizadoRac.indexOf(t) >= 0; });
-      return temEmulti && totalProfGeral >= 2 && tipoOk;
+      return temEmulti && totalProfGeral >= 2;
     }).length;
     // Mesma regra do "atividadesTotais" acima, mas aplicada ao componente
     // que de fato alimenta o numerador do M2 (numeradorM2 → card "M2 —
@@ -1541,13 +1540,32 @@
     });
     var reunioesTotais = rrFiltradas.length;
     // Regra oficial do M2: a reunião só conta como ação compartilhada se
-    // tiver "Discussão de caso / Projeto terapêutico singular" entre os
-    // "Temas da reunião" (a célula pode listar vários temas) E 2+
-    // participantes. Se a coluna de temas não existir na aba, cai na regra
-    // antiga (qualquer reunião com 2+ participantes) e avisa no console.
+    // (a) o "Tipo" da reunião for um dos 3 aceitos — "Reunião de Equipe",
+    // "Reunião com outras equipes de saúde" ou "Reunião intersetorial /
+    // Conselho local de saúde / Controle social" (com ou sem "CDS" no
+    // final, daí a comparação por "contém" abaixo, igual à de tipo de
+    // atividade coletiva) —, (b) tiver "Discussão de caso / Projeto
+    // terapêutico singular" entre os "Temas da reunião" (a célula pode
+    // listar vários temas) E (c) 2+ participantes. Se a coluna de tipo ou
+    // de temas não existir na aba, essa parte da regra não é aplicada
+    // (não zera a reunião por isso) e avisa no console.
     var iRrTema = colIndex(rrHeader, "temas_reuniao");
+    var iRrTipo = colIndex(rrHeader, "tipo_reuniao");
     if(iRrTema < 0 && rrRows.length){
       console.warn('[painel] Coluna "Temas da reunião" não encontrada na aba Resumo Reuniões — contando toda reunião com 2+ participantes.');
+    }
+    if(iRrTipo < 0 && rrRows.length){
+      console.warn('[painel] Coluna "Tipo" da reunião não encontrada na aba Resumo Reuniões — não filtrando reunião por tipo (só por tema + participantes).');
+    }
+    var TIPOS_REUNIAO_COMPARTILHADA = [
+      "reuniao de equipe",
+      "reuniao com outras equipes de saude",
+      "reuniao intersetorial/conselho local de saude/controle social"
+    ];
+    function reuniaoTipoOk(r){
+      if(iRrTipo < 0) return true;
+      var t = normalizarTexto(r[iRrTipo]);
+      return TIPOS_REUNIAO_COMPARTILHADA.some(function(tp){ return t.indexOf(tp) >= 0; });
     }
     function reuniaoTemDiscussaoCaso(r){
       if(iRrTema < 0) return true;
@@ -1555,8 +1573,9 @@
       return t.indexOf('discussao de caso') >= 0 || t.indexOf('projeto terapeutico singular') >= 0;
     }
     var reunioesCompartilhadas = rrFiltradas.filter(function(r){
-      return toInt(r[iRrQtd]) >= 2 && reuniaoTemDiscussaoCaso(r);
+      return toInt(r[iRrQtd]) >= 2 && reuniaoTipoOk(r) && reuniaoTemDiscussaoCaso(r);
     }).length;
+
 
     // ---------- M2 ----------
     // Quando a parcela de "atividades coletivas compartilhadas" veio da
@@ -5959,22 +5978,17 @@
   // as atividades de "Resumo Atividade Coletiva" dentro do período
   // efetivo atual (mesma janela usada pelo card "Composição do
   // numerador"), com o motivo exato pelo qual cada uma ENTROU ou NÃO
-  // entrou na contagem de "Atividades coletivas compartilhadas" — pra
-  // comparar linha a linha com um filtro manual feito direto na planilha
-  // (que normalmente só filtra Mês + Qtd total de profissionais + Total
-  // de Profissionais da EMulti, sem checar o tipo de atividade nem a
-  // ligação com Participantes Ativ. Coletiva, que são as duas checagens
-  // a mais que o painel aplica). Chame no console: debugAtividadesCompartilhadas()
+  // entrou na contagem de "Atividades coletivas compartilhadas". Não há
+  // filtro de tipo de atividade aqui (nenhum tipo é excluído nessa aba) —
+  // só entram em jogo "Qtd total de profissionais" >= 2 e a ligação com
+  // Participantes Ativ. Coletiva ("Total de Profissionais da EMulti" >= 1).
+  // Chame no console: debugAtividadesCompartilhadas()
   window.debugAtividadesCompartilhadas = function(){
     if(!latestWb){
       console.warn('[debugAtividadesCompartilhadas] o painel ainda não carregou nenhuma planilha.');
       return;
     }
     var periodo = periodoEfetivoAtual();
-    var TIPOS_OK = [
-      "educacao em saude", "atendimento em grupo",
-      "avaliacao/procedimento coletivo", "mobilizacao social"
-    ];
     var racWs = latestWb.Sheets[suffixedName("Resumo Atividade Coletiva")];
     var racRows = racWs ? sheetToRows(racWs) : [];
     var racHeader = racRows[0] || [];
@@ -5999,13 +6013,10 @@
           : 1+toInt(r[iRacProfEnv]);
         var temEmulti = (totalEmultiPart === undefined) ? true : totalEmultiPart >= 1;
         var tipoRaw = iRacTipo>=0 ? String(r[iRacTipo]||"").trim() : "";
-        var tipoNormalizadoDebug = normalizarTexto(tipoRaw);
-        var tipoOk = iRacTipo<0 || TIPOS_OK.some(function(t){ return tipoNormalizadoDebug.indexOf(t) >= 0; });
-        var conta = temEmulti && totalProfGeral >= 2 && tipoOk;
+        var conta = temEmulti && totalProfGeral >= 2;
         var motivoExclusao = conta ? "" :
-          (!tipoOk ? 'tipo_atividade fora dos 4 aceitos ("' + tipoRaw + '")'
-          : (totalProfGeral < 2 ? 'qtd_total_profissionais < 2 (' + totalProfGeral + ')'
-          : 'Total de Profissionais da EMulti = 0 (não achou ligação com Participantes)'));
+          (totalProfGeral < 2 ? 'qtd_total_profissionais < 2 (' + totalProfGeral + ')'
+          : 'Total de Profissionais da EMulti = 0 (não achou ligação com Participantes)');
         return {
           data: iRacData>=0 ? String(r[iRacData]) : "",
           tipo_atividade: tipoRaw,
@@ -6022,6 +6033,7 @@
       +' | linhas no período: '+totalLinhas+' | contam como compartilhada: '+totalCompartilhadas);
     console.table(linhas);
     return linhas;
+
   };
 
   function fetchAndLoad(){
