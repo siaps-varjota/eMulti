@@ -15,6 +15,14 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <link rel="stylesheet" href="style.css">
+<style>
+  /* Filtros (Equipe/Ano/Quadrimestre/Mês) 40% menores — pedido do usuário.
+     "zoom" encolhe o bloco inteiro (fonte, padding, altura dos selects e
+     do painel de opções) mantendo a proporção, sem precisar reescrever as
+     regras de style.css (não incluído neste upload). Se preferir, essas
+     mesmas regras podem ser movidas pra dentro de style.css. */
+  .filter-bar-outer{ zoom:0.6; }
+</style>
 </head>
 <body>
 
@@ -111,6 +119,10 @@
   <div class="ms-field">
     <label>Equipe</label>
     <div class="ms-wrap" id="equipeMs"></div>
+  </div>
+  <div class="ms-field">
+    <label>Ano</label>
+    <div class="ms-wrap" id="anoMs"></div>
   </div>
   <div class="ms-field">
     <label>Quadrimestre</label>
