@@ -90,7 +90,7 @@
     padding:10px 10px;
   }
   .ref-month-row.hidden{display:none;}
-  .ref-window-label{font-size:12.5px;color:var(--ink-soft);white-space:normal;word-break:break-word;line-height:1.4;align-self:center;}
+  .ref-window-label{font-size:12.5px;color:var(--ink-soft);white-space:normal;word-break:break-word;line-height:1.4;align-self:flex-start;margin:0;}
   .ref-window-label b{color:var(--ink);font-weight:600;}
 
   /* ---------- Multi-select arredondado (Equipe / Quadrimestre / Tipo de Cálculo / Mês) ---------- */
