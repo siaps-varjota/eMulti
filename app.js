@@ -5854,9 +5854,14 @@
     // usam CSS escopado (.mm-comp-col) pra virar linha cheia com a
     // contagem em negrito alinhada à direita — modelo das imagens de
     // referência — sem duplicar esta função.
+    // s.title (opcional): definição oficial do segmento (Nota Metodológica
+    // M1/M2, NT 43/44-2026-CGIAD/DEAPS/SAPS/MS), mostrada como tooltip
+    // nativo (atributo title) ao passar o mouse sobre o rótulo — não
+    // altera o valor/percentual já exibidos, só esclarece o que cada
+    // parcela representa.
     var legend = segments.map(function(s){
       var pct = t>0 ? (s.value/t*100) : 0;
-      return '<span class="legend-item"><i style="background:'+s.color+'"></i>'
+      return '<span class="legend-item"'+(s.title ? ' title="'+escapeHtml(s.title)+'"' : '')+'><i style="background:'+s.color+'"></i>'
         + '<span class="legend-label">'+s.label+'</span>'
         + '<span class="legend-count">'+fmtInt(s.value)+'<span class="legend-pct">('+fmtDec(pct,1)+'%)</span></span></span>';
     }).join('');
@@ -6164,24 +6169,37 @@
       : (d.reunioesCompartilhadasContrib!=null ? d.reunioesCompartilhadasContrib : d.reunioesCompartilhadas);
     var reunioesTotaisGauge = d.reunioesTotaisJanela!=null ? d.reunioesTotaisJanela : d.reunioesTotais;
 
+    // Textos das definições oficiais (Nota Metodológica M1 = NT 43/2026 e
+    // M2 = NT 44/2026-CGIAD/DEAPS/SAPS/MS), mostrados como tooltip em cada
+    // parcela das composições abaixo — pedido explícito: deixar claro,
+    // tanto no Numerador do M1 quanto no Denominador do M2, que
+    // "Atendimentos individuais" é o mesmo número/definição nos dois
+    // lugares (é a mesma contagem entrando nas duas fórmulas).
+    var DEF_ATEND_IND = 'Atendimento individual (presencial, domiciliar ou remoto) registrado por profissional da eMulti com CNS/CPF identificado — Modelo de Informação de Atendimento Individual (MIAI). Mesma contagem usada no Numerador do M1 (NT 43/2026) e no Denominador do M2 (NT 44/2026), que soma TODOS os atendimentos e atividades da eMulti no período.';
+    var DEF_PARTIC_COLETIVA = 'Participações em atividade coletiva (códigos 04 a 07: Educação em saúde, Atendimento em grupo, Avaliação/Procedimento coletivo, Mobilização social), específica ou compartilhada — cada pessoa participante conta 1 vez por atividade (Modelo de Informação de Atividade Coletiva - MIAC). Entra no Numerador do M1 (NT 43/2026) junto com os atendimentos individuais.';
+    var DEF_AC_ESPECIFICA = 'Atividade coletiva (Resumo Atividade Coletiva) que NÃO teve 2+ profissionais com CNS diferentes (sendo ao menos 1 da eMulti) — entra no Denominador do M2 como ação específica, mas NÃO no Numerador (não é compartilhada).';
+    var DEF_AC_COMPARTILHADA = 'Atividade coletiva realizada de forma simultânea por 2 ou mais profissionais (CNS diferentes), com pelo menos 1 da eMulti — conta como ação compartilhada no Numerador do M2 (NT 44/2026).';
+    var DEF_REUNIAO_ESPECIFICA = 'Reunião (Resumo Reuniões) que não é dos tipos 01-03 (Reunião de equipe/outras equipes de saúde/intersetorial) com tema "Discussão de caso/Projeto terapêutico singular", ou não teve 2+ participantes — entra no Denominador do M2, mas NÃO no Numerador.';
+    var DEF_REUNIAO_COMPARTILHADA = 'Reunião de equipe, com outras equipes de saúde ou intersetorial (códigos 01-03), registrada com o tema "Discussão de caso/Projeto terapêutico singular" e 2 ou mais participantes — conta como ação compartilhada no Numerador do M2 (NT 44/2026).';
+
     // ---- Composição (4 cartões: Numerador/Denominador de M1 e M2) ----
     var numM1Bar = stackbar([
-        {label:'Atendimentos individuais', value:atendIndGauge, color:'#153F35'},
-        {label:'Participações coletivas', value:participColGauge, color:'#C68A3D'}
+        {label:'Atendimentos individuais', value:atendIndGauge, color:'#153F35', title:DEF_ATEND_IND},
+        {label:'Participações coletivas', value:participColGauge, color:'#C68A3D', title:DEF_PARTIC_COLETIVA}
       ], numM1Gauge);
     var denM1Bar = stackbar([
         {label:'Pessoas atendidas', value:denM1CalcGauge, color:'#153F35'}
       ], denM1Gauge);
     var numM2Bar = stackbar([
-        {label:'Atividades coletivas compartilhadas', value:atividadesCompGauge, color:'#153F35'},
-        {label:'Reuniões compartilhadas', value:reunioesCompGauge, color:'#C68A3D'}
+        {label:'Atividades coletivas compartilhadas', value:atividadesCompGauge, color:'#153F35', title:DEF_AC_COMPARTILHADA},
+        {label:'Reuniões compartilhadas', value:reunioesCompGauge, color:'#C68A3D', title:DEF_REUNIAO_COMPARTILHADA}
       ], numM2Gauge);
     var denM2Bar = stackbar([
-        {label:'Atendimentos individuais', value:atendIndGauge||0, color:'#CBD3C4'},
-        {label:'Atividades coletivas (específicas)', value:(atividadesTotaisGauge!=null && atividadesCompGauge!=null) ? Math.max(0, atividadesTotaisGauge-atividadesCompGauge) : 0, color:'#E7DFC9'},
-        {label:'Atividades coletivas compartilhadas', value:atividadesCompGauge||0, color:'#153F35'},
-        {label:'Reuniões (específicas)', value:(reunioesTotaisGauge!=null && reunioesCompGauge!=null) ? Math.max(0, reunioesTotaisGauge-reunioesCompGauge) : 0, color:'#F1E6D2'},
-        {label:'Reuniões compartilhadas', value:reunioesCompGauge||0, color:'#C68A3D'}
+        {label:'Atendimentos individuais', value:atendIndGauge||0, color:'#CBD3C4', title:DEF_ATEND_IND},
+        {label:'Atividades coletivas (específicas)', value:(atividadesTotaisGauge!=null && atividadesCompGauge!=null) ? Math.max(0, atividadesTotaisGauge-atividadesCompGauge) : 0, color:'#E7DFC9', title:DEF_AC_ESPECIFICA},
+        {label:'Atividades coletivas compartilhadas', value:atividadesCompGauge||0, color:'#153F35', title:DEF_AC_COMPARTILHADA},
+        {label:'Reuniões (específicas)', value:(reunioesTotaisGauge!=null && reunioesCompGauge!=null) ? Math.max(0, reunioesTotaisGauge-reunioesCompGauge) : 0, color:'#F1E6D2', title:DEF_REUNIAO_ESPECIFICA},
+        {label:'Reuniões compartilhadas', value:reunioesCompGauge||0, color:'#C68A3D', title:DEF_REUNIAO_COMPARTILHADA}
       ], denM2Gauge);
 
     document.getElementById('compRow').innerHTML =
