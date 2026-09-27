@@ -795,6 +795,20 @@
       html += '</div>';
       panel.innerHTML = html;
 
+      // Abre pra cima quando não cabe embaixo (mesmo comportamento do
+      // <select> nativo do navegador, usado no "Filtrar por coluna…"):
+      // sem isso, este painel customizado sempre abria pra baixo, mesmo
+      // perto do fim da tela, cortando a lista ou saindo da viewport —
+      // vale pra todo filtro deste componente (Mês, Equipe, Profissional
+      // etc.) em qualquer tabela, já que todas usam createMultiSelect.
+      panel.classList.remove('ms-panel-up');
+      var btnRect = btn.getBoundingClientRect();
+      var espacoAbaixo = window.innerHeight - btnRect.bottom;
+      var espacoAcima = btnRect.top;
+      if(panel.offsetHeight > espacoAbaixo && espacoAcima > espacoAbaixo){
+        panel.classList.add('ms-panel-up');
+      }
+
       var searchInput = panel.querySelector('.ms-search');
       if(searchInput){
         searchInput.focus();
