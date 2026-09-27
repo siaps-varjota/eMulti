@@ -6433,7 +6433,7 @@
         fmtInt(numM2Gauge)+' compartilhadas ÷ '+fmtInt(denM2Gauge)+' ações',
         quadAnterior.m2, 2, '%', LEGEND_M2, 'users');
     document.getElementById('compRowM2').innerHTML =
-        '<div class="card comp-card">'+compCardHeaderHTML('Composição do numerador', numM2Gauge)+numM2Bar+'</div>'
+        '<div class="card comp-card" style="height:auto;min-height:0;align-self:start;">'+compCardHeaderHTML('Composição do numerador', numM2Gauge)+numM2Bar+'</div>'
       + '<div class="card comp-card">'+compCardHeaderHTML('Denominador do M2', denM2Gauge)+denM2Bar+'</div>';
     document.getElementById('sideRowM2').innerHTML =
       metaQuadrimestreMiniHTML(denM2Gauge, 'ações realizadas', metaM2.cards, metaM2.preliminar, d.mesesProjecaoLabel);
