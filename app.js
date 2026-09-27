@@ -3885,7 +3885,10 @@
       + '.prof-pop-item:last-child{border-bottom:none}'
       + '.prof-pop-item-row{display:flex;justify-content:space-between;gap:10px}'
       + '.prof-pop-item-row span:last-child{color:#5B6B62;white-space:nowrap;font-weight:600}'
-      + '.prof-pop-tipo{margin-top:2px;font-size:11px;color:#5B6B62;font-style:italic}';
+      + '.prof-pop-tipo{margin-top:2px;font-size:11px;color:#5B6B62;font-style:italic}'
+      + '.legend-info-btn{display:inline-flex;align-items:center;justify-content:center;margin-left:5px;width:15px;height:15px;border-radius:999px;border:1px solid #CFE0D6;background:#EEF3EA;color:#1F7A45;font-size:10px;font-weight:800;font-style:normal;cursor:pointer;line-height:1;vertical-align:middle;flex:none;padding:0}'
+      + '.legend-info-btn:hover{background:#E3F0E7}'
+      + '.legend-info-pop{max-width:280px;font-size:12.5px;line-height:1.4;color:#3C4A42}';
     var el = document.createElement('style');
     el.id = 'partModalStyles';
     el.textContent = css;
@@ -3963,6 +3966,62 @@
       });
     }catch(e){}
     abrirProfPopover(btn, itens);
+  });
+  // ---------- Popover de informação (ícone "i" nas legendas dos cards de
+  // Composição — Numerador/Denominador M1 e M2) ----------
+  // Mesmo padrão do popover de profissionais acima (elemento único
+  // reaproveitado, fecha ao clicar fora/rolar/redimensionar/Esc), só que
+  // com texto simples em vez de lista — usado pra mostrar a definição
+  // oficial (Nota Metodológica M1/M2) de cada parcela ao TOCAR/CLICAR no
+  // ícone "i" (funciona no celular, diferente de tooltip por hover).
+  var legendInfoPopEl = null;
+  function legendInfoPopGarantirEl(){
+    if(legendInfoPopEl) return legendInfoPopEl;
+    var el = document.createElement('div');
+    el.className = 'prof-pop legend-info-pop';
+    document.body.appendChild(el);
+    legendInfoPopEl = el;
+    document.addEventListener('click', function(ev){
+      if(!legendInfoPopEl || !legendInfoPopEl.classList.contains('is-open')) return;
+      if(legendInfoPopEl.contains(ev.target)) return;
+      if(ev.target.closest && ev.target.closest('.legend-info-btn')) return;
+      fecharLegendInfoPopover();
+    });
+    window.addEventListener('scroll', fecharLegendInfoPopover, true);
+    window.addEventListener('resize', fecharLegendInfoPopover);
+    document.addEventListener('keydown', function(ev){ if(ev.key === 'Escape') fecharLegendInfoPopover(); });
+    return el;
+  }
+  function fecharLegendInfoPopover(){
+    if(legendInfoPopEl) legendInfoPopEl.classList.remove('is-open');
+  }
+  function abrirLegendInfoPopover(btnEl, texto){
+    var el = legendInfoPopGarantirEl();
+    el.innerHTML = escapeHtml(texto);
+    el.classList.add('is-open');
+    // Reseta a posição antes de medir (garante que a largura/altura
+    // calculadas sejam as do conteúdo novo, não de um popover anterior
+    // maior/menor ainda no DOM).
+    el.style.left = '0px';
+    el.style.top = '0px';
+    var r = btnEl.getBoundingClientRect();
+    var rect = el.getBoundingClientRect();
+    var left = Math.min(r.left, window.innerWidth - rect.width - 10);
+    left = Math.max(8, left);
+    var top = r.bottom + 6;
+    if(top + rect.height > window.innerHeight - 8){ top = r.top - rect.height - 6; }
+    if(top < 8) top = 8;
+    el.style.left = left + 'px';
+    el.style.top = top + 'px';
+  }
+  document.addEventListener('click', function(ev){
+    var btn = ev.target.closest ? ev.target.closest('.legend-info-btn') : null;
+    if(!btn) return;
+    ev.stopPropagation();
+    var raw = btn.getAttribute('data-info-text') || '';
+    var texto = '';
+    try{ texto = decodeURIComponent(raw); }catch(e){}
+    abrirLegendInfoPopover(btn, texto);
   });
   // Valor sentinela (não é um índice numérico de coluna) usado no <select>
   // "Filtrar por coluna…" pra representar o filtro virtual "Profissional
@@ -5855,14 +5914,18 @@
     // contagem em negrito alinhada à direita — modelo das imagens de
     // referência — sem duplicar esta função.
     // s.title (opcional): definição oficial do segmento (Nota Metodológica
-    // M1/M2, NT 43/44-2026-CGIAD/DEAPS/SAPS/MS), mostrada como tooltip
-    // nativo (atributo title) ao passar o mouse sobre o rótulo — não
-    // altera o valor/percentual já exibidos, só esclarece o que cada
+    // M1/M2, NT 43/44-2026-CGIAD/DEAPS/SAPS/MS) — mostrada num popover ao
+    // clicar/tocar no ícone "i" ao lado do rótulo (funciona igual no
+    // desktop e no celular; ver legend-info-btn/abrirLegendInfoPopover).
+    // Não altera o valor/percentual já exibidos, só esclarece o que cada
     // parcela representa.
     var legend = segments.map(function(s){
       var pct = t>0 ? (s.value/t*100) : 0;
-      return '<span class="legend-item"'+(s.title ? ' title="'+escapeHtml(s.title)+'"' : '')+'><i style="background:'+s.color+'"></i>'
-        + '<span class="legend-label">'+s.label+'</span>'
+      var infoBtnHtml = s.title
+        ? '<button type="button" class="legend-info-btn" data-info-text="'+encodeURIComponent(s.title)+'" aria-label="O que é '+escapeHtml(s.label)+'?">i</button>'
+        : '';
+      return '<span class="legend-item"><i style="background:'+s.color+'"></i>'
+        + '<span class="legend-label">'+s.label+infoBtnHtml+'</span>'
         + '<span class="legend-count">'+fmtInt(s.value)+'<span class="legend-pct">('+fmtDec(pct,1)+'%)</span></span></span>';
     }).join('');
     return '<div class="stackbar">'+bars+'</div><div class="legend">'+legend+'</div>';
