@@ -1331,7 +1331,8 @@
     "'Desempenho quadrimestral' usa a fórmula oficial da Nota Final do Componente III (Qualidade) para eMulti — NT 8/2026-DEAPS/SAPS/MS, Quadro 4: Nota final = pontos M1 × 6 + pontos M2 × 4 (pontos por classificação: Regular=0,25, Suficiente=0,5, Bom=0,75, Ótimo=1), classificada conforme o Quadro 6 da mesma nota: Regular ≤ 2,5, Suficiente > 2,5 e < 5, Bom ≥ 5 e ≤ 7,5, Ótimo > 7,5. O que NÃO é oficial aqui é o DADO de entrada: o M1 e o M2 usados nessa conta são os calculados por este painel a partir dos dados brutos (ver notas acima), não os valores publicados pelo Siaps — por isso o resultado exibido é uma aproximação do Componente III oficial, não o valor de cofinanciamento em si.",
     "Abandono consumado: o paciente precisa ter pelo menos 2 consultas. O painel calcula a mediana histórica do intervalo entre a 1ª e a 2ª consulta dos pacientes analisados e mede os dias desde a última consulta de cada paciente. Quando esse intervalo é maior que 3 vezes a mediana histórica, o paciente é classificado como abandono consumado.",
     "Classificação do acompanhamento: Em dia = dias desde a última consulta ≤ mediana; Em risco = dias desde a última consulta > mediana e ≤ 3 × mediana; Abandono consumado = dias desde a última consulta > 3 × mediana. O painel não usa um número fixo de dias: o limite é calculado dinamicamente com base no comportamento histórico dos pacientes incluídos nos filtros da aba Análises.",
-    "Na aba Análises, a classificação considera o histórico inteiro ou os quadrimestres selecionados na própria aba Análises, e não necessariamente o filtro global de período."
+    "Na aba Análises, a classificação considera o histórico inteiro ou os quadrimestres selecionados na própria aba Análises, e não necessariamente o filtro global de período.",
+    "Filtro 'Fluxo' (tabela Pessoas Atendidas): calculado sobre o histórico COMPLETO de cada pessoa (Atendimentos + Participantes Ativ. Coletiva, ignorando o filtro de Mês próprio dessa tabela), na janela móvel dos últimos 4 meses terminando no último dia do mês ATUAL real (não no mês filtrado no topo da página). 'Entrada' = o primeiro atendimento/participação de todo o histórico da pessoa caiu dentro dessa janela. 'Saída' = a pessoa não tem nenhum atendimento/participação dentro dessa janela (mesmo tendo histórico anterior). Quem já vinha de antes da janela e também tem evento dentro dela (segue ativa) fica sem rótulo nessa coluna."
   ];
 
   // ---------- "Total de Profissionais da EMulti" (coluna virtual) ----------
@@ -3418,6 +3419,66 @@
   // (ver abrirProfPopover).
   var TIPO_EVENTO_ATENDIMENTO = 'Atendimento';
   var TIPO_EVENTO_PARTICIPACAO = 'Participação em Atividade Coletiva';
+  // Classificação de Fluxo ("Entrada"/"Saída") da tabela "Pessoas
+  // Atendidas": SEMPRE calculada sobre o HISTÓRICO COMPLETO da pessoa
+  // (Atendimentos + Participantes Ativ. Coletiva — TODAS as datas, sem o
+  // filtro de Mês próprio dessa tabela) e sobre a janela móvel de
+  // JANELA_MESES (4) meses terminando no ÚLTIMO DIA do mês ATUAL real
+  // (hoje), não no mês filtrado no topo da página — mesmo critério de
+  // referência temporal já usado pela Busca-Ativa (ver
+  // buscaAtivaCompute/calcularJanelaPeriodo).
+  // - "Entrada": o PRIMEIRO atendimento/participação de TODO o histórico
+  //   da pessoa caiu dentro dessa janela (pessoa nova no indicador).
+  // - "Saída": a pessoa NÃO tem nenhum atendimento/participação dentro
+  //   dessa janela (mesmo tendo histórico anterior a ela).
+  // - Qualquer outro caso (já vinha de antes da janela E também tem
+  //   evento dentro dela — segue ativa/estável) fica sem rótulo (célula
+  //   vazia) — assim a lista de valores do filtro "Fluxo" mostra só as
+  //   duas opções pedidas (Entrada/Saída), sem um 3º valor "no meio".
+  function calcularFluxoPorPessoa(){
+    var hoje = new Date();
+    var mesAtual = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+    var janela = calcularJanelaPeriodo(mesAtual);
+    var mapa = {}; // nome maiúsculo -> {primeira:Date|null, temNaJanela:bool}
+    function registrar(nome, d){
+      if(!nome || !d) return;
+      var chave = nome.toUpperCase();
+      if(!mapa[chave]) mapa[chave] = {primeira:null, temNaJanela:false};
+      var info = mapa[chave];
+      if(!info.primeira || d < info.primeira) info.primeira = d;
+      if(withinPeriod(d, janela.inicio, janela.fim)) info.temNaJanela = true;
+    }
+    var atCachedFluxo = latestSheets[suffixedName("Atendimentos")];
+    if(atCachedFluxo){
+      var iDataFluxo = colIndex(atCachedFluxo.headers, "data_hora");
+      var iNomeFluxo = colIndex(atCachedFluxo.headers, "nome");
+      if(iDataFluxo >= 0 && iNomeFluxo >= 0){
+        atCachedFluxo.rows.forEach(function(r){
+          registrar(String(r[iNomeFluxo]||"").trim(), parseBRDate(r[iDataFluxo]));
+        });
+      }
+    }
+    var partCachedFluxo = latestSheets[suffixedName("Participantes Ativ. Coletiva")];
+    if(partCachedFluxo){
+      var iPDataFluxo = colIndex(partCachedFluxo.headers, "data");
+      var iPNomeFluxo = colIndex(partCachedFluxo.headers, "participante");
+      if(iPDataFluxo >= 0 && iPNomeFluxo >= 0){
+        partCachedFluxo.rows.forEach(function(r){
+          var nome = String(r[iPNomeFluxo]||"").trim();
+          if(!nome || nome.indexOf("(sem lista nominal") === 0) return;
+          registrar(nome, parseBRDate(r[iPDataFluxo]));
+        });
+      }
+    }
+    return {mapa: mapa, janela: janela};
+  }
+  function fluxoLabelPara(fluxoInfo, nome){
+    var info = fluxoInfo.mapa[String(nome||"").toUpperCase()];
+    if(!info) return "";
+    if(info.primeira && withinPeriod(info.primeira, fluxoInfo.janela.inicio, fluxoInfo.janela.fim)) return "Entrada";
+    if(!info.temNaJanela) return "Saída";
+    return "";
+  }
   function pessoasAtendidasParaMeses(monthValues){
     // nome em maiúsculas -> {nome, at, part, datas:[Date,...],
     // profissionais:{nome:true} (todo mundo que já atendeu, histórico
@@ -3541,8 +3602,11 @@
     maxDatas = Math.min(maxDatas, MAX_DATAS_PESSOA_ATENDIDA);
     var dataHeaders = [];
     for(var i=1;i<=maxDatas;i++){ dataHeaders.push("Data "+i); }
+    // Fluxo: calculado sobre o histórico COMPLETO (não limitado por
+    // monthValues) — ver calcularFluxoPorPessoa acima.
+    var fluxoInfo = calcularFluxoPorPessoa();
     return {
-      headers: ["Nome","Atendimentos","Participantes Ativ. Coletiva","Total","Profissional"].concat(dataHeaders),
+      headers: ["Nome","Atendimentos","Participantes Ativ. Coletiva","Total","Fluxo","Profissional"].concat(dataHeaders),
       rows: pessoasLista.map(function(p){
         // profissionalCol: lista completa (todo mundo que já atendeu essa
         // pessoa, histórico inteiro) — continua igual a antes, usada só
@@ -3552,7 +3616,7 @@
         // alfabética.
         var listaProf = Object.keys(p.profissionais).sort(prioridadeMenor);
         var profissionalCol = listaProf.length ? listaProf.join(', ') : '—';
-        var row = [p.nome, p.at, p.part, p.at+p.part, profissionalCol];
+        var row = [p.nome, p.at, p.part, p.at+p.part, fluxoLabelPara(fluxoInfo, p.nome), profissionalCol];
         for(var i=0;i<maxDatas;i++){
           row.push(p.datas[i] ? fmtBRDate(p.datas[i]) : "—");
         }
