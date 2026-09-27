@@ -5855,18 +5855,14 @@
     // contagem em negrito alinhada à direita — modelo das imagens de
     // referência — sem duplicar esta função.
     // s.title (opcional): definição oficial do segmento (Nota Metodológica
-    // M1/M2, NT 43/44-2026-CGIAD/DEAPS/SAPS/MS) — mostrada SEMPRE VISÍVEL,
-    // numa segunda linha abaixo do rótulo (sem precisar tocar/passar o
-    // mouse, pra funcionar igual no desktop e no celular). Não altera o
-    // valor/percentual já exibidos, só esclarece o que cada parcela
-    // representa.
+    // M1/M2, NT 43/44-2026-CGIAD/DEAPS/SAPS/MS), mostrada como tooltip
+    // nativo (atributo title) ao passar o mouse sobre o rótulo — não
+    // altera o valor/percentual já exibidos, só esclarece o que cada
+    // parcela representa.
     var legend = segments.map(function(s){
       var pct = t>0 ? (s.value/t*100) : 0;
-      var subtitleHtml = s.title
-        ? '<span style="display:block;font-size:11px;font-weight:400;line-height:1.35;color:#8B978F;white-space:normal;margin-top:2px;">'+escapeHtml(s.title)+'</span>'
-        : '';
-      return '<span class="legend-item"><i style="background:'+s.color+'"></i>'
-        + '<span class="legend-label" style="display:inline-block;">'+s.label+subtitleHtml+'</span>'
+      return '<span class="legend-item"'+(s.title ? ' title="'+escapeHtml(s.title)+'"' : '')+'><i style="background:'+s.color+'"></i>'
+        + '<span class="legend-label">'+s.label+'</span>'
         + '<span class="legend-count">'+fmtInt(s.value)+'<span class="legend-pct">('+fmtDec(pct,1)+'%)</span></span></span>';
     }).join('');
     return '<div class="stackbar">'+bars+'</div><div class="legend">'+legend+'</div>';
