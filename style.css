@@ -40,7 +40,7 @@
     background:linear-gradient(135deg,#2B622D 0%,#28569B 100%);
     color:var(--header-ink);
     padding:9px 40px;
-    display:flex;justify-content:space-between;align-items:center;gap:24px;flex-wrap:wrap;
+    display:flex;justify-content:space-between;align-items:center;gap:22px;flex-wrap:wrap;
   }
   .topbar-left .kicker{
     font-size:11px;letter-spacing:1.4px;text-transform:uppercase;
