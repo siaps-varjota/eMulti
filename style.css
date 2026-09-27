@@ -90,7 +90,7 @@
     padding:10px 10px;
   }
   .ref-month-row.hidden{display:none;}
-  .ref-window-label{font-size:12.5px;color:var(--ink-soft);white-space:normal;word-break:break-word;line-height:1.4;align-self:flex-start;margin:0;}
+  .ref-window-label{font-size:12.5px;color:var(--ink-soft);white-space:normal;word-break:break-word;line-height:1.4;margin:0;}
   .ref-window-label b{color:var(--ink);font-weight:600;}
 
   /* ---------- Multi-select arredondado (Equipe / Quadrimestre / Tipo de Cálculo / Mês) ---------- */
@@ -100,7 +100,13 @@
      (flex-wrap:wrap continua ativo) em vez de estourar o container. */
   .ms-field{display:flex;flex-direction:column;gap:5px;flex:1 1 135px;}
   .ms-field .ms-wrap{width:100%;}
-  .ms-field.ms-field-window{flex:1 1 150px;min-width:150px;max-width:220px;}
+  .ms-field.ms-field-window{flex:1 1 150px;min-width:150px;max-width:220px;position:relative;}
+  /* O texto (#refWindowLabel) fica sozinho, fora do fluxo da coluna: sem
+     isso ele nasce empurrado pra baixo pelo rótulo invisível "Período"
+     (ms-hidden-label) + o gap:5px da coluna, ficando mais baixo que os
+     títulos dos outros filtros (Equipe/Ano/Quadrimestre/Mês). Posicionado
+     assim, o topo do texto fica exatamente na mesma altura desses títulos. */
+  .ms-field.ms-field-window .ref-window-label{position:absolute;top:0;left:0;right:0;}
   /* Tipo de Cálculo só precisa mostrar "Soma"/"Média" — campo mais
      estreito que os demais, sobrando espaço pros outros filtros. */
   .ms-field.ms-field-tipo-calculo{flex:0 1 110px;min-width:100px;}
