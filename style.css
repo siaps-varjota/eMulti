@@ -85,7 +85,7 @@
 
   .filter-bar-outer{max-width:1400px;margin:20px auto 0;padding:0 40px;}
   .ref-month-row{
-    display:flex;align-items:flex-start;gap:0px;flex-wrap:wrap;width:100%;
+    display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;width:100%;
     background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
     padding:10px 10px;
   }
@@ -118,7 +118,7 @@
   .ms-wrap.ms-has-value .ms-btn{border-color:var(--header-bg);}
   .ms-btn-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .ms-wrap:not(.ms-has-value) .ms-btn-text{color:var(--ink-soft);}
-  .ms-chevron{width:15px;height:15px;flex:0 0 auto;transition:transform .15s ease;color:var(--ink-soft);}
+  .ms-chevron{width:10px;height:10px;flex:0 0 auto;transition:transform .15s ease;color:var(--ink-soft);}
   .ms-btn.ms-open .ms-chevron{transform:rotate(180deg);}
   .ms-panel{
     position:absolute;z-index:60;top:calc(100% + 4px);left:0;min-width:100%;width:max-content;max-width:280px;
