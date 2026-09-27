@@ -2678,15 +2678,25 @@
           return (r.consultasPorProf || {})[nome] > 0;
         })
       : [];
-    // Coluna "Profissional": com filtro específico marcado, mostra só quem
-    // foi filtrado (comportamento de antes). Sem filtro ("Todos"), mostra
-    // só quem fez a ÚLTIMA consulta (r.profissionalUltimo) + um badge
-    // "+N" quando o paciente também foi visto por outros profissionais
-    // antes — clicar no badge abre um popover com esses nomes e a data da
-    // última consulta de cada um (ver profissionalBadgeHtml/abrirProfPopover).
-    var profissional = temFiltroProf
-      ? escapeHtml(nomesVisiveis.join(', ') || r.profissionalUltimo || r.profissional)
-      : profissionalCelulaHtml(r);
+    // Coluna "Profissional": com filtro específico marcado, o NOME
+    // PRINCIPAL mostrado é só quem foi filtrado (comportamento de antes) —
+    // mas o popover "+N" continua aparecendo quando o paciente tem OUTROS
+    // profissionais no histórico além dos filtrados (r.outrosProfissionais,
+    // menos quem já está no nome principal), em vez de sumir só porque um
+    // filtro está ativo. Sem filtro ("Todos"), mostra só quem fez a
+    // ÚLTIMA consulta (r.profissionalUltimo) + o mesmo badge "+N" —
+    // clicar nele abre um popover com esses nomes e a data da última
+    // consulta de cada um (ver profissionalBadgeHtml/abrirProfPopover).
+    var profissional;
+    if(temFiltroProf){
+      var principalFiltro = nomesVisiveis.join(', ') || r.profissionalUltimo || r.profissional;
+      var extrasFiltro = (r.outrosProfissionais || []).filter(function(o){
+        return nomesVisiveis.indexOf(o.nome) === -1;
+      });
+      profissional = profissionalBadgeHtml(principalFiltro, extrasFiltro);
+    } else {
+      profissional = profissionalCelulaHtml(r);
+    }
     var totalConsultas = (temFiltroProf && nomesVisiveis.length)
       ? nomesVisiveis.reduce(function(total, nome){
           return total + ((r.consultasPorProf || {})[nome] || 0);
