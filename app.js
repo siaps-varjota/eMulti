@@ -604,8 +604,8 @@
   var CLASS_ARC_HEX_OV_ATIVA = {"Regular":"#C61010","Suficiente":"#D67D00","Bom":"#15933F","Ótimo":"#0553C7"};
 
   // ---------- Listas complementares ----------
-  function m1ListNames(){ return ["Atendimentos", "Participantes Ativ. Coletiva", "Pessoas atendidas", "Busca-Ativa"].map(suffixedName); }
-  function m2ListNames(){ return ["Atendimentos", "Resumo Reuniões", "Resumo Atividade Coletiva"].map(suffixedName); }
+  function m1ListNames(){ return ["Atendimentos", "Atendimentos interprofissionais", "Participantes Ativ. Coletiva", "Pessoas atendidas", "Busca-Ativa"].map(suffixedName); }
+  function m2ListNames(){ return ["Atendimentos", "Atendimentos interprofissionais", "Resumo Reuniões", "Resumo Atividade Coletiva"].map(suffixedName); }
   var latestSheets = {}; // nome da aba -> {headers, rows} | {error}
   // Filtro de mês (multisseleção) das listas das abas M1/M2: por lista
   // (chave = nome sufixado da aba), guarda o índice da coluna de data
@@ -4238,21 +4238,69 @@
     });
   }
 
+  // Agrupa por paciente e dia e mantém apenas os grupos com dois ou mais
+  // profissionais distintos, para identificar atendimentos interprofissionais.
+  function atendimentosInterprofissionaisParaLista(){
+    var source = latestSheets[suffixedName("Atendimentos")];
+    var outHeaders = ["Data","Paciente","Profissionais no dia","Qtd. de atendimentos"];
+    if(!source || !source.headers || !source.rows) return {headers:outHeaders, rows:[]};
+    var headers = source.headers;
+    var iData = colIndex(headers, "data_hora");
+    var iNome = colIndex(headers, "nome");
+    var iProf = colIndex(headers, "profissional");
+    var iId = -1;
+    headers.forEach(function(h, i){
+      var key = normalizeText(h).replace(/[^A-Z0-9]/g, '');
+      if(iId < 0 && (key === 'CNS' || key === 'CPF' || key.indexOf('CARTAONACIONALDESAUDE') >= 0 || key.indexOf('CPF') >= 0)) iId = i;
+    });
+    if(iData < 0 || iNome < 0 || iProf < 0){
+      console.warn('[Atendimentos interprofissionais] faltam colunas de data, nome ou profissional. Cabeçalho:', headers);
+      return {headers:outHeaders, rows:[]};
+    }
+    var grupos = {};
+    source.rows.forEach(function(r){
+      var nome = String(r[iNome] || '').trim();
+      var data = parseBRDate(r[iData]);
+      var profissional = String(r[iProf] || '').trim();
+      if(!nome || !data || !profissional) return;
+      var id = iId >= 0 ? String(r[iId] || '').trim() : '';
+      var paciente = id ? 'ID:' + normalizeText(id).replace(/[^A-Z0-9]/g, '') : 'NOME:' + normalizeText(nome).trim();
+      var dia = data.getFullYear() + '-' + String(data.getMonth()+1).padStart(2,'0') + '-' + String(data.getDate()).padStart(2,'0');
+      var key = paciente + '|' + dia;
+      if(!grupos[key]) grupos[key] = {data:data, nome:nome, profissionais:{}, quantidade:0};
+      var profKey = normalizeText(profissional).trim();
+      if(!grupos[key].profissionais[profKey]) grupos[key].profissionais[profKey] = profissional;
+      grupos[key].quantidade++;
+    });
+    var rows = Object.keys(grupos).map(function(key){
+      var g = grupos[key];
+      var profissionais = Object.keys(g.profissionais).map(function(k){ return g.profissionais[k]; })
+        .sort(function(a,b){ return a.localeCompare(b, 'pt-BR'); });
+      return profissionais.length >= 2 ? [fmtBRDate(g.data), g.nome, profissionais.join('; '), g.quantidade] : null;
+    }).filter(Boolean).sort(function(a,b){
+      return (parseBRDate(b[0]) - parseBRDate(a[0])) || a[1].localeCompare(b[1], 'pt-BR');
+    });
+    return {headers:outHeaders, rows:rows};
+  }
+
   function renderListCard(name){
     // "Pessoas atendidas" é uma lista calculada aqui mesmo no navegador
     // (dedup de Atendimentos + Participantes Ativ. Coletiva) — ver
     // pessoasAtendidasParaMeses. Tem filtro de mês PRÓPRIO, independente
     // do filtro de Mês do topo da página.
+    var isInterprofissional = (name === suffixedName("Atendimentos interprofissionais"));
     var isPessoasAtendidas = (name === suffixedName("Pessoas atendidas"));
     // "Busca-Ativa" (só na aba M1): outra lista calculada aqui mesmo — ver
     // buscaAtivaCompute — sem filtro de mês próprio, pois a janela (31 a
     // 120 dias sem atendimento, contados do fim do mês atual) já é fixa.
     var isBuscaAtiva = (name === suffixedName("Busca-Ativa"));
-    var cached = isPessoasAtendidas
-      ? pessoasAtendidasParaMeses(listMonthFilters[name] || [])
-      : isBuscaAtiva
-        ? buscaAtivaCompute()
-        : latestSheets[name];
+    var cached = isInterprofissional
+      ? latestSheets[name]
+      : isPessoasAtendidas
+        ? pessoasAtendidasParaMeses(listMonthFilters[name] || [])
+        : isBuscaAtiva
+          ? buscaAtivaCompute()
+          : latestSheets[name];
     if(isPessoasAtendidas || isBuscaAtiva) latestSheets[name] = cached;
     var body;
     var hasTable = false;
@@ -4399,6 +4447,10 @@
       return;
     }
     listsRenderedForWb[containerId] = latestWb;
+    var interprofissionalName = suffixedName("Atendimentos interprofissionais");
+    if(names.indexOf(interprofissionalName) >= 0){
+      latestSheets[interprofissionalName] = atendimentosInterprofissionaisParaLista();
+    }
     el.innerHTML = relatedListsPillsHtml(containerId, names) + names.map(renderListCard).join('');
 
     // Só o card da lista ativa (pill selecionada) fica visível — os
@@ -6929,67 +6981,59 @@
   }
   renderEquipeSwitcher();
 
-  // ---------- Alinhamento central das tabelas ----------
-  // Centraliza cabeçalhos e valores das colunas. Os valores das colunas
-  // identificadas por termos de pessoa/equipe permanecem alinhados à esquerda.
-  function instalarAlinhamentoCentralTabelas(){
-    var styleId = 'app-column-alignment-style';
-    if(!document.getElementById(styleId)){
-      var style = document.createElement('style');
-      style.id = styleId;
-      style.textContent = '.app-col-centered{text-align:center !important;}'
-        + '.app-col-preserve-text{text-align:left !important;}';
-      (document.head || document.documentElement).appendChild(style);
-    }
-    var termosTextoPreservado = [
-      'profissional', 'nome', 'paciente', 'equipe', 'responsavel',
-      'participante', 'tipo de atividade'
-    ];
+  // ---------- Alinhamento uniforme das tabelas ----------
+  // Centraliza cabeçalhos e células; mantém à esquerda apenas os valores
+  // das colunas cujo cabeçalho contém um dos termos metodologicamente definidos.
+  (function aplicarAlinhamentoUniformeTabelas(){
+    if(document.getElementById('alinhamentoUniformeTabelasStyles')) return;
+    var style = document.createElement('style');
+    style.id = 'alinhamentoUniformeTabelasStyles';
+    style.textContent =
+      'table th,table td{text-align:center !important;}' +
+      'table thead th{text-align:center !important;}' +
+      'table td[data-align-left="true"]{text-align:left !important;}';
+    document.head.appendChild(style);
+
+    var excecoes = ['profissional','nome','paciente','equipe','responsavel','participante','tipo de atividade'];
     function normalizarTitulo(texto){
-      return String(texto || '').toLocaleLowerCase('pt-BR')
-        .normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+      return String(texto || '').toLowerCase()
+        .normalize('NFD').replace(/[\\u0300-\\u036f]/g,'')
+        .replace(/\\s+/g,' ').trim();
     }
-    function processarTabela(tabela){
-      if(!tabela || tabela.tagName !== 'TABLE') return;
-      var linhaCabecalho = tabela.tHead && tabela.tHead.rows.length
-        ? tabela.tHead.rows[0] : tabela.querySelector('tr');
-      if(!linhaCabecalho) return;
-      var cabecalhos = Array.prototype.map.call(linhaCabecalho.cells, function(celula){
-        return normalizarTitulo(celula.textContent);
-      });
-      Array.prototype.forEach.call(linhaCabecalho.cells, function(celula){
-        celula.classList.add('app-col-centered');
-        celula.classList.remove('app-col-preserve-text');
-      });
-      Array.prototype.forEach.call(tabela.rows, function(linha){
-        if(linha === linhaCabecalho || (tabela.tHead && linha.parentElement === tabela.tHead)) return;
-        Array.prototype.forEach.call(linha.cells, function(celula){
-          var indice = celula.cellIndex;
-          var titulo = cabecalhos[indice] || '';
-          var preservar = termosTextoPreservado.some(function(termo){ return titulo.indexOf(termo) !== -1; });
-          celula.classList.toggle('app-col-centered', !preservar);
-          celula.classList.toggle('app-col-preserve-text', preservar);
+    function alinharTabelas(root){
+      var tabelas = [];
+      if(root && root.matches && root.matches('table')) tabelas.push(root);
+      if(root && root.querySelectorAll){
+        Array.prototype.forEach.call(root.querySelectorAll('table'), function(t){ tabelas.push(t); });
+      }
+      tabelas.forEach(function(table){
+        var headers = Array.prototype.slice.call(table.querySelectorAll('thead th'));
+        if(!headers.length) return;
+        var indicesEsquerda = {};
+        headers.forEach(function(th){
+          var titulo = normalizarTitulo(th.textContent);
+          if(excecoes.some(function(termo){ return titulo.indexOf(termo) >= 0; })){
+            indicesEsquerda[th.cellIndex] = true;
+          }
+        });
+        Array.prototype.forEach.call(table.querySelectorAll('tbody td'), function(td){
+          if(indicesEsquerda[td.cellIndex]) td.setAttribute('data-align-left','true');
+          else td.removeAttribute('data-align-left');
         });
       });
     }
-    function processarTodas(){
-      Array.prototype.forEach.call(document.querySelectorAll('table'), processarTabela);
-    }
-    processarTodas();
-    if(window.MutationObserver && document.body){
-      var agendado = false;
-      var observador = new MutationObserver(function(){
-        if(agendado) return;
-        agendado = true;
-        window.requestAnimationFrame(function(){
-          agendado = false;
-          processarTodas();
+    alinharTabelas(document);
+    if(document.body && typeof MutationObserver !== 'undefined'){
+      var observer = new MutationObserver(function(mutations){
+        mutations.forEach(function(m){
+          Array.prototype.forEach.call(m.addedNodes, function(node){
+            if(node.nodeType === 1) alinharTabelas(node);
+          });
         });
       });
-      observador.observe(document.body, {childList:true, subtree:true});
+      observer.observe(document.body, {childList:true,subtree:true});
     }
-  }
-  instalarAlinhamentoCentralTabelas();
+  })();
 
   // ---------- Init ----------
   refreshHistoryFromStorage(function(arr){
