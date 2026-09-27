@@ -2427,7 +2427,19 @@
       if(!p.datas.length) return;
       var todosProfs = Object.keys(p.profissionais).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); });
       var ultimosProfsSet = p.ultimaProfissionais || {};
-      var ultimoProfissionaisArrKpi = Object.keys(ultimosProfsSet).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); });
+      // Ordena os profissionais da ÚLTIMA consulta com a MESMA prioridade
+      // usada no resto do painel (profissional da eMulti primeiro, depois
+      // alfabética) — o primeiro da lista vira o nome PRINCIPAL da célula;
+      // os demais (inclusive co-profissional da MESMA última consulta,
+      // quando há empate de data) entram no popover "+N" junto com os
+      // profissionais de consultas mais antigas, em vez de ficarem
+      // grudados no texto principal sem badge (ver outrosProfissionais
+      // logo abaixo).
+      var ultimoProfissionaisArrKpi = Object.keys(ultimosProfsSet).sort(function(a,b){
+        var eA = nomeEhDaEmulti(a) ? 0 : 1, eB = nomeEhDaEmulti(b) ? 0 : 1;
+        if(eA !== eB) return eA - eB;
+        return a.localeCompare(b,'pt-BR');
+      });
       var equipeTxtKpi = equipeLabelUnica || Object.keys(p.equipes||{}).sort().join(' + ');
       var ultima = p.datas[p.datas.length-1];
       var diasDesde = diffDias(ultima, hoje);
@@ -2461,17 +2473,26 @@
         var escapado = escapeHtml(nomeProf);
         return (todosProfs.length >= 2 && ultimosProfsSet[nomeProf]) ? '<b>'+escapado+'</b>' : escapado;
       }).join(', ');
-      var profissionalTxt = todosProfs.join(', ');
       var ultimoProfissionaisArr = ultimoProfissionaisArrKpi;
-      // Coluna "Profissional" da tabela: mostra só quem fez a ÚLTIMA
-      // consulta (ultimoProfissionaisArr — normalmente 1 nome, só vira 2+
-      // se houve empate de data). Os demais profissionais do histórico
-      // (todosProfs menos os da última consulta) viram itens de um popover
-      // "Também atendido por…", cada um com a data da SUA última consulta
-      // (ultimaDataPorProf), do mais recente pro mais antigo.
-      var outrosProfissionais = todosProfs
+      var profissionalTxt = todosProfs.join(', ');
+      // Coluna "Profissional" da tabela: SEMPRE 1 nome principal (o
+      // primeiro de ultimoProfissionaisArr, já com a prioridade
+      // eMulti-primeiro acima) + badge "+N" com popover pros demais — em
+      // TODOS os casos em que o paciente tem mais de 1 profissional no
+      // histórico, mesmo quando os "outros" são só o(s) co-profissional(is)
+      // da PRÓPRIA última consulta (empate de data), que antes ficavam
+      // grudados no texto principal sem popover nenhum. Cada item do
+      // popover leva a data em que ESSE profissional atendeu a pessoa pela
+      // última vez (ultimaDataPorProf, ou a própria "ultima" quando é
+      // co-profissional do último dia), do mais recente pro mais antigo.
+      var principalNome = ultimoProfissionaisArr[0] || null;
+      var extrasUltimaData = ultimoProfissionaisArr.slice(1).map(function(nomeProf){
+        return {nome: nomeProf, data: ultima};
+      });
+      var outrosProfissionaisAntigos = todosProfs
         .filter(function(nomeProf){ return !ultimosProfsSet[nomeProf]; })
-        .map(function(nomeProf){ return {nome: nomeProf, data: (p.ultimaDataPorProf||{})[nomeProf] || null}; })
+        .map(function(nomeProf){ return {nome: nomeProf, data: (p.ultimaDataPorProf||{})[nomeProf] || null}; });
+      var outrosProfissionais = extrasUltimaData.concat(outrosProfissionaisAntigos)
         .sort(function(a,b){
           var ta = a.data ? a.data.getTime() : 0, tb = b.data ? b.data.getTime() : 0;
           return tb - ta;
@@ -2483,7 +2504,7 @@
         consultasPorProf:p.consultasPorProf || {},
         profissional: profissionalTxt || '—',
         profissionalHtml: profissionalHtml || '—',
-        profissionalUltimo: ultimoProfissionaisArr.join(', ') || '—',
+        profissionalUltimo: principalNome || '—',
         outrosProfissionais: outrosProfissionais,
         ultimoProfissionais: ultimoProfissionaisArr,
         todosProfissionais: todosProfs,
