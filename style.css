@@ -125,6 +125,11 @@
     background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(21,63,53,.14);
     overflow:hidden;
   }
+  /* Aplicada via JS (createMultiSelect) quando não há espaço embaixo do
+     campo — o painel abre pra cima em vez de pra baixo, igual ao <select>
+     nativo do "Filtrar por coluna…". Vale pra todo filtro deste
+     componente (Mês, Equipe, Profissional etc.) em qualquer tabela. */
+  .ms-panel.ms-panel-up{top:auto;bottom:calc(100% + 4px);}
   .ms-search-wrap{padding:8px;border-bottom:1px solid var(--line);}
   .ms-search{
     width:100%;padding:7px 10px;border:1px solid var(--line);border-radius:9px;box-sizing:border-box;
