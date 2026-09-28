@@ -3554,7 +3554,7 @@
       +   '</div>'
       + '</div>'
       + '<div class="card" style="margin-bottom:16px;">'
-      +   '<h4 style="margin-top:0;">Comparativo por profissional — tempo até a 2ª e da 2ª até a 3ª consulta</h4>'
+      +   '<h4 style="margin-top:0;">Tempo até a 2ª e da 2ª até a 3ª consulta de acordo com o Profissional</h4>'
       +   '<div class="chart-box-full" style="height:260px;"><canvas id="analisesCompProf"></canvas></div>'
       + '</div>'
       + '<div class="card">'
