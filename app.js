@@ -6687,6 +6687,12 @@
     var DEF_REUNIAO_ESPECIFICA = 'Reunião (Resumo Reuniões) que não é dos tipos 01-03 (Reunião de equipe/outras equipes de saúde/intersetorial) com tema "Discussão de caso/Projeto terapêutico singular", ou não teve 2+ participantes — entra no Denominador do M2, mas NÃO no Numerador.';
     var DEF_REUNIAO_COMPARTILHADA = 'Reunião de equipe, com outras equipes de saúde ou intersetorial (códigos 01-03), registrada com o tema "Discussão de caso/Projeto terapêutico singular" e 2 ou mais participantes — conta como ação compartilhada no Numerador do M2 (NT 44/2026).';
 
+    // Parcelas do numerador do M2 que esta extração não consegue medir
+    // (não há aba com esses dados), mas que devem aparecer SEMPRE na
+    // composição, mesmo zeradas — ver numM2Bar abaixo.
+    var DEF_ATEND_COMPARTILHADO = 'Atendimento individual realizado em conjunto por 2 ou mais profissionais — conta como ação compartilhada no Numerador do M2 (NT 44/2026). A Lista de Atendimentos do e-SUS não indica se o atendimento foi compartilhado, então esta extração não consegue contá-lo e o valor aparece zerado.';
+    var DEF_COMPART_CUIDADO = 'Solicitações respondidas de compartilhamento de cuidado no PEC — conta como ação compartilhada no Numerador do M2 (NT 44/2026). Não existe aba equivalente nesta extração, então o valor aparece zerado.';
+
     // ---- Composição (4 cartões: Numerador/Denominador de M1 e M2) ----
     var numM1Bar = stackbar([
         {label:'Atendimentos individuais', value:atendIndGauge, color:'#153F35', title:DEF_ATEND_IND},
@@ -6696,8 +6702,10 @@
         {label:'Pessoas atendidas', value:denM1CalcGauge, color:'#153F35'}
       ], denM1Gauge);
     var numM2Bar = stackbar([
+        {label:'Atendimentos compartilhados', value:0, color:'#3B7DDD', title:DEF_ATEND_COMPARTILHADO},
         {label:'Atividades coletivas compartilhadas', value:atividadesCompGauge, color:'#153F35', title:DEF_AC_COMPARTILHADA},
-        {label:'Reuniões compartilhadas', value:reunioesCompGauge, color:'#C68A3D', title:DEF_REUNIAO_COMPARTILHADA}
+        {label:'Reuniões compartilhadas', value:reunioesCompGauge, color:'#C68A3D', title:DEF_REUNIAO_COMPARTILHADA},
+        {label:'Compartilhamento de cuidado', value:0, color:'#7C5CBF', title:DEF_COMPART_CUIDADO}
       ], numM2Gauge);
     var denM2Bar = stackbar([
         {label:'Atendimentos individuais', value:atendIndGauge||0, color:'#CBD3C4', title:DEF_ATEND_IND},
