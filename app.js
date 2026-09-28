@@ -2423,6 +2423,7 @@
     // filtros da tabela (ver wireRiscoFiltros), em vez de ficarem fixos no
     // total geral independente do filtro.
     var kpiRegistros = [];
+    var registrosTabela = [];
     pacientes.forEach(function(p){
       if(!p.datas.length) return;
       var todosProfs = Object.keys(p.profissionais).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); });
@@ -2465,7 +2466,6 @@
         ultimoProfissionais: ultimoProfissionaisArrKpi, todosProfissionais: todosProfs
       });
 
-      if(status !== 'risco') return;
       // Com 2+ profissionais no histórico do paciente, destaca em
       // negrito quem de fato fez a ÚLTIMA consulta (profissionalHtml,
       // usado na tela). O PDF continua em texto puro (profissional).
@@ -2498,8 +2498,8 @@
           return tb - ta;
         });
       var equipeTxt = equipeTxtKpi;
-      risco.push({
-        nome:p.nome, diasDesde:diasDesde, ultima:ultima,
+      var registroTabela = {
+        nome:p.nome, status:status, diasDesde:diasDesde, ultima:ultima,
         totalConsultas:p.datas.length,
         consultasPorProf:p.consultasPorProf || {},
         profissional: profissionalTxt || '—',
@@ -2509,7 +2509,9 @@
         ultimoProfissionais: ultimoProfissionaisArr,
         todosProfissionais: todosProfs,
         equipe: equipeTxt || '—'
-      });
+      };
+      registrosTabela.push(registroTabela);
+      if(status === 'risco') risco.push(registroTabela);
     });
     risco.sort(function(a,b){ return b.diasDesde - a.diasDesde; });
 
@@ -2529,7 +2531,8 @@
       emDiaCount: emDiaCount,
       abandonoConsumadoCount: abandonoConsumadoCount,
       risco: risco,
-      kpiRegistros: kpiRegistros
+      kpiRegistros: kpiRegistros,
+      registrosTabela: registrosTabela
     };
   }
 
@@ -2632,12 +2635,7 @@
     {label:'Equipe', getValor: function(r){ return r.equipe; }},
     {label:'Consultas', numeric:true, getValor: function(r){ return fmtInt(r.totalConsultas); }},
     {label:'Última consulta', isDate:true, getValor: function(r){ return fmtBRDate(r.ultima); }},
-    {label:'Dias sem voltar', numeric:true, getValor: function(r){ return fmtInt(r.diasDesde)+' dias'; }},
-    // Filtros virtuais baseados na classificação do acompanhamento.
-    {label:'Com 2+ consultas', getValor:function(r){ return r.totalConsultas >= 2 ? 'Sim' : 'Não'; }},
-    {label:'Em dia', getValor:function(r){ return r.status === 'emDia' ? 'Sim' : 'Não'; }},
-    {label:'Em risco', getValor:function(r){ return r.status === 'risco' ? 'Sim' : 'Não'; }},
-    {label:'Abandono consumado', getValor:function(r){ return r.status === 'abandono' ? 'Sim' : 'Não'; }}
+    {label:'Dias sem voltar', numeric:true, getValor: function(r){ return fmtInt(r.diasDesde)+' dias'; }}
   ];
   // Valores distintos de uma coluna filtrável, na ordem certa pro tipo:
   // cronológica (isDate), numérica (numeric) ou alfanumérica (padrão) —
@@ -2779,8 +2777,15 @@
     // voltar — "Profissional" fica de fora porque já tem o filtro dedicado
     // ao lado): mesmo padrão visual (select + multisseleção de valores) das
     // listas da aba Listas — ver RISCO_COLUNAS_FILTRAVEIS/wireRiscoFiltros.
+    var opcoesSituacao = [
+      {value:'status:2mais', label:'Com 2+ consultas'},
+      {value:'status:emDia', label:'Em dia'},
+      {value:'status:risco', label:'Em risco'},
+      {value:'status:abandono', label:'Abandono consumado'}
+    ];
     var colOptionsHtml = '<option value="">Filtrar…</option>'
-      + RISCO_COLUNAS_FILTRAVEIS.map(function(c, i){ return '<option value="'+i+'">'+escapeHtml(c.label)+'</option>'; }).join('');
+      + opcoesSituacao.map(function(o){ return '<option value="'+o.value+'">'+escapeHtml(o.label)+'</option>'; }).join('')
+      + RISCO_COLUNAS_FILTRAVEIS.map(function(c, i){ return '<option value="col:'+i+'">'+escapeHtml(c.label)+'</option>'; }).join('');
     var colFilterHtml = '<div class="filter-pair">'
       + '<select class="filter-col" id="riscoFilterCol">'+colOptionsHtml+'</select>'
       + '<div class="ms-wrap filter-val-ms ms-disabled" id="riscoFilterValMs"></div>'
@@ -2812,7 +2817,7 @@
   // riscoFiltrado, abaixo), pra que o quantitativo na tela, o rodapé
   // ("Mostrando X de Y") e o PDF gerado batam sempre com o filtro atual
   // (profissional da última consulta + busca), em vez do total geral.
-  function wireRiscoFiltros(risco, kpiRegistros, temMediana){
+  function wireRiscoFiltros(risco, kpiRegistros, temMediana, registrosTabela){
     var profMsEl = document.getElementById('riscoProfMs');
     var searchEl = document.getElementById('riscoSearchInput');
     var metaEl = document.getElementById('riscoListMeta');
@@ -2822,7 +2827,7 @@
     var resumoEl = document.getElementById('analisesRiscoResumo');
     if(!tbody) return;
 
-    var todos = risco || [];
+    var todos = registrosTabela || risco || [];
     // Base pros cards de estatística (Total no histórico / Com 2+
     // consultas / Em dia / Em risco / Abandono consumado): cobre TODOS os
     // pacientes (não só os em risco), filtrada com o MESMO predicado da
@@ -2885,7 +2890,8 @@
     }) : null;
     if(colSelectEl){
       colSelectEl.addEventListener('change', function(){
-        var idx = colSelectEl.value !== '' ? parseInt(colSelectEl.value, 10) : null;
+        var valorFiltro = colSelectEl.value || '';
+        var idx = valorFiltro.indexOf('col:') === 0 ? parseInt(valorFiltro.slice(4), 10) : null;
         if(idx === null || !colValMs){
           if(colValMs){ colValMs.setOptions([]); colValMs.setSelected([]); }
           if(colValWrapEl) colValWrapEl.classList.add('ms-disabled');
@@ -2923,11 +2929,13 @@
     // (nome/profissional/equipe/totalConsultas/ultima/diasDesde/
     // ultimoProfissionais/todosProfissionais) têm o mesmo formato nos dois
     // casos, o mesmo predicado serve pra ambos.
-    function filtroPredicado(r){
+    function filtroPredicado(r, paraTabela){
       var selecionados = profMs ? profMs.getSelected() : [];
       var selecionadosAny = profAnyMs ? profAnyMs.getSelected() : [];
       var termo = searchEl ? searchEl.value.trim().toLowerCase() : '';
-      var colIdxFiltro = (colSelectEl && colSelectEl.value !== '') ? parseInt(colSelectEl.value, 10) : null;
+      var valorFiltro = colSelectEl ? (colSelectEl.value || '') : '';
+      var colIdxFiltro = valorFiltro.indexOf('col:') === 0 ? parseInt(valorFiltro.slice(4), 10) : null;
+      var statusFiltro = valorFiltro.indexOf('status:') === 0 ? valorFiltro.slice(7) : '';
       var valoresColSelecionados = colValMs ? colValMs.getSelected() : [];
       var profsLinha = r.ultimoProfissionais || [];
       var matchesProf = !selecionados.length || selecionados.some(function(v){ return profsLinha.indexOf(v) >= 0; });
@@ -2941,7 +2949,15 @@
       var matchesTexto = !termo || textoBusca(r).indexOf(termo) !== -1;
       var matchesColuna = (colIdxFiltro === null || !valoresColSelecionados.length)
         || valoresColSelecionados.indexOf(RISCO_COLUNAS_FILTRAVEIS[colIdxFiltro].getValor(r)) >= 0;
-      return matchesProf && matchesProfAny && matchesTexto && matchesColuna;
+      var matchesSituacao = true;
+      if(statusFiltro === '2mais') matchesSituacao = r.totalConsultas >= 2;
+      else if(statusFiltro === 'emDia') matchesSituacao = r.status === 'emDia';
+      else if(statusFiltro === 'risco') matchesSituacao = r.status === 'risco';
+      else if(statusFiltro === 'abandono') matchesSituacao = r.status === 'abandono';
+      // Sem situação escolhida, mantém o comportamento original: a tabela
+      // começa mostrando apenas os pacientes em risco.
+      else if(paraTabela) matchesSituacao = r.status === 'risco';
+      return matchesProf && matchesProfAny && matchesTexto && matchesColuna && matchesSituacao;
     }
 
     // Recalcula e redesenha os cards de estatística acima da tabela a
@@ -2974,8 +2990,8 @@
 
     function renderTabelaRisco(){
       var selecionados = profMs ? profMs.getSelected() : [];
-      riscoFiltrado = todos.filter(filtroPredicado);
-      renderKpis(kpiTodos.filter(filtroPredicado));
+      riscoFiltrado = todos.filter(function(r){ return filtroPredicado(r, true); });
+      renderKpis(kpiTodos.filter(function(r){ return filtroPredicado(r, false); }));
       if(sortColIdx !== null){
         riscoFiltrado.sort(function(a,b){
           var cmp = compareRiscoPorColuna(a, b, sortColIdx);
@@ -3109,7 +3125,7 @@
     }
     if(elRisco){
       elRisco.innerHTML = riscoTableHtml(data.risco);
-      wireRiscoFiltros(data.risco, data.kpiRegistros, !!data.medianaBase);
+      wireRiscoFiltros(data.risco, data.kpiRegistros, !!data.medianaBase, data.registrosTabela);
     }
 
     var freqEl = document.getElementById('analisesFreqLegenda');
