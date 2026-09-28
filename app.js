@@ -3128,7 +3128,10 @@
     }
     renderTabelaRisco();
 
-    if(btnPdf) btnPdf.addEventListener('click', function(){ gerarPdfRisco(riscoFiltrado, todos.length); });
+    if(btnPdf) btnPdf.addEventListener('click', function(){ gerarPdfRisco(riscoFiltrado, todos.length, {
+      ultima: profMs ? profMs.getSelected() : [],
+      qualquer: profAnyMs ? profAnyMs.getSelected() : []
+    }); });
     if(btnXlsx) btnXlsx.addEventListener('click', function(){ gerarExcelRisco(riscoFiltrado, todos.length); });
   }
 
@@ -3186,7 +3189,7 @@
   // Mesma linha visual dos outros PDFs do painel (faixa de cabeçalho +
   // tabela), mas usa a lista COMPLETA de risco (não só os 40 primeiros
   // mostrados na tela).
-  function gerarPdfRisco(risco, totalGeral){
+  function gerarPdfRisco(risco, totalGeral, profSel){
     var jspdfNs = window.jspdf;
     if(!jspdfNs || !jspdfNs.jsPDF){
       alert('Não foi possível carregar a biblioteca de geração de PDF (verifique a conexão com a internet) — tente novamente.');
@@ -3222,6 +3225,8 @@
     doc.setFontSize(13);
     doc.text('Pacientes em risco de abandono', margin, y);
     y += 16;
+    y = pdfLinhaProfissional(doc, 'Profissional (última consulta)', profSel && profSel.ultima, margin, y, pageWidth-margin*2);
+    y = pdfLinhaProfissional(doc, 'Profissional (qualquer consulta)', profSel && profSel.qualquer, margin, y, pageWidth-margin*2);
     doc.setFont('helvetica','normal');
     doc.setFontSize(9);
     doc.setTextColor(81,96,90);
@@ -3230,16 +3235,18 @@
     doc.text(fmtInt(risco.length)+(risco.length===1?' paciente no total':' pacientes no total')+(filtroAtivo ? ' (filtro de profissional/busca aplicado — total geral sem filtro: '+fmtInt(totalGeral)+')' : '')+'.', margin, y, {maxWidth: pageWidth-margin*2});
     y += 10;
 
+    var linhasRisco = risco.map(function(r){
+      return [r.nome, r.profissional, r.equipe, fmtInt(r.totalConsultas), fmtBRDate(r.ultima), fmtInt(r.diasDesde)+' dias'];
+    });
     doc.autoTable({
       startY: y+6,
       head: [['Paciente','Profissional','Equipe','Consultas','Última consulta','Dias sem voltar']],
-      body: risco.map(function(r){
-        return [r.nome, r.profissional, r.equipe, fmtInt(r.totalConsultas), fmtBRDate(r.ultima), fmtInt(r.diasDesde)+' dias'];
-      }),
+      body: linhasRisco,
       theme: 'grid',
+      columnStyles: pdfColunasNumericasCentralizadas(6, linhasRisco),
       margin: {left:margin, right:margin, bottom:34},
       styles: {font:'helvetica', fontSize:8.6, cellPadding:4, overflow:'linebreak', textColor:[19,36,31], lineColor:[220,228,214], lineWidth:0.5},
-      headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold'},
+      headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold', halign:'center', valign:'middle'},
       alternateRowStyles: {fillColor:[241,244,238]},
       didDrawPage: function(){
         doc.setFontSize(8);
@@ -5096,6 +5103,45 @@
   function slugifyFileName(s){
     return normalizeText(s).replace(/[^A-Z0-9]+/g,'_').replace(/^_+|_+$/g,'');
   }
+  // ---------- Helpers de PDF: alinhamento das colunas ----------
+  // Uma coluna é "numérica" quando TODOS os valores preenchidos têm
+  // dígitos e nenhuma letra (depois de tirar sufixos como "dias" e "%" e
+  // o "R$"): cobre inteiros, decimais com vírgula, percentuais, datas
+  // (12/03/2026), horas e códigos como CPF/CNS. Traços de "vazio" ("-",
+  // "—") são ignorados. Colunas de texto (nomes etc.) ficam à esquerda.
+  function pdfValorEhNumerico(v){
+    var s = String(v == null ? '' : v).trim();
+    if(!s || /^[-–—]+$/.test(s)) return null; // vazio: não decide nada
+    var t = s.replace(/R\$/g,'').replace(/\s*(dias?|%)\s*$/i,'');
+    return /\d/.test(t) && !/[A-Za-zÀ-ÿ]/.test(t);
+  }
+  // Devolve o columnStyles do autoTable ({indice:{halign:'center'}}) só
+  // pras colunas numéricas.
+  function pdfColunasNumericasCentralizadas(nCols, linhas){
+    var estilos = {};
+    for(var c = 0; c < nCols; c++){
+      var temNumero = false, soNumeros = true;
+      for(var r = 0; r < linhas.length; r++){
+        var ehNum = pdfValorEhNumerico(linhas[r][c]);
+        if(ehNum === null) continue;
+        if(!ehNum){ soNumeros = false; break; }
+        temNumero = true;
+      }
+      if(soNumeros && temNumero) estilos[c] = {halign:'center'};
+    }
+    return estilos;
+  }
+  // Escreve uma linha em destaque com o(s) profissional(is) selecionado(s),
+  // quebrando em várias linhas se a lista for longa. Devolve o novo y.
+  function pdfLinhaProfissional(doc, rotulo, nomes, x, y, larguraMax){
+    if(!nomes || !nomes.length) return y;
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(10.5);
+    doc.setTextColor(21,63,53);
+    var linhas = doc.splitTextToSize(rotulo+': '+nomes.join(', '), larguraMax);
+    doc.text(linhas, x, y);
+    return y + 13*linhas.length;
+  }
   function gerarPdfLista(listName, card, btn){
     if(!card) return;
     var jspdfNs = window.jspdf;
@@ -5130,6 +5176,7 @@
     // Monta o resumo dos filtros ativos nesta lista, pra registrar no
     // cabeçalho do PDF exatamente o que foi aplicado.
     var filtrosAtivos = [];
+    var profissionaisSel = [];
     var searchInput = card.querySelector('.list-search');
     if(searchInput && searchInput.value.trim()) filtrosAtivos.push('Busca: "'+searchInput.value.trim()+'"');
     var mesesSelecionados = listMonthFilters[listName] || [];
@@ -5144,7 +5191,14 @@
         var rotuloColuna = colSelect.options[colSelect.selectedIndex]
           ? colSelect.options[colSelect.selectedIndex].text
           : colSelect.value;
-        filtrosAtivos.push(rotuloColuna+': '+vals.join(', '));
+        // Filtro em coluna de profissional ("Profissional", "Profissional da
+        // eMulti", "Profissional 1"...) vira uma linha em destaque logo
+        // abaixo do título, em vez de só mais um item da lista de filtros.
+        if(/PROFISSIONAL/.test(normalizeText(rotuloColuna))){
+          vals.forEach(function(v){ if(profissionaisSel.indexOf(v) === -1) profissionaisSel.push(v); });
+        } else {
+          filtrosAtivos.push(rotuloColuna+': '+vals.join(', '));
+        }
       }
     });
 
@@ -5178,6 +5232,7 @@
     doc.setFontSize(13);
     doc.text(nomeExibicao, margin, y);
     y += 16;
+    y = pdfLinhaProfissional(doc, profissionaisSel.length > 1 ? 'Profissionais' : 'Profissional', profissionaisSel, margin, y, pageWidth-margin*2);
     doc.setFont('helvetica','normal');
     doc.setFontSize(9);
     doc.setTextColor(81,96,90);
@@ -5199,9 +5254,10 @@
       head: [headers],
       body: linhasVisiveis,
       theme: 'grid',
+      columnStyles: pdfColunasNumericasCentralizadas(headers.length, linhasVisiveis),
       margin: {left:margin, right:margin, bottom:34},
       styles: {font:'helvetica', fontSize: headers.length > 9 ? 7 : (headers.length > 6 ? 7.8 : 8.6), cellPadding:4, overflow:'linebreak', textColor:[19,36,31], lineColor:[220,228,214], lineWidth:0.5},
-      headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold'},
+      headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold', halign:'center', valign:'middle'},
       alternateRowStyles: {fillColor:[241,244,238]},
       didDrawPage: function(){
         doc.setFontSize(8);
