@@ -3238,12 +3238,13 @@
     var linhasRisco = risco.map(function(r){
       return [r.nome, r.profissional, r.equipe, fmtInt(r.totalConsultas), fmtBRDate(r.ultima), fmtInt(r.diasDesde)+' dias'];
     });
+    var tabelaRisco = pdfComNumeracao(['Paciente','Profissional','Equipe','Consultas','Última consulta','Dias sem voltar'], linhasRisco, linhasRisco.length > 999 ? 36 : 30);
     doc.autoTable({
       startY: y+6,
-      head: [['Paciente','Profissional','Equipe','Consultas','Última consulta','Dias sem voltar']],
-      body: linhasRisco,
+      head: [tabelaRisco.head],
+      body: tabelaRisco.body,
       theme: 'grid',
-      columnStyles: pdfColunasNumericasCentralizadas(6, linhasRisco),
+      columnStyles: tabelaRisco.columnStyles,
       margin: {left:margin, right:margin, bottom:34},
       styles: {font:'helvetica', fontSize:8.6, cellPadding:4, overflow:'linebreak', textColor:[19,36,31], lineColor:[220,228,214], lineWidth:0.5},
       headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold', halign:'center', valign:'middle'},
@@ -5131,6 +5132,16 @@
     }
     return estilos;
   }
+  // Acrescenta a coluna "Nº" (1, 2, 3...) na frente do cabeçalho e de cada
+  // linha, seguindo a ordem em que as linhas aparecem no PDF (a numeração
+  // continua entre as páginas). Devolve {head, body, columnStyles}, onde a
+  // coluna do número já sai estreita e centralizada.
+  function pdfComNumeracao(head, linhas, larguraNum){
+    var body = linhas.map(function(l, i){ return [String(i+1)].concat(l); });
+    var estilos = pdfColunasNumericasCentralizadas(head.length+1, body);
+    estilos[0] = {halign:'center', cellWidth: larguraNum || 30};
+    return {head:['Nº'].concat(head), body:body, columnStyles:estilos};
+  }
   // Escreve uma linha em destaque com o(s) profissional(is) selecionado(s),
   // quebrando em várias linhas se a lista for longa. Devolve o novo y.
   function pdfLinhaProfissional(doc, rotulo, nomes, x, y, larguraMax){
@@ -5249,12 +5260,13 @@
     doc.text(fmtInt(linhasVisiveis.length)+' de '+fmtInt(totalLinhas)+(totalLinhas===1?' linha no total.':' linhas no total.'), margin, y);
     y += 10;
 
+    var tabelaPdf = pdfComNumeracao(headers, linhasVisiveis, linhasVisiveis.length > 999 ? 36 : 30);
     doc.autoTable({
       startY: y+6,
-      head: [headers],
-      body: linhasVisiveis,
+      head: [tabelaPdf.head],
+      body: tabelaPdf.body,
       theme: 'grid',
-      columnStyles: pdfColunasNumericasCentralizadas(headers.length, linhasVisiveis),
+      columnStyles: tabelaPdf.columnStyles,
       margin: {left:margin, right:margin, bottom:34},
       styles: {font:'helvetica', fontSize: headers.length > 9 ? 7 : (headers.length > 6 ? 7.8 : 8.6), cellPadding:4, overflow:'linebreak', textColor:[19,36,31], lineColor:[220,228,214], lineWidth:0.5},
       headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold', halign:'center', valign:'middle'},
