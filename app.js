@@ -2635,12 +2635,23 @@
     {label:'Equipe', getValor: function(r){ return r.equipe; }},
     {label:'Consultas', numeric:true, getValor: function(r){ return fmtInt(r.totalConsultas); }},
     {label:'Última consulta', isDate:true, getValor: function(r){ return fmtBRDate(r.ultima); }},
-    {label:'Dias sem voltar', numeric:true, getValor: function(r){ return fmtInt(r.diasDesde)+' dias'; }}
+    // "Dias sem voltar" filtra por FAIXAS (não por valor exato de dias):
+    // até 30, 31–60, 61–90 e mais de 90 dias. A lista de opções é fixa
+    // (fixedValues), na ordem das faixas, mesmo que alguma esteja vazia.
+    {label:'Dias sem voltar', fixedValues: ['Até 30 dias','31 a 60 dias','61 a 90 dias','Mais de 90 dias'],
+      getValor: function(r){
+        var d = r.diasDesde;
+        if(d <= 30) return 'Até 30 dias';
+        if(d <= 60) return '31 a 60 dias';
+        if(d <= 90) return '61 a 90 dias';
+        return 'Mais de 90 dias';
+      }}
   ];
   // Valores distintos de uma coluna filtrável, na ordem certa pro tipo:
   // cronológica (isDate), numérica (numeric) ou alfanumérica (padrão) —
   // mesmo critério já usado pros filtros de coluna da aba Listas.
   function valoresDistintosRisco(colDef, dados){
+    if(colDef.fixedValues) return colDef.fixedValues.slice();
     var seen = {}, values = [];
     dados.forEach(function(r){
       var v = colDef.getValor(r);
