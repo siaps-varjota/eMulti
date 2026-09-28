@@ -2063,8 +2063,8 @@
     if(pillPercent) pillPercent.classList.toggle('active', mode==='percent');
     if(pillAbsolute) pillAbsolute.classList.toggle('active', mode==='absolute');
     if(title) title.innerText = mode==='percent'
-      ? 'Comparativo Geral de Distribuição de Consultas (%)'
-      : 'Comparativo Geral de Distribuição de Consultas (Valores Absolutos)';
+      ? 'Quadro Geral de Distribuição de Consultas por Profissional (%)'
+      : 'Quadro Geral de Distribuição de Consultas  por Profissional (Valores Absolutos)';
     renderProfMainChart(profListaAtual);
   }
   (function setupProfPills(){
