@@ -3493,9 +3493,10 @@
   // aproveita as mesmas classes .tab/.tab-panel/.card já usadas nas
   // outras abas, então herda o mesmo visual sem precisar de CSS extra).
   function injetarAbaAnalises(){
-    var tabRef = document.querySelector('.tab');
-    var panelRef = document.querySelector('.tab-panel');
-    if(!tabRef || !panelRef || document.getElementById('tabAnalises')) return;
+   var notasTab = tabRef.parentElement.querySelector('.tab[data-tab="notas"]');
+  if (notasTab) {tabRef.parentElement.insertBefore(btn, notasTab);
+  } else { tabRef.parentElement.appendChild(btn);
+ }
 
     var btn = document.createElement('button');
     btn.type = 'button';
