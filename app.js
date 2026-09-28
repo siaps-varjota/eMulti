@@ -2429,6 +2429,26 @@
     // total geral independente do filtro.
     var kpiRegistros = [];
     var registrosTabela = [];
+    // Última participação em atividade coletiva de cada paciente (nome em
+    // maiúsculas -> Date), lida da aba Participantes Ativ. Coletiva. Só é
+    // INFORMATIVA (coluna "Última participação coletiva"): NÃO entra na
+    // "última consulta" nem na mediana, pra quem só vai a grupo não sumir
+    // da lista de risco de acompanhamento individual.
+    var ultimaColetivaPorNome = {};
+    (function(){
+      var pr = filtrarLinhasPorEquipe(sheetToRows(latestRawSheets["Participantes Ativ. Coletiva"] || []), analisesEquipes);
+      var h = pr[0] || [];
+      var iN = colIndex(h, "participante"), iD = colIndex(h, "data");
+      if(iN < 0 || iD < 0) return;
+      pr.slice(1).forEach(function(r){
+        var nome = String(r[iN]||"").trim();
+        if(!nome || nome.indexOf("(sem lista nominal") === 0) return;
+        var d = parseBRDate(r[iD]);
+        if(!d) return;
+        var k = nome.toUpperCase();
+        if(!ultimaColetivaPorNome[k] || d > ultimaColetivaPorNome[k]) ultimaColetivaPorNome[k] = d;
+      });
+    })();
     pacientes.forEach(function(p){
       if(!p.datas.length) return;
       var todosProfs = Object.keys(p.profissionais).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); });
@@ -2513,7 +2533,14 @@
         outrosProfissionais: outrosProfissionais,
         ultimoProfissionais: ultimoProfissionaisArr,
         todosProfissionais: todosProfs,
-        equipe: equipeTxt || '—'
+        equipe: equipeTxt || '—',
+        // Estimativa: dias até cruzar 3x a mediana histórica (limite de
+        // "abandono consumado"). Negativo = já ultrapassou. null = não se
+        // aplica (em dia, consulta única ou sem mediana).
+        diasRestantes: (status === 'risco' || status === 'abandono') && medianaBase
+          ? (status === 'risco' ? Math.floor(medianaBase*3 - diasDesde) : -Math.ceil(diasDesde - medianaBase*3))
+          : null,
+        ultimaColetiva: ultimaColetivaPorNome[p.nome.toUpperCase()] || null
       };
       registrosTabela.push(registroTabela);
       if(status === 'risco') risco.push(registroTabela);
@@ -2639,7 +2666,7 @@
   // Cabeçalhos da tabela "Pacientes em risco de abandono", na mesma ordem
   // das células montadas em linhaRiscoHtml — usado tanto pro <thead>
   // quanto pro comparador de ordenação (compareRiscoPorColuna).
-  var RISCO_HEADERS = ['Paciente','Profissional','Equipe','Consultas','Última consulta','Dias sem voltar'];
+  var RISCO_HEADERS = ['Paciente','Profissional','Equipe','Consultas','Última consulta','Dias sem voltar','Dias restantes','Última participação coletiva'];
   // Colunas oferecidas no "Filtrar por coluna…" da tabela de risco — cada
   // uma expõe o MESMO texto exibido na célula (fmtInt/fmtBRDate/etc.), pra
   // bater exatamente com o que aparece na tela. "Profissional" fica de
@@ -2696,6 +2723,11 @@
     switch(idx){
       case 3: return a.totalConsultas - b.totalConsultas;
       case 5: return a.diasDesde - b.diasDesde;
+      case 6: { // nulos (não se aplica) ficam no fim da ordem crescente
+        var ra = a.diasRestantes==null ? 1e9 : a.diasRestantes, rb = b.diasRestantes==null ? 1e9 : b.diasRestantes;
+        return ra - rb;
+      }
+      case 7: return (a.ultimaColetiva ? a.ultimaColetiva.getTime() : 0) - (b.ultimaColetiva ? b.ultimaColetiva.getTime() : 0);
       case 4: return a.ultima - b.ultima;
       case 1: return String(a.profissional).localeCompare(String(b.profissional), 'pt-BR', {numeric:true, sensitivity:'base'});
       case 2: return String(a.equipe).localeCompare(String(b.equipe), 'pt-BR', {numeric:true, sensitivity:'base'});
@@ -2754,7 +2786,14 @@
         }, 0)
       : r.totalConsultas;
     var profAttr = escapeHtml((r.ultimoProfissionais||[]).join('|'));
-    return '<tr data-ultimo-prof="'+profAttr+'"><td>'+escapeHtml(r.nome)+'</td><td>'+profissional+'</td><td>'+escapeHtml(r.equipe)+'</td><td>'+fmtInt(totalConsultas)+'</td><td>'+fmtBRDate(r.ultima)+'</td><td>'+fmtInt(r.diasDesde)+' dias</td></tr>';
+    return '<tr data-ultimo-prof="'+profAttr+'"><td>'+escapeHtml(r.nome)+'</td><td>'+profissional+'</td><td>'+escapeHtml(r.equipe)+'</td><td>'+fmtInt(totalConsultas)+'</td><td>'+fmtBRDate(r.ultima)+'</td><td>'+fmtInt(r.diasDesde)+' dias</td><td>'+diasRestantesTxt(r)+'</td><td>'+(r.ultimaColetiva ? fmtBRDate(r.ultimaColetiva) : '—')+'</td></tr>';
+  }
+  // Texto da coluna "Dias restantes" (estimativa até o limite de abandono
+  // consumado = 3x a mediana histórica 1ª→2ª consulta).
+  function diasRestantesTxt(r){
+    if(r.diasRestantes == null) return '—';
+    if(r.diasRestantes < 0) return 'Ultrapassou há '+fmtInt(-r.diasRestantes)+' dias';
+    return fmtInt(r.diasRestantes)+' dias';
   }
 
   // Monta a célula "Profissional" no modo padrão (sem filtro de
@@ -2800,6 +2839,9 @@
     var pdfBtnHtml = '<button type="button" class="pdf-btn" id="btnRiscoPdf">'
       + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h1a1.5 1.5 0 0 0 0-3H9v5"/><path d="M13 12v5h1a2 2 0 0 0 0-5z"/><path d="M18.5 12H17v5"/><path d="M17 14.5h1.3"/></svg>'
       + '<span>Gerar PDF</span></button>';
+    var xlsxBtnHtml = '<button type="button" class="pdf-btn" id="btnRiscoXlsx" style="margin-right:8px;">'
+      + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13l4 5M13 13l-4 5"/></svg>'
+      + '<span>Exportar Excel</span></button>';
     // Filtro por coluna (Paciente/Equipe/Consultas/Última consulta/Dias sem
     // voltar — "Profissional" fica de fora porque já tem o filtro dedicado
     // ao lado): mesmo padrão visual (select + multisseleção de valores) das
@@ -2822,7 +2864,7 @@
     var theadHtml = RISCO_HEADERS.map(function(h, i){
       return '<th class="sortable-th" data-risco-col-idx="'+i+'">'+escapeHtml(h)+'<span class="sort-ind"></span></th>';
     }).join('');
-    return '<div style="display:flex;justify-content:flex-end;margin-bottom:8px;">'+pdfBtnHtml+'</div>'
+    return '<div style="display:flex;justify-content:flex-end;margin-bottom:8px;">'+xlsxBtnHtml+pdfBtnHtml+'</div>'
       + '<p class="list-meta" id="riscoListMeta"></p>'
       + '<div class="list-filters">'
       +   '<div class="list-month-filter"><label class="list-month-filter-label">Profissional (última consulta)</label>'
@@ -2852,6 +2894,7 @@
     var footnoteEl = document.getElementById('riscoFootnote');
     var tbody = document.getElementById('riscoTbody');
     var btnPdf = document.getElementById('btnRiscoPdf');
+    var btnXlsx = document.getElementById('btnRiscoXlsx');
     var resumoEl = document.getElementById('analisesRiscoResumo');
     var pagerEl = document.getElementById('riscoPager');
     var RISCO_POR_PAGINA = 100, paginaRisco = 1;
@@ -3059,7 +3102,7 @@
       var visiveis = riscoFiltrado.slice(ini, ini + RISCO_POR_PAGINA);
       tbody.innerHTML = visiveis.length
         ? visiveis.map(function(r){ return linhaRiscoHtml(r, selecionados); }).join('')
-        : '<tr><td colspan="6" class="footnote" style="padding:14px 12px;">Nenhum paciente encontrado com esse filtro.</td></tr>';
+        : '<tr><td colspan="8" class="footnote" style="padding:14px 12px;">Nenhum paciente encontrado com esse filtro.</td></tr>';
 
       if(pagerEl){
         if(total <= RISCO_POR_PAGINA){
@@ -3086,6 +3129,57 @@
     renderTabelaRisco();
 
     if(btnPdf) btnPdf.addEventListener('click', function(){ gerarPdfRisco(riscoFiltrado, todos.length); });
+    if(btnXlsx) btnXlsx.addEventListener('click', function(){ gerarExcelRisco(riscoFiltrado, todos.length); });
+  }
+
+  // ---------- Exportar "Pacientes em risco de abandono" em Excel ----------
+  // Exporta a lista COMPLETA filtrada (mesmo riscoFiltrado do PDF, na
+  // ordem atual — não só a página visível). "Motivo" é objetivo (dias sem
+  // retorno x mediana/limite); "Próxima ação sugerida" segue só a situação;
+  // "Ação realizada" e "Responsável" ficam em branco pra equipe preencher.
+  function gerarExcelRisco(lista, totalGeral){
+    if(typeof XLSX === 'undefined' || !XLSX.utils){
+      alert('Não foi possível carregar a biblioteca de Excel (verifique a conexão com a internet) — tente novamente.');
+      return;
+    }
+    if(!lista.length){
+      alert('Não há pacientes pra exportar com o filtro atual.');
+      return;
+    }
+    var mediana = analisesDataAtual && analisesDataAtual.medianaBase;
+    var limite = mediana ? Math.floor(mediana*3) : null;
+    var SITUACAO = {emDia:'Em dia', risco:'Em risco', abandono:'Abandono consumado', unica:'Consulta única', semMediana:'Sem mediana'};
+    var ACAO = {
+      risco:'Contato ativo (telefone/visita) para reagendar',
+      abandono:'Busca ativa / visita domiciliar',
+      emDia:'Manter acompanhamento',
+      unica:'Verificar necessidade de retorno',
+      semMediana:'—'
+    };
+    function motivo(r){
+      if(!mediana || r.status==='unica' || r.status==='semMediana') return '—';
+      var base = fmtInt(r.diasDesde)+' dias sem voltar; mediana de retorno '+fmtDec(mediana,0)+' dias';
+      if(r.status==='emDia') return base+' (dentro da mediana)';
+      if(r.status==='risco') return base+'; limite de abandono consumado '+fmtInt(limite)+' dias';
+      return base+'; passou do limite de '+fmtInt(limite)+' dias';
+    }
+    var head = ['Paciente','Profissional (última consulta)','Todos os profissionais','Equipe','Consultas','Última consulta','Dias sem voltar','Situação','Dias restantes (estimativa)','Última participação coletiva','Motivo','Próxima ação sugerida','Ação realizada','Responsável'];
+    var rows = lista.map(function(r){
+      return [
+        r.nome, r.profissionalUltimo || r.profissional, r.profissional, r.equipe, r.totalConsultas,
+        fmtBRDate(r.ultima), r.diasDesde, SITUACAO[r.status] || r.status,
+        r.diasRestantes == null ? '' : r.diasRestantes,
+        r.ultimaColetiva ? fmtBRDate(r.ultimaColetiva) : '',
+        motivo(r), ACAO[r.status] || '', '', ''
+      ];
+    });
+    var ws = XLSX.utils.aoa_to_sheet([head].concat(rows));
+    ws['!cols'] = [{wch:34},{wch:28},{wch:34},{wch:20},{wch:10},{wch:14},{wch:14},{wch:20},{wch:16},{wch:18},{wch:58},{wch:44},{wch:26},{wch:22}];
+    ws['!autofilter'] = {ref: XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:rows.length, c:head.length-1}})};
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Risco de abandono');
+    var equipeLabel = analisesEquipes.map(function(e){ return e.label; }).join(' + ');
+    XLSX.writeFile(wb, slugifyFileName('Pacientes_risco_abandono')+'__'+slugifyFileName(equipeLabel)+'__'+slugifyFileName(new Date().toLocaleDateString('pt-BR'))+'.xlsx');
   }
 
   // ---------- Exportar "Pacientes em risco de abandono" em PDF ----------
@@ -3465,7 +3559,7 @@
       + '</div>'
       + '<div class="card">'
       +   '<h4 style="margin-top:0;">Pacientes em risco de abandono</h4>'
-      +   '<p class="footnote" style="margin-top:0;line-height:1.5;">Pacientes com 2+ consultas cuja última visita já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível. Quando o paciente tem 2 ou mais profissionais no histórico, o nome em <b>negrito</b> na coluna "Profissional" é de quem realizou a última consulta.</p>'
+      +   '<p class="footnote" style="margin-top:0;line-height:1.5;">Pacientes com 2+ consultas cuja última visita já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível. Quando o paciente tem 2 ou mais profissionais no histórico, o nome em <b>negrito</b> na coluna "Profissional" é de quem realizou a última consulta. <b>Dias restantes</b> é uma estimativa: quanto falta pra passar de 3x a mediana histórica de retorno (limite de abandono consumado); depois disso aparece "Ultrapassou há X dias". <b>Última participação coletiva</b> é só informativa — não entra no cálculo de risco.</p>'
       +   '<div id="analisesRiscoResumo" style="margin-bottom:14px;"></div>'
       +   '<div id="analisesRisco"></div>'
       + '</div>';
