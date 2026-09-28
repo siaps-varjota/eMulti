@@ -2632,7 +2632,12 @@
     {label:'Equipe', getValor: function(r){ return r.equipe; }},
     {label:'Consultas', numeric:true, getValor: function(r){ return fmtInt(r.totalConsultas); }},
     {label:'Última consulta', isDate:true, getValor: function(r){ return fmtBRDate(r.ultima); }},
-    {label:'Dias sem voltar', numeric:true, getValor: function(r){ return fmtInt(r.diasDesde)+' dias'; }}
+    {label:'Dias sem voltar', numeric:true, getValor: function(r){ return fmtInt(r.diasDesde)+' dias'; }},
+    // Filtros virtuais baseados na classificação do acompanhamento.
+    {label:'Com 2+ consultas', getValor:function(r){ return r.totalConsultas >= 2 ? 'Sim' : 'Não'; }},
+    {label:'Em dia', getValor:function(r){ return r.status === 'emDia' ? 'Sim' : 'Não'; }},
+    {label:'Em risco', getValor:function(r){ return r.status === 'risco' ? 'Sim' : 'Não'; }},
+    {label:'Abandono consumado', getValor:function(r){ return r.status === 'abandono' ? 'Sim' : 'Não'; }}
   ];
   // Valores distintos de uma coluna filtrável, na ordem certa pro tipo:
   // cronológica (isDate), numérica (numeric) ou alfanumérica (padrão) —
@@ -2774,7 +2779,7 @@
     // voltar — "Profissional" fica de fora porque já tem o filtro dedicado
     // ao lado): mesmo padrão visual (select + multisseleção de valores) das
     // listas da aba Listas — ver RISCO_COLUNAS_FILTRAVEIS/wireRiscoFiltros.
-    var colOptionsHtml = '<option value="">Filtrar por coluna…</option>'
+    var colOptionsHtml = '<option value="">Filtrar…</option>'
       + RISCO_COLUNAS_FILTRAVEIS.map(function(c, i){ return '<option value="'+i+'">'+escapeHtml(c.label)+'</option>'; }).join('');
     var colFilterHtml = '<div class="filter-pair">'
       + '<select class="filter-col" id="riscoFilterCol">'+colOptionsHtml+'</select>'
