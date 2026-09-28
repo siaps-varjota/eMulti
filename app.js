@@ -3493,17 +3493,22 @@
   // aproveita as mesmas classes .tab/.tab-panel/.card já usadas nas
   // outras abas, então herda o mesmo visual sem precisar de CSS extra).
   function injetarAbaAnalises(){
-   var notasTab = tabRef.parentElement.querySelector('.tab[data-tab="notas"]');
-  if (notasTab) {tabRef.parentElement.insertBefore(btn, notasTab);
-  } else { tabRef.parentElement.appendChild(btn);
- }
+    var tabRef = document.querySelector('.tab');
+    var panelRef = document.querySelector('.tab-panel');
+    if(!tabRef || !panelRef || document.getElementById('tabAnalises')) return;
 
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'tab';
     btn.setAttribute('data-tab', 'analises');
     btn.textContent = 'Frequência e Retorno';
-    tabRef.parentElement.appendChild(btn);
+    var tabBar = tabRef.parentElement;
+    var notasTab = tabBar.querySelector('.tab[data-tab="notas"]');
+    if (notasTab) {
+      tabBar.insertBefore(btn, notasTab);
+    } else {
+      tabBar.appendChild(btn);
+    }
 
     var panel = document.createElement('div');
     panel.className = 'tab-panel';
