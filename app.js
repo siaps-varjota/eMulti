@@ -2513,7 +2513,18 @@
       registrosTabela.push(registroTabela);
       if(status === 'risco') risco.push(registroTabela);
     });
-    risco.sort(function(a,b){ return b.diasDesde - a.diasDesde; });
+    // Ordem padrão da tabela: mais dias sem voltar primeiro; no empate,
+    // quem tem MENOS consultas primeiro; persistindo o empate, nome (A→Z).
+    // Aplicada também a registrosTabela (a lista que de fato alimenta a
+    // tabela) — antes só "risco" era ordenada, e a tabela saía na ordem em
+    // que os pacientes aparecem na planilha.
+    function ordemPadraoRisco(a, b){
+      if(b.diasDesde !== a.diasDesde) return b.diasDesde - a.diasDesde;
+      if(a.totalConsultas !== b.totalConsultas) return a.totalConsultas - b.totalConsultas;
+      return String(a.nome).localeCompare(String(b.nome), 'pt-BR', {sensitivity:'base'});
+    }
+    risco.sort(ordemPadraoRisco);
+    registrosTabela.sort(ordemPadraoRisco);
 
     return {
       totalPacientes: pacientes.length,
@@ -2819,6 +2830,7 @@
       + '<div class="table-wrap"><table class="data-table"><thead><tr>'
       + theadHtml
       + '</tr></thead><tbody id="riscoTbody"></tbody></table></div>'
+      + '<div class="risco-pager" id="riscoPager"></div>'
       + '<p class="footnote" id="riscoFootnote"></p>';
   }
 
@@ -2836,6 +2848,16 @@
     var tbody = document.getElementById('riscoTbody');
     var btnPdf = document.getElementById('btnRiscoPdf');
     var resumoEl = document.getElementById('analisesRiscoResumo');
+    var pagerEl = document.getElementById('riscoPager');
+    var RISCO_POR_PAGINA = 100, paginaRisco = 1;
+    if(!document.getElementById('riscoPagerStyles')){
+      var stPg = document.createElement('style');
+      stPg.id = 'riscoPagerStyles';
+      stPg.textContent = '.risco-pager{display:flex;align-items:center;justify-content:center;gap:14px;margin:10px 0 4px;font-size:13px;color:var(--ink-soft)}'
+        + '.risco-pager button{border:1px solid var(--line);background:var(--paper,#fff);border-radius:999px;padding:6px 14px;font:inherit;font-weight:600;color:var(--ink);cursor:pointer}'
+        + '.risco-pager button:disabled{opacity:.4;cursor:default}';
+      document.head.appendChild(stPg);
+    }
     if(!tbody) return;
 
     var todos = registrosTabela || risco || [];
@@ -3010,21 +3032,51 @@
         });
       }
 
-      var visiveis = riscoFiltrado.slice(0,40);
+      // Nova filtragem/ordenação sempre volta pra página 1.
+      paginaRisco = 1;
+      renderPaginaRisco(selecionados);
+
+      // Quantitativo mostrado acima da tabela: reflete o TOTAL filtrado
+      // (riscoFiltrado), não só as linhas da página atual.
+      if(metaEl) metaEl.textContent = fmtInt(riscoFiltrado.length) + (riscoFiltrado.length===1 ? ' paciente' : ' pacientes');
+      if(footnoteEl) footnoteEl.textContent = '';
+    }
+
+    // Paginação: 100 pacientes por página (todos os filtrados ficam
+    // acessíveis pelas páginas, em vez do corte fixo em 40).
+    function renderPaginaRisco(selecionadosParam){
+      var selecionados = selecionadosParam || (profMs ? profMs.getSelected() : []);
+      var total = riscoFiltrado.length;
+      var totalPaginas = Math.max(1, Math.ceil(total / RISCO_POR_PAGINA));
+      if(paginaRisco > totalPaginas) paginaRisco = totalPaginas;
+      if(paginaRisco < 1) paginaRisco = 1;
+      var ini = (paginaRisco - 1) * RISCO_POR_PAGINA;
+      var visiveis = riscoFiltrado.slice(ini, ini + RISCO_POR_PAGINA);
       tbody.innerHTML = visiveis.length
         ? visiveis.map(function(r){ return linhaRiscoHtml(r, selecionados); }).join('')
         : '<tr><td colspan="6" class="footnote" style="padding:14px 12px;">Nenhum paciente encontrado com esse filtro.</td></tr>';
 
-      // Quantitativo mostrado acima da tabela: reflete o TOTAL filtrado
-      // (riscoFiltrado, sem cap), não a quantidade de linhas que de fato
-      // aparecem no HTML (visiveis, sempre no máximo 40) — antes ficava
-      // preso em "40" mesmo quando o filtro reduzia a lista pra menos.
-      if(metaEl) metaEl.textContent = fmtInt(riscoFiltrado.length) + (riscoFiltrado.length===1 ? ' paciente' : ' pacientes');
-      if(footnoteEl){
-        footnoteEl.textContent = riscoFiltrado.length > 40
-          ? 'Mostrando os 40 pacientes há mais tempo sem voltar na tela (de '+fmtInt(riscoFiltrado.length)+' no total com o filtro atual) — o PDF traz a lista completa do filtro.'
-          : '';
+      if(pagerEl){
+        if(total <= RISCO_POR_PAGINA){
+          pagerEl.innerHTML = '';
+        } else {
+          pagerEl.innerHTML = ''
+            + '<button type="button" data-pg="prev"'+(paginaRisco<=1?' disabled':'')+'>‹ Anterior</button>'
+            + '<span>Página '+fmtInt(paginaRisco)+' de '+fmtInt(totalPaginas)
+            +   ' · mostrando '+fmtInt(ini+1)+'–'+fmtInt(Math.min(ini+RISCO_POR_PAGINA,total))+' de '+fmtInt(total)+'</span>'
+            + '<button type="button" data-pg="next"'+(paginaRisco>=totalPaginas?' disabled':'')+'>Próxima ›</button>';
+        }
       }
+      var wrap = tbody.parentNode && tbody.parentNode.parentNode;
+      if(wrap) wrap.scrollTop = 0;
+    }
+    if(pagerEl){
+      pagerEl.addEventListener('click', function(ev){
+        var b = ev.target.closest ? ev.target.closest('button[data-pg]') : null;
+        if(!b || b.disabled) return;
+        paginaRisco += (b.getAttribute('data-pg') === 'next') ? 1 : -1;
+        renderPaginaRisco();
+      });
     }
     renderTabelaRisco();
 
