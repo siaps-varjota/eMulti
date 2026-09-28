@@ -3559,7 +3559,7 @@
       + '</div>'
       + '<div class="card">'
       +   '<h4 style="margin-top:0;">Pacientes em risco de abandono</h4>'
-      +   '<p class="footnote" style="margin-top:0;line-height:1.5;">Pacientes com 2+ consultas cujo último atendimento já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível. Quando o paciente tem 2 ou mais profissionais no histórico, o nome em <b>que aparece visível</b> na coluna "Profissional" é de quem realizou a última consulta. <b>Dias restantes</b> é uma estimativa: quanto falta pra passar de 3x a mediana histórica de retorno (limite de abandono consumado); depois disso aparece "Ultrapassou há X dias". <b>Última participação coletiva</b> é só informativa — não entra no cálculo de risco.</p>'
+      +   '<p class="footnote" style="margin-top:0;line-height:1.5;">Pacientes com 2+ consultas cujo último atendimento já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível. Quando o paciente tem 2 ou mais profissionais no histórico, o nome <b>que aparece visível</b> na coluna "Profissional" é de quem realizou a última consulta. <b>Dias restantes</b> é uma estimativa: quanto falta pra passar de 3x a mediana histórica de retorno (limite de abandono consumado); depois disso aparece "Ultrapassou há X dias". <b>Última participação coletiva</b> é só informativa — não entra no cálculo de risco.</p>'
       +   '<div id="analisesRiscoResumo" style="margin-bottom:14px;"></div>'
       +   '<div id="analisesRisco"></div>'
       + '</div>';
