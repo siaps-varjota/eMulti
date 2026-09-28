@@ -6463,7 +6463,7 @@
       : '';
     document.getElementById('topUpdated').textContent = record.error
       ? 'Falha na última leitura'
-      : 'Atualizado em ' + fmtDate(record.timestamp);
+      : '';
 
     if(record.error){
       document.getElementById('gaugeRow').innerHTML =
