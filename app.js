@@ -614,6 +614,11 @@
   // usuário a cada atualização dos dados.
   var listDateColIdx = {};
   var listMonthFilters = {};
+  // Modelo de dados de cada lista (M1/M2): {rows, view, sortCol, sortDir}.
+  // Só as linhas da página atual vão pro DOM (mesmo modelo de paginação da
+  // tabela "Pacientes em risco de abandono"); filtro/busca/ordenação/PDF
+  // trabalham sobre este modelo, não sobre <tr> escondidos.
+  var listModel = {};
   // Acha a coluna de data de uma lista bruta, testando os nomes usados
   // nas abas de origem ("data" na maioria, "data_hora" em Atendimentos).
   function dateColIndexForList(headers){
@@ -4367,6 +4372,59 @@
     return {headers:outHeaders, rows:rows};
   }
 
+  // Monta o modelo de dados de uma lista: pra cada linha guarda o HTML de
+  // cada <td> (c) e o texto "completo" de cada célula (t) usado por
+  // busca/filtro por coluna/ordenação/PDF (o mesmo que cellFullText lia do
+  // DOM). Índices de c/t = índices das colunas (colunas extras de
+  // "Participantes Ativ. Coletiva" — AÇÃO M2 e Ações — vêm depois).
+  function construirModeloLista(name, cached, anterior){
+    var idxsProfNumerados = colsProfissionaisNumerados(cached.headers);
+    var idxProfissionalPessoas = (name === suffixedName("Pessoas atendidas")) ? cached.headers.indexOf('Profissional') : -1;
+    var isParticipantesColetiva = (displayListName(name) === "Participantes Ativ. Coletiva") && idxsProfNumerados.length > 0;
+    var rows = cached.rows.map(function(r, rowIdx){
+      var c = [], t = [];
+      cached.headers.forEach(function(h, i){
+        var v = r[i];
+        var str = (v===undefined||v===null) ? '' : String(v);
+        var oculta = isParticipantesColetiva && idxsProfNumerados.indexOf(i) !== -1;
+        if(i === idxProfissionalPessoas){
+          c.push('<td data-cell-text="'+encodeURIComponent(str)+'">'+(r.profissionalHtml || escapeHtml(str))+'</td>');
+          t.push(str);
+        } else {
+          c.push('<td'+(oculta ? ' class="part-col-oculta"' : '')+'>'+escapeHtml(str)+'</td>');
+          t.push(str.trim());
+        }
+      });
+      if(isParticipantesColetiva){
+        var classificacao = classificarAcaoM2Participacao(cached.headers, r);
+        c.push('<td>'+acaoM2BadgeHTML(classificacao)+'</td>'); t.push(classificacao.label);
+        c.push('<td>'+detalhesBtnHTML(name, rowIdx)+'</td>'); t.push('Detalhes');
+      }
+      return {c:c, t:t, s:undefined};
+    });
+    var m = {rows:rows, view:rows.slice(), sortCol:-1, sortDir:''};
+    if(anterior && anterior.sortCol >= 0){ m.sortCol = anterior.sortCol; m.sortDir = anterior.sortDir; ordenarModeloLista(name, m); }
+    return m;
+  }
+  function ordenarModeloLista(listName, m){
+    if(!m || m.sortCol < 0) return;
+    var colIdx = m.sortCol, dir = m.sortDir;
+    var isDateCol = (colIdx === listDateColIdx[listName]);
+    m.rows.sort(function(a, b){
+      var textoA = String(a.t[colIdx]===undefined ? '' : a.t[colIdx]).trim();
+      var textoB = String(b.t[colIdx]===undefined ? '' : b.t[colIdx]).trim();
+      var cmp;
+      if(isDateCol){
+        var dA = parseBRDate(textoA), dB = parseBRDate(textoB);
+        var tA = dA ? dA.getTime() : (textoA ? Infinity : -Infinity);
+        var tB = dB ? dB.getTime() : (textoB ? Infinity : -Infinity);
+        cmp = tA - tB;
+      } else {
+        cmp = textoA.localeCompare(textoB, 'pt-BR', {numeric:true, sensitivity:'base'});
+      }
+      return dir === 'asc' ? cmp : -cmp;
+    });
+  }
   function renderListCard(name){
     // "Pessoas atendidas" é uma lista calculada aqui mesmo no navegador
     // (dedup de Atendimentos + Participantes Ativ. Coletiva) — ver
@@ -4424,23 +4482,7 @@
             ? '<th class="sortable-th" data-col-idx="'+cached.headers.length+'">AÇÃO M2<span class="sort-ind"></span></th><th>Ações</th>'
             : '')
         + '</tr>';
-      var bodyHtml = cached.rows.map(function(r, rowIdx){
-        var celulasExtra = '';
-        if(isParticipantesColetiva){
-          var classificacao = classificarAcaoM2Participacao(cached.headers, r);
-          celulasExtra = '<td>'+acaoM2BadgeHTML(classificacao)+'</td>'
-            + '<td>'+detalhesBtnHTML(name, rowIdx)+'</td>';
-        }
-        return '<tr>'+cached.headers.map(function(h,i){
-          var v = r[i];
-          var oculta = isParticipantesColetiva && idxsProfNumerados.indexOf(i) !== -1;
-          if(i === idxProfissionalPessoas){
-            var textoCompleto = (v===undefined||v===null?'':String(v));
-            return '<td data-cell-text="'+encodeURIComponent(textoCompleto)+'">'+(r.profissionalHtml || escapeHtml(textoCompleto))+'</td>';
-          }
-          return '<td'+(oculta ? ' class="part-col-oculta"' : '')+'>'+escapeHtml(v===undefined||v===null?'':v)+'</td>';
-        }).join('') + celulasExtra + '</tr>';
-      }).join('');
+      listModel[name] = construirModeloLista(name, cached, null);
       // Nas colunas normais (índice numérico), pula "profissional 1" a
       // "profissional 5" — elas viram UMA opção só ("Profissional da
       // eMulti"), inserida na posição da primeira delas.
@@ -4472,7 +4514,8 @@
       body = '<p class="list-meta">'+fmtInt(cached.rows.length)+(cached.rows.length===1?' linha':' linhas')+'</p>'
         + '<div class="list-filters" data-list-filters="'+escapeHtml(name)+'">'+monthFilterHtml+filterPairsHtml+'</div>'
         + '<input class="list-search" type="text" placeholder="Filtrar nesta lista…" data-filter-key="'+escapeHtml(name)+'">'
-        + '<div class="table-wrap"><table class="data-table"><thead>'+theadHtml+'</thead><tbody>'+bodyHtml+'</tbody></table></div>';
+        + '<div class="table-wrap"><table class="data-table"><thead>'+theadHtml+'</thead><tbody></tbody></table></div>'
+        + '<div class="risco-pager" data-list-pager="'+escapeHtml(name)+'"></div>';
     }
     var pdfBtnHtml = hasTable
       ? '<button type="button" class="pdf-btn" data-pdf-btn="'+escapeHtml(name)+'">'
@@ -4563,6 +4606,60 @@
       });
     });
 
+    // ---- Paginação das listas (100 por página) ----
+    // As linhas fora da página recebem a classe .pg-hidden (display:none
+    // !important) — NÃO mexem em tr.style.display, que continua sendo só o
+    // resultado dos filtros (usado pela recontagem por pessoa e pelo PDF,
+    // que por isso seguem enxergando TODAS as linhas filtradas).
+    var LISTA_POR_PAGINA = 100;
+    var listaPagina = {};
+    if(!document.getElementById('listPagerStyles')){
+      var stLp = document.createElement('style');
+      stLp.id = 'listPagerStyles';
+      stLp.textContent = '.risco-pager{display:flex;align-items:center;justify-content:center;gap:14px;margin:10px 0 4px;font-size:13px;color:var(--ink-soft)}'
+        + '.risco-pager button{border:1px solid var(--line);background:var(--paper,#fff);border-radius:999px;padding:6px 14px;font:inherit;font-weight:600;color:var(--ink);cursor:pointer}'
+        + '.risco-pager button:disabled{opacity:.4;cursor:default}';
+      document.head.appendChild(stLp);
+    }
+    function paginarLista(card){
+      var listName = card.getAttribute('data-list-card');
+      var pagerEl = card.querySelector('[data-list-pager]');
+      var tbody = card.querySelector('tbody');
+      var m = listModel[listName];
+      if(!tbody || !m) return;
+      var total = m.view.length;
+      var totalPaginas = Math.max(1, Math.ceil(total / LISTA_POR_PAGINA));
+      var pg = listaPagina[listName] || 1;
+      if(pg > totalPaginas) pg = totalPaginas;
+      if(pg < 1) pg = 1;
+      listaPagina[listName] = pg;
+      var ini = (pg - 1) * LISTA_POR_PAGINA, fim = ini + LISTA_POR_PAGINA;
+      var visiveis = m.view.slice(ini, fim);
+      var nCols = card.querySelectorAll('thead th').length || 1;
+      tbody.innerHTML = visiveis.length
+        ? visiveis.map(function(row){ return '<tr>'+row.c.join('')+'</tr>'; }).join('')
+        : '<tr><td colspan="'+nCols+'" class="footnote" style="padding:14px 12px;">Nenhuma linha encontrada com esse filtro.</td></tr>';
+      if(pagerEl){
+        pagerEl.innerHTML = total <= LISTA_POR_PAGINA ? '' : ''
+          + '<button type="button" data-pg="prev"'+(pg<=1?' disabled':'')+'>‹ Anterior</button>'
+          + '<span>Página '+fmtInt(pg)+' de '+fmtInt(totalPaginas)
+          +   ' · mostrando '+fmtInt(ini+1)+'–'+fmtInt(Math.min(fim,total))+' de '+fmtInt(total)+'</span>'
+          + '<button type="button" data-pg="next"'+(pg>=totalPaginas?' disabled':'')+'>Próxima ›</button>';
+      }
+    }
+    el.querySelectorAll('[data-list-pager]').forEach(function(pagerEl){
+      pagerEl.addEventListener('click', function(ev){
+        var b = ev.target.closest ? ev.target.closest('button[data-pg]') : null;
+        if(!b || b.disabled) return;
+        var card = pagerEl.closest('.list-card');
+        var nome = card.getAttribute('data-list-card');
+        listaPagina[nome] = (listaPagina[nome] || 1) + (b.getAttribute('data-pg') === 'next' ? 1 : -1);
+        paginarLista(card);
+        var wrap = card.querySelector('.table-wrap');
+        if(wrap) wrap.scrollTop = 0;
+      });
+    });
+
     function applyFilters(card){
       var listName = card.getAttribute('data-list-card');
       var cached = latestSheets[listName];
@@ -4588,43 +4685,43 @@
         else if(isAcaoM2){ activeFilters.push({colIdx: cached ? cached.headers.length : -1, vals:vals}); }
         else if(colIdx !== null){ activeFilters.push({colIdx:colIdx, vals:vals}); }
       });
-      var visibleCount = 0;
-      card.querySelectorAll('tbody tr').forEach(function(tr, rowIdx){
-        var matchesText = !term || Array.prototype.map.call(tr.children, function(td){ return cellFullText(td); }).join(' ').toLowerCase().indexOf(term) !== -1;
+      var m = listModel[listName];
+      if(!m) return;
+      var view = [];
+      m.rows.forEach(function(row){
+        var matchesText = true;
+        if(term){
+          if(row.s === undefined) row.s = row.t.join(' ').toLowerCase();
+          matchesText = row.s.indexOf(term) !== -1;
+        }
         var matchesCols = activeFilters.every(function(f){
           if(f.profEmulti){
             // Bate se QUALQUER uma das 5 colunas "profissional N" desta
             // linha tiver um dos nomes marcados no filtro.
             return f.colIdxs.some(function(ci){
-              var cell = tr.children[ci];
-              return cell && f.vals.indexOf(cellFullText(cell)) >= 0;
+              return row.t[ci] !== undefined && f.vals.indexOf(row.t[ci]) >= 0;
             });
           }
-          var cell = tr.children[f.colIdx];
-          if(!cell) return false;
+          var texto = row.t[f.colIdx];
+          if(texto === undefined) return false;
           var headerName = (cached && cached.headers) ? cached.headers[f.colIdx] : '';
           if(headerName === DIAS_SEM_ATENDIMENTO_HEADER){
-            var bucket = diasBucketLabel(cellFullText(cell));
+            var bucket = diasBucketLabel(texto);
             return !!bucket && f.vals.indexOf(bucket) >= 0;
           }
-          return f.vals.indexOf(cellFullText(cell)) >= 0;
+          return f.vals.indexOf(texto) >= 0;
         });
         var matchesMonth = true;
         if(selectedMonths.length && dateColIdx != null && dateColIdx >= 0){
-          // Lê a data direto da célula (não de cached.rows[rowIdx]): depois
-          // que a tabela pode ser reordenada clicando no cabeçalho (ver
-          // ordenarTabelaPorColuna), a linha na posição rowIdx do DOM já
-          // não corresponde necessariamente a cached.rows[rowIdx].
-          var dateCell = tr.children[dateColIdx];
-          var raw = dateCell ? dateCell.textContent.trim() : null;
-          var d = parseBRDate(raw);
+          var raw = row.t[dateColIdx];
+          var d = parseBRDate(raw===undefined ? null : String(raw).trim());
           var mv = d ? monthOptionValue(d) : null;
           matchesMonth = !!mv && selectedMonths.indexOf(mv) >= 0;
         }
-        var visible = matchesText && matchesCols && matchesMonth;
-        tr.style.display = visible ? '' : 'none';
-        if(visible) visibleCount++;
+        if(matchesText && matchesCols && matchesMonth) view.push(row);
       });
+      m.view = view;
+      var visibleCount = view.length;
       // Contagem de linhas mostrada acima da lista: reflete o resultado
       // depois de aplicar TODOS os filtros ativos (mês, colunas e busca),
       // não o total bruto da lista.
@@ -4664,24 +4761,25 @@
       });
       if(nomeIdxQtd >= 0 && qtdColIdxs.length){
         var countsPorNomeQtd = {};
-        card.querySelectorAll('tbody tr').forEach(function(tr){
-          if(tr.style.display === 'none') return;
-          var nomeCell = tr.children[nomeIdxQtd];
-          var nomeVal = nomeCell ? nomeCell.textContent.trim().toUpperCase() : '';
+        view.forEach(function(row){
+          var nomeVal = String(row.t[nomeIdxQtd]===undefined ? '' : row.t[nomeIdxQtd]).trim().toUpperCase();
           if(!nomeVal) return;
           countsPorNomeQtd[nomeVal] = (countsPorNomeQtd[nomeVal] || 0) + 1;
         });
-        card.querySelectorAll('tbody tr').forEach(function(tr){
-          if(tr.style.display === 'none') return;
-          var nomeCell = tr.children[nomeIdxQtd];
-          var nomeVal = nomeCell ? nomeCell.textContent.trim().toUpperCase() : '';
-          var count = nomeVal ? (countsPorNomeQtd[nomeVal] || 0) : 0;
+        view.forEach(function(row){
+          var nomeVal = String(row.t[nomeIdxQtd]===undefined ? '' : row.t[nomeIdxQtd]).trim().toUpperCase();
+          var txt = fmtInt(nomeVal ? (countsPorNomeQtd[nomeVal] || 0) : 0);
           qtdColIdxs.forEach(function(ci){
-            var cell = tr.children[ci];
-            if(cell) cell.textContent = fmtInt(count);
+            if(ci >= row.c.length || row.t[ci] === txt) return;
+            row.t[ci] = txt;
+            row.c[ci] = '<td>'+txt+'</td>';
+            row.s = undefined;
           });
         });
       }
+      // Filtro/busca/ordenação novos sempre voltam pra página 1.
+      listaPagina[listName] = 1;
+      paginarLista(card);
     }
 
     el.querySelectorAll('[data-month-filter]').forEach(function(container){
@@ -4702,15 +4800,7 @@
             var card = container.closest('.list-card');
             var novoCached = pessoasAtendidasParaMeses(keys);
             latestSheets[name] = novoCached;
-            var tbody = card.querySelector('tbody');
-            if(tbody){
-              tbody.innerHTML = novoCached.rows.map(function(r){
-                return '<tr>'+novoCached.headers.map(function(h,i){
-                  var v = r[i];
-                  return '<td>'+escapeHtml(v===undefined||v===null?'':v)+'</td>';
-                }).join('')+'</tr>';
-              }).join('');
-            }
+            listModel[name] = construirModeloLista(name, novoCached, listModel[name]);
             applyFilters(card);
           }
         });
@@ -4846,8 +4936,11 @@
       });
     });
 
-    el.querySelectorAll('[data-detalhes-part-idx]').forEach(function(btn){
-      btn.addEventListener('click', function(){
+    // Delegado no card: os botões "Detalhes" são recriados a cada página.
+    el.querySelectorAll('.list-card').forEach(function(card){
+      card.addEventListener('click', function(ev){
+        var btn = ev.target.closest ? ev.target.closest('[data-detalhes-part-idx]') : null;
+        if(!btn) return;
         var listName = btn.getAttribute('data-detalhes-part-list');
         var idx = parseInt(btn.getAttribute('data-detalhes-part-idx'), 10);
         var cachedLista = latestSheets[listName];
@@ -4875,28 +4968,18 @@
       th.setAttribute('data-sort-dir', novaDir);
       th.classList.remove('sort-asc','sort-desc');
       th.classList.add(novaDir === 'asc' ? 'sort-asc' : 'sort-desc');
-      var isDateCol = (colIdx === listDateColIdx[listName]);
-      var linhas = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
-      linhas.sort(function(a,b){
-        var celA = a.children[colIdx], celB = b.children[colIdx];
-        var textoA = celA ? celA.textContent.trim() : '';
-        var textoB = celB ? celB.textContent.trim() : '';
-        var cmp;
-        if(isDateCol){
-          var dA = parseBRDate(textoA), dB = parseBRDate(textoB);
-          var tA = dA ? dA.getTime() : (textoA ? Infinity : -Infinity);
-          var tB = dB ? dB.getTime() : (textoB ? Infinity : -Infinity);
-          cmp = tA - tB;
-        } else {
-          cmp = textoA.localeCompare(textoB, 'pt-BR', {numeric:true, sensitivity:'base'});
-        }
-        return novaDir === 'asc' ? cmp : -cmp;
-      });
-      linhas.forEach(function(tr){ tbody.appendChild(tr); });
+      var m = listModel[listName];
+      if(!m) return;
+      m.sortCol = colIdx;
+      m.sortDir = novaDir;
+      ordenarModeloLista(listName, m);
       applyFilters(card);
     }
     el.querySelectorAll('.sortable-th').forEach(function(th){
       th.addEventListener('click', function(){ ordenarTabelaPorColuna(th); });
+    });
+    el.querySelectorAll('.list-card').forEach(function(card){
+      if(card.querySelector('tbody')) paginarLista(card);
     });
   }
 
@@ -4933,10 +5016,10 @@
     var headers = idxsPdfOcultos.length
       ? headersOriginal.filter(function(h,i){ return idxsPdfOcultos.indexOf(i) === -1; })
       : headersOriginal;
-    var todasLinhas = card.querySelectorAll('tbody tr');
-    var linhasVisiveis = Array.prototype.filter.call(todasLinhas, function(tr){ return tr.style.display !== 'none'; })
-      .map(function(tr){
-        var celulas = Array.prototype.map.call(tr.children, function(td){ return cellFullText(td); });
+    var mPdf = listModel[listName];
+    var todasLinhas = mPdf ? mPdf.rows : [];
+    var linhasVisiveis = (mPdf ? mPdf.view : []).map(function(row){
+        var celulas = row.t.slice();
         return idxsPdfOcultos.length ? celulas.filter(function(c,i){ return idxsPdfOcultos.indexOf(i) === -1; }) : celulas;
       });
     if(!linhasVisiveis.length){
