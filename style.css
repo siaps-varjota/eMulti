@@ -812,3 +812,14 @@
 .login-modal .btn-secondary:hover{background:#E7ECE1;}
 .login-modal .btn-primary:hover{background:var(--header-bg-2);}
 .login-modal .login-field{margin-bottom:12px;}
+
+/* Rodapé institucional */
+.app-footer{
+  max-width:1400px;margin:0 auto;padding:18px 40px 28px;
+  border-top:1px solid var(--line);
+  text-align:center;font-size:13px;line-height:1.5;color:var(--ink-soft);
+  font-family:'Inter',sans-serif;
+}
+@media (max-width:720px){
+  .app-footer{padding:16px 20px 24px;font-size:12px;}
+}
