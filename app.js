@@ -5411,8 +5411,8 @@
       +   'color:var(--kpi-accent);font-variant-numeric:tabular-nums}'
       + '.kpi-value .unit{font-size:.45em;font-weight:700;letter-spacing:0;margin-left:.08em}'
       + '.kpi-donut{flex:none;display:flex;flex-direction:column;align-items:center;gap:2px}'
-      + '.kpi-donut svg{width:clamp(56px,5.5vw,68px);height:auto;display:block}'
-      + '.kpi-donut-label{font-size:10px;line-height:1.1;font-weight:600;color:var(--kpi-accent);opacity:.85}'
+      + '.kpi-donut svg{width:clamp(70px,6.8vw,86px);height:auto;display:block}'
+      + '.kpi-donut-label{font-size:10.5px;line-height:1.1;font-weight:600;color:var(--kpi-accent);opacity:.85}'
       + '.kpi-caption{margin:12px 0 0;font-size:14px;line-height:1.35;color:var(--ink,#2b3a35);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}';
     var el = document.createElement('style');
     el.id = 'kpiPanelStyles';
