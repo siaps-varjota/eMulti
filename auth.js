@@ -24,6 +24,18 @@ const SESSION_TTL = 8 * 60 * 60 * 1000; // 8 horas
 // dados temporários entre o login e o modal de troca de senha
 let sessaoTemp = null;
 
+// O app.js usa isto para buscar os dados pelo backend (com o token da
+// sessão) em vez de ler a planilha diretamente.
+window.PAINEL_API = { url: 'https://script.google.com/macros/s/AKfycbwyx_7_o9YJTsnJhX6psRDuo7P2TBpynd0HUQWT2_9x-Mxf9VN6H3ceFhzWbqEJH8uGRw/exec', chave: 'scamander' };
+window.painelToken = function () {
+  try {
+    const s = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null');
+    return s && s.token && Date.now() < s.exp ? s.token : null;
+  } catch (e) {
+    return null;
+  }
+};
+
 // ── Elementos ──
 const loginOverlay = document.getElementById('loginOverlay');
 const appShell = document.getElementById('appShell');
@@ -50,8 +62,9 @@ const changePasswordSubmit = document.getElementById('changePasswordSubmit');
   const raw = sessionStorage.getItem(SESSION_KEY);
   if (!raw) return;
   try {
-    const { exp } = JSON.parse(raw);
-    if (Date.now() < exp) mostrarApp();
+    const { exp, token } = JSON.parse(raw);
+    // Sessões antigas (sem token) caem no login de novo.
+    if (token && Date.now() < exp) mostrarApp();
   } catch (e) {}
 })();
 
@@ -74,10 +87,10 @@ async function chamarBackend(corpo) {
   return resposta.json();
 }
 
-function salvarSessao(cpf, nome, categoria) {
+function salvarSessao(cpf, nome, categoria, token) {
   sessionStorage.setItem(
     SESSION_KEY,
-    JSON.stringify({ user: cpf, cpf, nome, categoria, exp: Date.now() + SESSION_TTL })
+    JSON.stringify({ user: cpf, cpf, nome, categoria, token, exp: Date.now() + SESSION_TTL })
   );
 }
 
@@ -173,10 +186,10 @@ loginForm.addEventListener('submit', async function (e) {
         mostrarErro(loginError, '❌ Seu usuário não tem acesso a este painel.');
         return;
       }
-      salvarSessao(dados.cpf, dados.nome, dados.categoria);
+      salvarSessao(dados.cpf, dados.nome, dados.categoria, dados.token);
       mostrarApp();
     } else if (dados.status === 'primeiro_login') {
-      sessaoTemp = { cpf, senhaAtual: senha, nome: dados.nome, categoria: dados.categoria };
+      sessaoTemp = { cpf, senhaAtual: senha, nome: dados.nome, categoria: dados.categoria, token: dados.token };
       firstLoginModal.classList.remove('hidden');
     } else {
       mostrarErro(loginError, '❌ ' + (dados.mensagem || 'CPF ou senha incorretos.'));
@@ -194,7 +207,7 @@ loginForm.addEventListener('submit', async function (e) {
 // ── Modal "primeiro acesso" ──
 firstLoginNo.addEventListener('click', function () {
   firstLoginModal.classList.add('hidden');
-  salvarSessao(sessaoTemp.cpf, sessaoTemp.nome, sessaoTemp.categoria);
+  salvarSessao(sessaoTemp.cpf, sessaoTemp.nome, sessaoTemp.categoria, sessaoTemp.token);
   mostrarApp();
 });
 
@@ -206,7 +219,7 @@ firstLoginYes.addEventListener('click', function () {
 // ── Modal de troca de senha ──
 changePasswordSkip.addEventListener('click', function () {
   changePasswordBackdrop.classList.add('hidden');
-  salvarSessao(sessaoTemp.cpf, sessaoTemp.nome, sessaoTemp.categoria);
+  salvarSessao(sessaoTemp.cpf, sessaoTemp.nome, sessaoTemp.categoria, sessaoTemp.token);
   mostrarApp();
 });
 
@@ -240,7 +253,7 @@ changePasswordForm.addEventListener('submit', async function (e) {
 
     if (dados.status === 'ok') {
       changePasswordBackdrop.classList.add('hidden');
-      salvarSessao(sessaoTemp.cpf, sessaoTemp.nome, sessaoTemp.categoria);
+      salvarSessao(sessaoTemp.cpf, sessaoTemp.nome, sessaoTemp.categoria, sessaoTemp.token);
       mostrarApp();
     } else {
       mostrarErro(changePasswordError, dados.mensagem || 'Não foi possível alterar a senha.');
