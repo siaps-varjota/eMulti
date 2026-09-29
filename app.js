@@ -7302,8 +7302,17 @@
         var results = arr[0];
         var faltando = results.filter(function(r){ return !r.ok; });
         if(faltando.length){
+          // Mostra o motivo REAL devolvido pelo Apps Script (ou pelo navegador)
+          // para cada aba, em vez de só a mensagem genérica.
+          var motivos = [];
+          faltando.forEach(function(r){
+            var m = (r.error && r.error.message) ? r.error.message : 'erro desconhecido';
+            var linha = r.name + ': ' + m;
+            if(motivos.indexOf(linha) < 0) motivos.push(linha);
+            try{ console.error('[painel] falha ao ler a aba "' + r.name + '":', r.error); }catch(e){}
+          });
           throw new Error('Não foi possível ler a(s) aba(s) "' + faltando.map(function(r){return r.name;}).join('", "')
-            + '" (verifique se elas ainda existem com esse nome na planilha de dados e se a conta do Apps Script tem acesso a ela).');
+            + '". Motivo: ' + motivos.join(' | ') + '.');
         }
 
         var wb = {SheetNames:[], Sheets:{}};
