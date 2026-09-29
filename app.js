@@ -6801,7 +6801,7 @@
 
     // ---- Meta do quadrimestre: alvo de atendimentos/ações compartilhadas
     // pra bater "Bom" e "Ótimo" em M1 e M2, com ritmo médio necessário. ----
-    var metaM1 = calcularMetasQuadrimestre(numM1Gauge, denM1Gauge, M1_META_THRESHOLDS, 'atend.',
+    var metaM1 = calcularMetasQuadrimestre(numM1Gauge, denM1Gauge, M1_META_THRESHOLDS, 'atendimentos',
       'atendimentos (retornos) de pessoas que foram atendidas nos últimos 4 meses');
     var metaM2 = calcularMetasQuadrimestre(numM2Gauge, denM2Gauge, M2_META_THRESHOLDS, 'ações');
     document.getElementById('metaQuadRow').innerHTML =
