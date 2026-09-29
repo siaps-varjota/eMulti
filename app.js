@@ -3531,6 +3531,15 @@
     } else {
       tabBar.appendChild(btn);
     }
+    // Reordena a aba "Tendência" (já existente no HTML) pra logo depois
+    // de "Frequência e Retorno" — só move o BOTÃO na barra de abas; a
+    // troca de aba é controlada pela classe "active" em cada botão (ver
+    // wiring dos .tab logo abaixo, no fim do arquivo), não pela ordem dos
+    // painéis no DOM, então não precisa mexer no painel #tabTendencia.
+    var tendenciaTab = tabBar.querySelector('.tab[data-tab="tendencia"]');
+    if (tendenciaTab && notasTab) {
+      tabBar.insertBefore(tendenciaTab, notasTab);
+    }
 
     var panel = document.createElement('div');
     panel.className = 'tab-panel';
