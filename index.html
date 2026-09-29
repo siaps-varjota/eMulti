@@ -114,8 +114,9 @@
   <button class="tab active" data-tab="geral">Visão geral</button>
   <button class="tab" data-tab="m1">M1 - Média de Atendimentos</button>
   <button class="tab" data-tab="m2">M2 - Ações compartilhadas</button>
-  <button class="tab" data-tab="tendencia">Tendência</button>
   <button class="tab" data-tab="profissionais">Panoroma Assistencial</button>
+  <button class="tab" data-tab="analises">Frequência e Retorno</button>
+  <button class="tab" data-tab="tendencia">Tendência</button>
   <button class="tab" data-tab="notas">Notas metodológicas</button>
 </nav>
 </div>
@@ -232,6 +233,71 @@
 
     <p class="section-title">Profissionais</p>
     <div class="grid-professionals" id="profGrid"></div>
+  </div>
+
+  <div id="tabAnalises" class="tab-panel">
+    <style>
+      #tabAnalises h3{font-size:20.6px;}
+      #tabAnalises h4{font-size:17.6px;}
+      #tabAnalises .footnote{font-size:14.4px;}
+      #tabAnalises .list-meta{font-size:14.4px;}
+      #tabAnalises .list-month-filter-label{font-size:15px;}
+      #tabAnalises .list-search{font-size:15.6px;}
+      #tabAnalises #analisesFreqLegenda.kpi-item{min-width:0;}
+      #tabAnalises #analisesFreqLegenda{min-width:0;flex:1 1 160px;box-sizing:border-box;}
+      #tabAnalises #analisesFreqLegenda .kpi-item{min-width:0;max-width:100%;box-sizing:border-box;gap:2px;}
+      #tabAnalises #analisesFreqLegenda .kpi-item label{font-size:12.5px;white-space:normal;margin:0;line-height:1.2;}
+      #tabAnalises #analisesFreqLegenda .kpi-item span{font-size:15.6px;word-break:break-word;margin:0;line-height:1.2;}
+    </style>
+    <div class="card" style="margin-bottom:16px;">
+      <h3 style="margin:0 0 4px;">Perfil de pacientes — <span id="analisesTotalPacientes">—</span> pacientes no período</h3>
+      <p class="footnote" style="margin:0 0 12px;">Estas análises usam um filtro de Equipe e Quadrimestre PRÓPRIO desta aba (independente do filtro do topo). Sem nenhum quadrimestre marcado, olham pro histórico completo de atendimentos.</p>
+      <div class="list-filters">
+        <div class="list-month-filter"><label class="list-month-filter-label">Quadrimestre</label>
+          <div class="ms-wrap" id="analisesQuadMs"></div>
+        </div>
+        <div class="list-month-filter"><label class="list-month-filter-label">Equipe</label>
+          <div class="ms-wrap" id="analisesEquipeMs"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+      <h4 style="margin-top:0;">Tempo entre consultas</h4>
+      <div id="analisesIntervalos"></div>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+      <h4 style="margin-top:0;">Funil de abandono</h4>
+      <div id="analisesFunil"></div>
+    </div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;">
+      <div class="card" style="flex:1;min-width:280px;margin-bottom:0;">
+        <h4 style="margin-top:0;">Perfil de frequência</h4>
+        <div class="card-charts-layout card-charts-layout--lg">
+          <div class="chart-box">
+            <canvas id="analisesFreqDonut"></canvas>
+          </div>
+          <div id="analisesFreqLegenda" class="kpi-container kpi-legend-vertical" style="flex-direction:column;align-items:stretch;gap:6px;"></div>
+        </div>
+      </div>
+      <div class="card" style="flex:1;min-width:280px;margin-bottom:0;">
+        <h4 style="margin-top:0;">Atendimentos por dia da semana</h4>
+        <div class="chart-box-full" style="height:220px;">
+          <canvas id="analisesDiaSemana"></canvas>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+      <h4 style="margin-top:0;">Tempo até a 2ª e da 2ª até a 3ª consulta de acordo com o Profissional</h4>
+      <div class="chart-box-full" style="height:260px;">
+        <canvas id="analisesCompProf"></canvas>
+      </div>
+    </div>
+    <div class="card">
+      <h4 style="margin-top:0;">Pacientes em risco de abandono</h4>
+      <p class="footnote" style="margin-top:0;line-height:1.5;">Pacientes com 2+ consultas cujo último atendimento já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível. Quando o paciente tem 2 ou mais profissionais no histórico, o nome <b>que aparece visível</b> na coluna "Profissional" é de quem realizou a última consulta. <b>Dias restantes</b> é uma estimativa: quanto falta pra passar de 3x a mediana histórica de retorno (limite de abandono consumado); depois disso aparece "Ultrapassou há X dias". <b>Última participação coletiva</b> é só informativa — não entra no cálculo de risco.</p>
+      <div id="analisesRiscoResumo" style="margin-bottom:14px;"></div>
+      <div id="analisesRisco"></div>
+    </div>
   </div>
 
   <div id="tabNotas" class="tab-panel">
