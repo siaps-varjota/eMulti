@@ -3515,6 +3515,15 @@
   // aproveita as mesmas classes .tab/.tab-panel/.card já usadas nas
   // outras abas, então herda o mesmo visual sem precisar de CSS extra).
   function injetarAbaAnalises(){
+    // A aba e o painel "Frequência e Retorno" agora ficam direto no
+    // index.html (botão data-tab="analises" + <div id="tabAnalises">), assim
+    // a ordem e os nomes das abas se ajustam só por lá. Se já existem, aqui
+    // só ligamos os filtros. O código abaixo continua como reserva, caso
+    // algum index.html antigo (sem essa aba) seja usado com este app.js.
+    if(document.getElementById('tabAnalises')){
+      wireAnalisesFiltrosTopo();
+      return;
+    }
     var tabRef = document.querySelector('.tab');
     var panelRef = document.querySelector('.tab-panel');
     if(!tabRef || !panelRef || document.getElementById('tabAnalises')) return;
