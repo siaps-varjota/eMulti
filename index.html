@@ -14,6 +14,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel="icon" type="image/x-icon" href="favicon.ico">
+<link rel="icon" type="image/png" sizes="192x192" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="stylesheet" href="style.css">
 <style>
   /* Filtros (Equipe/Ano/Quadrimestre/Mês) 40% menores — pedido do usuário.
@@ -82,10 +85,13 @@
 <div id="appShell" class="hidden">
 <div class="header-group">
 <header class="topbar">
-  <div class="topbar-left">
-    <p class="kicker">Atenção Primária</p>
-    <h1>Painel eMulti - Varjota-CE</h1>
-    <p class="tagline">Indicadores M1 e M2 calculados de dados do PEC.</p>
+  <div class="topbar-brand">
+    <img class="topbar-logo" src="logo-emulti.png" alt="eMulti Varjota" width="56" height="72">
+    <div class="topbar-left">
+      <p class="kicker">Atenção Primária</p>
+      <h1>Painel eMulti - Varjota-CE</h1>
+      <p class="tagline">Indicadores M1 e M2 calculados de dados do PEC.</p>
+    </div>
   </div>
   <div class="topbar-right">
     <button class="refresh-pill" id="refreshBtn">
