@@ -6,7 +6,9 @@
   // (o Google ignorava o parâmetro), o que quebrava o fetch no navegador.
   // Agora buscamos cada aba separadamente via endpoint gviz/tq (CSV com
   // suporte a CORS de verdade), que funciona para qualquer aba por nome.
-  var SPREADSHEET_ID = "1ujHEI_pERAcKmxQRuF9AmgU0bN22w0A9nnpakCVjY18";
+  // A planilha de dados agora é PRIVADA: o ID dela vive só no Apps Script
+  // (Codigo.gs, DADOS_SHEET_ID). O painel pede cada aba ao backend com o
+  // token da sessão (ver fetchSheetCsv) — sem login, não há dados.
   // Janela móvel usada SÓ pela aba "Tendência" (mês a mês): cada ponto do
   // gráfico é o M1/M2 calculado com uma janela de JANELA_MESES meses
   // terminando naquele mês. Mude só este número se quiser 3, 4 ou 6 meses
@@ -574,17 +576,29 @@
       pessoasAtendidas: {headers: ["Nome","Atendimentos","Participantes Ativ. Coletiva","Total"], rows: pessoasAtendidasRows}
     };
   }
-  function sheetCsvUrl(sheetName){
-    return "https://docs.google.com/spreadsheets/d/" + SPREADSHEET_ID
-      + "/gviz/tq?tqx=out:csv&sheet=" + encodeURIComponent(sheetName);
+  // Busca o CSV de uma aba pelo backend (Apps Script), autenticado pelo
+  // token da sessão. Devolve uma Promise com o texto CSV.
+  function fetchSheetCsv(sheetName){
+    var api = window.PAINEL_API;
+    var token = window.painelToken && window.painelToken();
+    if(!api || !token) return Promise.reject(new Error('Sessão não iniciada — faça login.'));
+    return fetch(api.url, {
+      method:'POST', headers:{'Content-Type':'text/plain'}, cache:'no-store',
+      body: JSON.stringify({chave:api.chave, acao:'dados', token:token, aba:sheetName})
+    })
+      .then(function(res){ if(!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
+      .then(function(r){
+        if(r.status === 'sessao_expirada'){
+          if(window.logoutPainelEmulti) window.logoutPainelEmulti();
+          throw new Error('Sessão expirada — faça login novamente.');
+        }
+        if(r.status !== 'ok') throw new Error(r.mensagem || 'Falha ao ler a aba');
+        return r.csv;
+      });
   }
   function fetchAllSheets(){
     return Promise.all(requiredSheetNames().map(function(name){
-      return fetch(sheetCsvUrl(name), {cache:'no-store'})
-        .then(function(res){
-          if(!res.ok) throw new Error('HTTP ' + res.status);
-          return res.text();
-        })
+      return fetchSheetCsv(name)
         .then(function(csvText){ return {name:name, csvText:csvText, ok:true}; })
         .catch(function(err){ return {name:name, error:err, ok:false}; });
     }));
@@ -993,8 +1007,7 @@
   // carregados antes (ou vazio, na primeira vez), sem travar o resto do
   // carregamento do painel.
   function fetchOfficialOverridesSafe(){
-    return fetch(sheetCsvUrl(OFFICIAL_SHEET_NAME), {cache:'no-store'})
-      .then(function(res){ if(!res.ok) throw new Error('HTTP ' + res.status); return res.text(); })
+    return fetchSheetCsv(OFFICIAL_SHEET_NAME)
       .then(function(csvText){ officialOverrides = parseOfficialSheetCsv(csvText); })
       .catch(function(){ /* mantém officialOverrides como estava */ });
   }
@@ -1094,8 +1107,7 @@
   // vez) e calcularPerformanceProfissionais cai no comportamento antigo
   // (lista derivada da aba Atendimentos — ver mais abaixo).
   function fetchProfissionaisSafe(){
-    return fetch(sheetCsvUrl(PROFISSIONAIS_SHEET_NAME), {cache:'no-store'})
-      .then(function(res){ if(!res.ok) throw new Error('HTTP ' + res.status); return res.text(); })
+    return fetchSheetCsv(PROFISSIONAIS_SHEET_NAME)
       .then(function(csvText){ profissionaisRoster = parseProfissionaisCsv(csvText); })
       .catch(function(){ /* mantém profissionaisRoster como estava */ });
   }
@@ -7281,7 +7293,7 @@
         var faltando = results.filter(function(r){ return !r.ok; });
         if(faltando.length){
           throw new Error('Não foi possível ler a(s) aba(s) "' + faltando.map(function(r){return r.name;}).join('", "')
-            + '" (verifique se elas ainda existem com esse nome e se a planilha está com acesso "qualquer pessoa com o link pode visualizar").');
+            + '" (verifique se elas ainda existem com esse nome na planilha de dados e se a conta do Apps Script tem acesso a ela).');
         }
 
         var wb = {SheetNames:[], Sheets:{}};
@@ -7403,12 +7415,19 @@
   })();
 
   // ---------- Init ----------
-  refreshHistoryFromStorage(function(arr){
-    if(arr.length){
-      var latest = arr.slice().sort(function(a,b){ return b.timestamp-a.timestamp; })[0];
-      currentRecordId = latest.id;
-      renderDashboard(latest);
-    }
-    fetchAndLoad();
-  });
+  // Só roda DEPOIS do login: o auth.js (mostrarApp) chama
+  // window.iniciarPainelEmulti. Antes disso nenhum dado é buscado.
+  var painelIniciado = false;
+  window.iniciarPainelEmulti = function(){
+    if(painelIniciado) return;
+    painelIniciado = true;
+    refreshHistoryFromStorage(function(arr){
+      if(arr.length){
+        var latest = arr.slice().sort(function(a,b){ return b.timestamp-a.timestamp; })[0];
+        currentRecordId = latest.id;
+        renderDashboard(latest);
+      }
+      fetchAndLoad();
+    });
+  };
 })();
