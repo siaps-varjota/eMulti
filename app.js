@@ -4669,14 +4669,14 @@
       var nameColor = isActive ? '#EEF3EA' : '#1B2E27';
       var countColor = isActive ? '#9FC0AE' : '#8B978F';
       return '<button type="button" class="related-list-pill" data-list-pill="'+escapeHtml(name)+'" data-container="'+escapeHtml(containerId)+'"'
-        + ' style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:999px;border:1px solid '+border+';background:'+bg+';cursor:pointer;font-family:inherit;white-space:nowrap;">'
-        + '<span style="font-size:13px;font-weight:600;color:'+nameColor+';">'+escapeHtml(displayListName(name))+'</span>'
-        + (count ? '<span style="font-size:12.5px;color:'+countColor+';">'+count+'</span>' : '')
+        + ' style="display:inline-flex;align-items:center;gap:5px;padding:7px 11px;border-radius:999px;border:1px solid '+border+';background:'+bg+';cursor:pointer;font-family:inherit;white-space:nowrap;flex:0 0 auto;">'
+        + '<span style="font-size:12.5px;font-weight:600;color:'+nameColor+';">'+escapeHtml(displayListName(name))+'</span>'
+        + (count ? '<span style="font-size:12px;color:'+countColor+';">'+count+'</span>' : '')
         + '</button>';
     }).join('');
     return '<div class="related-lists-bar" style="margin-bottom:14px;">'
       + '<div style="font-size:11px;font-weight:700;letter-spacing:0.06em;color:#5C6B62;text-transform:uppercase;margin-bottom:8px;">Listas relacionadas</div>'
-      + '<div style="display:flex;flex-wrap:wrap;gap:8px;">'+pills+'</div>'
+      + '<div class="related-lists-pills" style="position:relative;display:flex;flex-wrap:nowrap;gap:6px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin;-webkit-overflow-scrolling:touch;">'+pills+'</div>'
       + '</div>';
   }
   // wb (latestWb) já usado pra montar cada container de listas relacionadas
@@ -4729,6 +4729,11 @@
       btn.addEventListener('click', function(){
         listActiveTab[containerId] = btn.getAttribute('data-list-pill');
         aplicarAbaAtiva();
+        var faixa = btn.parentNode;
+        if(faixa && faixa.scrollWidth > faixa.clientWidth){
+          var alvo = btn.offsetLeft - (faixa.clientWidth - btn.offsetWidth) / 2;
+          faixa.scrollTo({left: Math.max(0, alvo), behavior: 'smooth'});
+        }
       });
     });
 
