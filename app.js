@@ -618,8 +618,10 @@
   var CLASS_ARC_HEX_OV_ATIVA = {"Regular":"#C61010","Suficiente":"#D67D00","Bom":"#15933F","Ótimo":"#0553C7"};
 
   // ---------- Listas complementares ----------
-  function m1ListNames(){ return ["Atendimentos", "Atendimentos interprofissionais", "Participantes Ativ. Coletiva", "Pessoas atendidas", "Busca-Ativa"].map(suffixedName); }
-  function m2ListNames(){ return ["Atendimentos", "Atendimentos interprofissionais", "Resumo Reuniões", "Resumo Atividade Coletiva"].map(suffixedName); }
+  // As abas M1 e M2 mostram as MESMAS 7 tabelas, na mesma ordem.
+  function listasComplementaresNomes(){ return ["Atendimentos", "Atendimentos interprofissionais", "Participantes Ativ. Coletiva", "Pessoas atendidas", "Busca-Ativa", "Resumo Reuniões", "Resumo Atividade Coletiva"].map(suffixedName); }
+  function m1ListNames(){ return listasComplementaresNomes(); }
+  function m2ListNames(){ return listasComplementaresNomes(); }
   var latestSheets = {}; // nome da aba -> {headers, rows} | {error}
   // Filtro de mês (multisseleção) das listas das abas M1/M2: por lista
   // (chave = nome sufixado da aba), guarda o índice da coluna de data
@@ -4497,7 +4499,7 @@
   // busca/filtro por coluna/ordenação/PDF (o mesmo que cellFullText lia do
   // DOM). Índices de c/t = índices das colunas (colunas extras de
   // "Participantes Ativ. Coletiva" — AÇÃO M2 e Ações — vêm depois).
-  function construirModeloLista(name, cached, anterior){
+  function construirModeloLista(name, cached, anterior, stateKey){
     var idxsProfNumerados = colsProfissionaisNumerados(cached.headers);
     var idxProfissionalPessoas = (name === suffixedName("Pessoas atendidas")) ? cached.headers.indexOf('Profissional') : -1;
     var isParticipantesColetiva = (displayListName(name) === "Participantes Ativ. Coletiva") && idxsProfNumerados.length > 0;
@@ -4523,7 +4525,7 @@
       return {c:c, t:t, s:undefined};
     });
     var m = {rows:rows, view:rows.slice(), sortCol:-1, sortDir:''};
-    if(anterior && anterior.sortCol >= 0){ m.sortCol = anterior.sortCol; m.sortDir = anterior.sortDir; ordenarModeloLista(name, m); }
+    if(anterior && anterior.sortCol >= 0){ m.sortCol = anterior.sortCol; m.sortDir = anterior.sortDir; ordenarModeloLista(stateKey || name, m); }
     return m;
   }
   function ordenarModeloLista(listName, m){
@@ -4545,7 +4547,11 @@
       return dir === 'asc' ? cmp : -cmp;
     });
   }
-  function renderListCard(name){
+  function renderListCard(name, containerId){
+    // Como M1 e M2 agora têm as mesmas listas, o estado de cada uma
+    // (modelo/linhas filtradas, filtro de mês, coluna de data) é guardado
+    // por container + nome, para que mexer em uma aba não afete a outra.
+    var sk = (containerId || '') + '::' + name;
     // "Pessoas atendidas" é uma lista calculada aqui mesmo no navegador
     // (dedup de Atendimentos + Participantes Ativ. Coletiva) — ver
     // pessoasAtendidasParaMeses. Tem filtro de mês PRÓPRIO, independente
@@ -4559,7 +4565,7 @@
     var cached = isInterprofissional
       ? latestSheets[name]
       : isPessoasAtendidas
-        ? pessoasAtendidasParaMeses(listMonthFilters[name] || [])
+        ? pessoasAtendidasParaMeses(listMonthFilters[sk] || [])
         : isBuscaAtiva
           ? buscaAtivaCompute()
           : latestSheets[name];
@@ -4575,7 +4581,7 @@
     } else {
       hasTable = true;
       var dateColIdx = dateColIndexForList(cached.headers);
-      listDateColIdx[name] = dateColIdx;
+      listDateColIdx[sk] = dateColIdx;
       var idxsProfNumerados = colsProfissionaisNumerados(cached.headers);
       // Coluna "Profissional" de "Pessoas Atendidas" (isPessoasAtendidas):
       // a célula mostra só o profissional responsável (evento mais
@@ -4602,7 +4608,7 @@
             ? '<th class="sortable-th" data-col-idx="'+cached.headers.length+'">AÇÃO M2<span class="sort-ind"></span></th><th>Ações</th>'
             : '')
         + '</tr>';
-      listModel[name] = construirModeloLista(name, cached, null);
+      listModel[sk] = construirModeloLista(name, cached, null, sk);
       // Nas colunas normais (índice numérico), pula "profissional 1" a
       // "profissional 5" — elas viram UMA opção só ("Profissional da
       // eMulti"), inserida na posição da primeira delas.
@@ -4629,7 +4635,7 @@
       // como o primeiro item da fileira.
       var monthFilterHtml = (dateColIdx >= 0 || isPessoasAtendidas)
         ? '<div class="list-month-filter"><label class="list-month-filter-label">Mês</label>'
-          + '<div class="ms-wrap" data-month-filter="'+escapeHtml(name)+'"'+(isPessoasAtendidas ? ' data-computed-months="1"' : '')+'></div></div>'
+          + '<div class="ms-wrap" data-month-filter="'+escapeHtml(name)+'" data-state-key="'+escapeHtml(sk)+'"'+(isPessoasAtendidas ? ' data-computed-months="1"' : '')+'></div></div>'
         : '';
       body = '<p class="list-meta">'+fmtInt(cached.rows.length)+(cached.rows.length===1?' linha':' linhas')+'</p>'
         + '<div class="list-filters" data-list-filters="'+escapeHtml(name)+'">'+monthFilterHtml+filterPairsHtml+'</div>'
@@ -4642,7 +4648,7 @@
         + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h1a1.5 1.5 0 0 0 0-3H9v5"/><path d="M13 12v5h1a2 2 0 0 0 0-5z"/><path d="M18.5 12H17v5"/><path d="M17 14.5h1.3"/></svg>'
         + '<span>Gerar PDF</span></button>'
       : '';
-    return '<div class="card list-card" data-list-card="'+escapeHtml(name)+'">'
+    return '<div class="card list-card" data-list-card="'+escapeHtml(name)+'" data-state-key="'+escapeHtml(sk)+'">'
       + '<div class="list-card-head"><h4>'+escapeHtml(displayListName(name))+'</h4>'+pdfBtnHtml+'</div>'
       + body + '</div>';
   }
@@ -4698,7 +4704,7 @@
     if(names.indexOf(interprofissionalName) >= 0){
       latestSheets[interprofissionalName] = atendimentosInterprofissionaisParaLista();
     }
-    el.innerHTML = relatedListsPillsHtml(containerId, names) + names.map(renderListCard).join('');
+    el.innerHTML = relatedListsPillsHtml(containerId, names) + names.map(function(n){ return renderListCard(n, containerId); }).join('');
 
     // Só o card da lista ativa (pill selecionada) fica visível — os
     // outros continuam no DOM (com seus próprios filtros já montados),
@@ -4745,7 +4751,7 @@
       var listName = card.getAttribute('data-list-card');
       var pagerEl = card.querySelector('[data-list-pager]');
       var tbody = card.querySelector('tbody');
-      var m = listModel[listName];
+      var m = listModel[card.getAttribute('data-state-key')];
       if(!tbody || !m) return;
       var total = m.view.length;
       var totalPaginas = Math.max(1, Math.ceil(total / LISTA_POR_PAGINA));
@@ -4782,9 +4788,10 @@
 
     function applyFilters(card){
       var listName = card.getAttribute('data-list-card');
+      var listKey = card.getAttribute('data-state-key');
       var cached = latestSheets[listName];
-      var dateColIdx = listDateColIdx[listName];
-      var selectedMonths = listMonthFilters[listName] || [];
+      var dateColIdx = listDateColIdx[listKey];
+      var selectedMonths = listMonthFilters[listKey] || [];
       var textInput = card.querySelector('.list-search');
       var term = textInput ? textInput.value.trim().toLowerCase() : '';
       var activeFilters = [];
@@ -4805,7 +4812,7 @@
         else if(isAcaoM2){ activeFilters.push({colIdx: cached ? cached.headers.length : -1, vals:vals}); }
         else if(colIdx !== null){ activeFilters.push({colIdx:colIdx, vals:vals}); }
       });
-      var m = listModel[listName];
+      var m = listModel[listKey];
       if(!m) return;
       var view = [];
       m.rows.forEach(function(row){
@@ -4904,50 +4911,51 @@
 
     el.querySelectorAll('[data-month-filter]').forEach(function(container){
       var name = container.getAttribute('data-month-filter');
+      var key = container.getAttribute('data-state-key');
       if(container.getAttribute('data-computed-months') === '1'){
         // "Pessoas atendidas": filtro de mês próprio — recalcula a
         // dedup (Atendimentos + Participantes Ativ. Coletiva) na hora,
         // em vez de só esconder/mostrar linhas de uma tabela fixa.
         var optsCalc = monthOptionsParaPessoasAtendidas();
         var validCalc = optsCalc.map(function(o){ return o.value; });
-        listMonthFilters[name] = (listMonthFilters[name] || []).filter(function(v){
+        listMonthFilters[key] = (listMonthFilters[key] || []).filter(function(v){
           return validCalc.indexOf(v) >= 0;
         });
         var calcMs = createMultiSelect(container, {
           placeholder: 'Todos os meses', multi: true, search: optsCalc.length > 8, showTags: true,
           onChange: function(keys){
-            listMonthFilters[name] = keys;
+            listMonthFilters[key] = keys;
             var card = container.closest('.list-card');
             var novoCached = pessoasAtendidasParaMeses(keys);
             latestSheets[name] = novoCached;
-            listModel[name] = construirModeloLista(name, novoCached, listModel[name]);
+            listModel[key] = construirModeloLista(name, novoCached, listModel[key], key);
             applyFilters(card);
           }
         });
         calcMs.setOptions(optsCalc);
-        calcMs.setSelected(listMonthFilters[name]);
+        calcMs.setSelected(listMonthFilters[key]);
         applyFilters(container.closest('.list-card'));
         return;
       }
       var cached = latestSheets[name];
-      var dateColIdx = listDateColIdx[name];
+      var dateColIdx = listDateColIdx[key];
       if(!cached || dateColIdx == null || dateColIdx < 0) return;
       var opts = monthOptionsForList(cached, dateColIdx);
       var validValues = opts.map(function(o){ return o.value; });
       // Mantém só a seleção anterior que ainda faz sentido (evita "mês
       // fantasma" depois que os dados são atualizados).
-      listMonthFilters[name] = (listMonthFilters[name] || []).filter(function(v){
+      listMonthFilters[key] = (listMonthFilters[key] || []).filter(function(v){
         return validValues.indexOf(v) >= 0;
       });
       var monthMs = createMultiSelect(container, {
         placeholder: 'Todos os meses', multi: true, search: opts.length > 8, showTags: true,
         onChange: function(keys){
-          listMonthFilters[name] = keys;
+          listMonthFilters[key] = keys;
           applyFilters(container.closest('.list-card'));
         }
       });
       monthMs.setOptions(opts);
-      monthMs.setSelected(listMonthFilters[name]);
+      monthMs.setSelected(listMonthFilters[key]);
       applyFilters(container.closest('.list-card'));
     });
 
@@ -5088,11 +5096,12 @@
       th.setAttribute('data-sort-dir', novaDir);
       th.classList.remove('sort-asc','sort-desc');
       th.classList.add(novaDir === 'asc' ? 'sort-asc' : 'sort-desc');
-      var m = listModel[listName];
+      var listKey = card.getAttribute('data-state-key');
+      var m = listModel[listKey];
       if(!m) return;
       m.sortCol = colIdx;
       m.sortDir = novaDir;
-      ordenarModeloLista(listName, m);
+      ordenarModeloLista(listKey, m);
       applyFilters(card);
     }
     el.querySelectorAll('.sortable-th').forEach(function(th){
@@ -5185,7 +5194,8 @@
     var headers = idxsPdfOcultos.length
       ? headersOriginal.filter(function(h,i){ return idxsPdfOcultos.indexOf(i) === -1; })
       : headersOriginal;
-    var mPdf = listModel[listName];
+    var listKeyPdf = card.getAttribute('data-state-key') || listName;
+    var mPdf = listModel[listKeyPdf];
     var todasLinhas = mPdf ? mPdf.rows : [];
     var linhasVisiveis = (mPdf ? mPdf.view : []).map(function(row){
         var celulas = row.t.slice();
@@ -5202,7 +5212,7 @@
     var profissionaisSel = [];
     var searchInput = card.querySelector('.list-search');
     if(searchInput && searchInput.value.trim()) filtrosAtivos.push('Busca: "'+searchInput.value.trim()+'"');
-    var mesesSelecionados = listMonthFilters[listName] || [];
+    var mesesSelecionados = listMonthFilters[listKeyPdf] || [];
     if(mesesSelecionados.length){
       filtrosAtivos.push('Mês: '+mesesSelecionados.map(monthValueToLabel).join(', '));
     }
