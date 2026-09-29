@@ -42,6 +42,13 @@
     padding:7px 40px;
     display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;
   }
+  /* Logo eMulti à esquerda do título (mesmo padrão do painel de Saúde Bucal). */
+  .topbar-brand{display:flex;align-items:center;gap:16px;min-width:0;}
+  .topbar-logo{
+    height:72px;width:auto;flex:0 0 auto;display:block;
+    background:#fff;border-radius:14px;padding:4px 6px;
+    box-shadow:0 2px 8px rgba(0,0,0,.22);
+  }
   .topbar-left .kicker{
     font-size:11px;letter-spacing:1.4px;text-transform:uppercase;
     color:var(--header-soft);margin:0 0 2px;font-weight:600;
@@ -719,6 +726,8 @@
 
   @media (max-width:880px){
     .topbar{padding:14px 20px;}
+    .topbar-brand{gap:12px;}
+    .topbar-logo{height:52px;border-radius:11px;padding:3px 5px;}
     .topbar-right{width:100%;justify-content:flex-end;}
     .topbar-meta{display:none;}
     .tabbar{
