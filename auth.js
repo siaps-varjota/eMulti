@@ -10,7 +10,7 @@
 // já que foi o modelo enviado como referência. Se o Painel eMulti
 // precisar de um backend/planilha próprios, troque só estas duas
 // constantes pela URL e chave do novo Apps Script.
-const URL_DO_WEB_APP = 'https://script.google.com/macros/s/AKfycbwyRSNGG3EU0avCiMxu4WEr7_sLWqqPvMQPLBKz-UD6ZALuA0hzCgcfn9BClWeoifzTUA/exec';
+const URL_DO_WEB_APP = 'https://script.google.com/macros/s/AKfycbwyx_7_o9YJTsnJhX6psRDuo7P2TBpynd0HUQWT2_9x-Mxf9VN6H3ceFhzWbqEJH8uGRw/exec';
 const CHAVE_SECRETA = 'scamander'; // precisa ser igual à do Apps Script
 
 // Se quiser restringir o login só a certas categorias de usuário
