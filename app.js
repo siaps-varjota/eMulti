@@ -4704,6 +4704,23 @@
     if(names.indexOf(interprofissionalName) >= 0){
       latestSheets[interprofissionalName] = atendimentosInterprofissionaisParaLista();
     }
+    // "Pessoas atendidas" e "Busca-Ativa" são calculadas no navegador (não
+    // vêm prontas da planilha) e só ficavam em latestSheets depois que
+    // renderListCard rodava pra cada uma — como isso só acontece DEPOIS
+    // de relatedListsPillsHtml montar os pills (linha abaixo), o
+    // quantitativo dessas duas ficava faltando no pill na PRIMEIRA aba
+    // renderizada (M1) e só aparecia certo na aba seguinte (M2, que já
+    // reaproveitava o cache deixado pela passada de M1). Calculando aqui
+    // antes dos pills, as duas abas saem iguais.
+    var pessoasAtendidasName = suffixedName("Pessoas atendidas");
+    if(names.indexOf(pessoasAtendidasName) >= 0){
+      var skPessoas = containerId + '::' + pessoasAtendidasName;
+      latestSheets[pessoasAtendidasName] = pessoasAtendidasParaMeses(listMonthFilters[skPessoas] || []);
+    }
+    var buscaAtivaName = suffixedName("Busca-Ativa");
+    if(names.indexOf(buscaAtivaName) >= 0){
+      latestSheets[buscaAtivaName] = buscaAtivaCompute();
+    }
     el.innerHTML = relatedListsPillsHtml(containerId, names) + names.map(function(n){ return renderListCard(n, containerId); }).join('');
 
     // Só o card da lista ativa (pill selecionada) fica visível — os
