@@ -630,6 +630,8 @@
   // usuário a cada atualização dos dados.
   var listDateColIdx = {};
   var listMonthFilters = {};
+  // "Pessoas atendidas": true quando as colunas Data 4+ estão expandidas (por container+lista).
+  var listDatasExpandidas = {};
   // Modelo de dados de cada lista (M1/M2): {rows, view, sortCol, sortDir}.
   // Só as linhas da página atual vão pro DOM (mesmo modelo de paginação da
   // tabela "Pacientes em risco de abandono"); filtro/busca/ordenação/PDF
@@ -4207,6 +4209,10 @@
     if(document.getElementById('partModalStyles')) return;
     var css = ''
       + '.part-col-oculta{display:none}'
+      + '.list-card:not(.pa-datas-expandidas) .pa-data-extra{display:none}'
+      + '.pa-datas-bar{margin:0 0 8px}'
+      + '.pa-toggle-datas{font:inherit;font-size:12.5px;font-weight:600;color:#1C6D53;background:#EAF3EE;border:1px solid #CFE3D8;border-radius:999px;padding:5px 12px;cursor:pointer}'
+      + '.pa-toggle-datas:hover{background:#DCEBE3}'
       + '.list-card .data-table td.cell-trunc{max-width:var(--cell-max,220px);overflow:hidden;text-overflow:ellipsis}'
       + '.sortable-th{cursor:pointer;user-select:none;white-space:nowrap}'
       + '.sortable-th:hover{background:#EEF3EA}'
@@ -4620,7 +4626,19 @@
   // busca/filtro por coluna/ordenação/PDF (o mesmo que cellFullText lia do
   // DOM). Índices de c/t = índices das colunas (colunas extras de
   // "Participantes Ativ. Coletiva" — AÇÃO M2 e Ações — vêm depois).
+  // "Pessoas atendidas": mostra só Data 1 a Data 3; Data 4 em diante ficam
+  // recolhidas e se expandem ao clicar no botão acima da tabela.
+  var PA_DATAS_VISIVEIS = 3;
+  function idxsDatasExtraPessoasAtendidas(headers){
+    var idxs = [];
+    headers.forEach(function(h, i){
+      var m = /^Data (\d+)$/.exec(String(h));
+      if(m && parseInt(m[1], 10) > PA_DATAS_VISIVEIS) idxs.push(i);
+    });
+    return idxs;
+  }
   function construirModeloLista(name, cached, anterior, stateKey){
+    var idxsDataExtra = (name === suffixedName("Pessoas atendidas")) ? idxsDatasExtraPessoasAtendidas(cached.headers) : [];
     var idxsProfNumerados = colsProfissionaisNumerados(cached.headers);
     var idxProfissionalPessoas = (name === suffixedName("Pessoas atendidas")) ? cached.headers.indexOf('Profissional') : -1;
     var isParticipantesColetiva = (displayListName(name) === "Participantes Ativ. Coletiva") && idxsProfNumerados.length > 0;
@@ -4641,7 +4659,7 @@
           // texto completo aparece ao passar o mouse (atributo title).
           var strTrim = str.trim();
           var tituloCel = strTrim.length > 14 ? ' title="'+escapeHtml(strTrim).replace(/"/g,'&quot;')+'"' : '';
-          c.push('<td class="cell-trunc'+(oculta ? ' part-col-oculta' : '')+'"'+tituloCel+'>'+escapeHtml(str)+'</td>');
+          c.push('<td class="cell-trunc'+(oculta ? ' part-col-oculta' : '')+(idxsDataExtra.indexOf(i) !== -1 ? ' pa-data-extra' : '')+'"'+tituloCel+'>'+escapeHtml(str)+'</td>');
           t.push(strTrim);
         }
       });
@@ -4727,10 +4745,11 @@
       // "Ações" (botão "Detalhes"). Os índices das colunas não mudam —
       // só a exibição — pra não quebrar filtros/PDF que dependem deles.
       var isParticipantesColetiva = (displayListName(name) === "Participantes Ativ. Coletiva") && idxsProfNumerados.length > 0;
+      var idxsDataExtra = isPessoasAtendidas ? idxsDatasExtraPessoasAtendidas(cached.headers) : [];
       var theadHtml = '<tr>'+cached.headers.map(function(h,i){
           var oculta = isParticipantesColetiva && idxsProfNumerados.indexOf(i) !== -1;
           if(oculta) return '<th class="part-col-oculta">'+escapeHtml(h)+'</th>';
-          return '<th class="sortable-th" data-col-idx="'+i+'">'+escapeHtml(h)+'<span class="sort-ind"></span></th>';
+          return '<th class="sortable-th'+(idxsDataExtra.indexOf(i) !== -1 ? ' pa-data-extra' : '')+'" data-col-idx="'+i+'">'+escapeHtml(h)+'<span class="sort-ind"></span></th>';
         }).join('')
         + ((isParticipantesColetiva || ehListaResumoAtividadeColetiva(name))
             ? '<th class="sortable-th" data-col-idx="'+cached.headers.length+'">AÇÃO M2<span class="sort-ind"></span></th><th>Ações</th>'
@@ -4768,6 +4787,11 @@
       body = '<p class="list-meta">'+fmtInt(cached.rows.length)+(cached.rows.length===1?' linha':' linhas')+'</p>'
         + '<div class="list-filters" data-list-filters="'+escapeHtml(name)+'">'+monthFilterHtml+filterPairsHtml+'</div>'
         + '<input class="list-search" type="text" placeholder="Filtrar nesta lista…" data-filter-key="'+escapeHtml(name)+'">'
+        + (idxsDataExtra.length
+            ? '<div class="pa-datas-bar"><button type="button" class="pa-toggle-datas" data-pa-toggle-datas="'+idxsDataExtra.length+'" aria-expanded="'+(listDatasExpandidas[sk] ? 'true' : 'false')+'">'
+              + (listDatasExpandidas[sk] ? 'Recolher datas ▴' : 'Mostrar mais datas (+'+idxsDataExtra.length+') ▾')
+              + '</button></div>'
+            : '')
         + '<div class="table-wrap"><table class="data-table"><thead>'+theadHtml+'</thead><tbody></tbody></table></div>'
         + '<div class="risco-pager" data-list-pager="'+escapeHtml(name)+'"></div>';
     }
@@ -4776,7 +4800,7 @@
         + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h1a1.5 1.5 0 0 0 0-3H9v5"/><path d="M13 12v5h1a2 2 0 0 0 0-5z"/><path d="M18.5 12H17v5"/><path d="M17 14.5h1.3"/></svg>'
         + '<span>Gerar PDF</span></button>'
       : '';
-    return '<div class="card list-card" data-list-card="'+escapeHtml(name)+'" data-state-key="'+escapeHtml(sk)+'">'
+    return '<div class="card list-card'+(listDatasExpandidas[sk] ? ' pa-datas-expandidas' : '')+'" data-list-card="'+escapeHtml(name)+'" data-state-key="'+escapeHtml(sk)+'">'
       + '<div class="list-card-head"><h4>'+escapeHtml(displayListName(name))+'</h4>'+pdfBtnHtml+'</div>'
       + body + '</div>';
   }
@@ -5258,6 +5282,23 @@
         var cachedLista = latestSheets[listName];
         if(!cachedLista || !cachedLista.rows[idx]) return;
         abrirDetalhesParticipacao(cachedLista.headers, cachedLista.rows[idx], listName);
+      });
+    });
+
+    // "Pessoas atendidas": botão que expande/recolhe as colunas Data 4 em diante.
+    el.querySelectorAll('.list-card').forEach(function(card){
+      var btnDatas = card.querySelector('[data-pa-toggle-datas]');
+      if(!btnDatas) return;
+      btnDatas.addEventListener('click', function(){
+        var sk = card.getAttribute('data-state-key');
+        var expandir = !card.classList.contains('pa-datas-expandidas');
+        listDatasExpandidas[sk] = expandir;
+        card.classList.toggle('pa-datas-expandidas', expandir);
+        btnDatas.setAttribute('aria-expanded', expandir ? 'true' : 'false');
+        btnDatas.textContent = expandir
+          ? 'Recolher datas ▴'
+          : 'Mostrar mais datas (+' + btnDatas.getAttribute('data-pa-toggle-datas') + ') ▾';
+        ajustarTruncamentoLista(card);
       });
     });
 
