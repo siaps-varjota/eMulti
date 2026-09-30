@@ -4210,7 +4210,7 @@
     var css = ''
       + '.part-col-oculta{display:none}'
       + '.list-card:not(.pa-datas-expandidas) .pa-data-extra{display:none}'
-      + '.pa-datas-bar{margin:0 0 8px}'
+      + '.pa-datas-bar{display:flex;justify-content:flex-end;margin:0 0 8px}'
       + '.pa-toggle-datas{font:inherit;font-size:12.5px;font-weight:600;color:#1C6D53;background:#EAF3EE;border:1px solid #CFE3D8;border-radius:999px;padding:5px 12px;cursor:pointer}'
       + '.pa-toggle-datas:hover{background:#DCEBE3}'
       + '.list-card .data-table td.cell-trunc{max-width:var(--cell-max,220px);overflow:hidden;text-overflow:ellipsis}'
@@ -4659,7 +4659,8 @@
           // texto completo aparece ao passar o mouse (atributo title).
           var strTrim = str.trim();
           var tituloCel = strTrim.length > 14 ? ' title="'+escapeHtml(strTrim).replace(/"/g,'&quot;')+'"' : '';
-          c.push('<td class="cell-trunc'+(oculta ? ' part-col-oculta' : '')+(idxsDataExtra.indexOf(i) !== -1 ? ' pa-data-extra' : '')+'"'+tituloCel+'>'+escapeHtml(str)+'</td>');
+          var ehColData = /^Data \d+$/.test(String(h));
+          c.push('<td class="'+(ehColData ? 'cell-data' : 'cell-trunc')+(oculta ? ' part-col-oculta' : '')+(idxsDataExtra.indexOf(i) !== -1 ? ' pa-data-extra' : '')+'"'+tituloCel+'>'+escapeHtml(str)+'</td>');
           t.push(strTrim);
         }
       });
@@ -4929,7 +4930,14 @@
     function ajustarTruncamentoLista(card){
       var wrap = card.querySelector('.table-wrap');
       var tbl = card.querySelector('table.data-table');
-      if(!wrap || !tbl || !wrap.clientWidth) return;
+      if(!wrap || !tbl) return;
+      // Datas expandidas (Pessoas atendidas): a linha aparece inteira, sem
+      // "…" em nenhuma célula; se passar da largura, a tabela rola na horizontal.
+      if(card.classList.contains('pa-datas-expandidas')){
+        tbl.style.setProperty('--cell-max', 'none');
+        return;
+      }
+      if(!wrap.clientWidth) return;
       for(var i = 0; i < TRUNC_PASSOS.length; i++){
         tbl.style.setProperty('--cell-max', TRUNC_PASSOS[i] + 'px');
         if(tbl.offsetWidth <= wrap.clientWidth + 1) break;
