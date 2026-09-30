@@ -4207,6 +4207,7 @@
     if(document.getElementById('partModalStyles')) return;
     var css = ''
       + '.part-col-oculta{display:none}'
+      + '.list-card .data-table td.cell-trunc{max-width:var(--cell-max,220px);overflow:hidden;text-overflow:ellipsis}'
       + '.sortable-th{cursor:pointer;user-select:none;white-space:nowrap}'
       + '.sortable-th:hover{background:#EEF3EA}'
       + '.sort-ind{display:inline-block;width:10px;margin-left:3px;opacity:.35;font-size:10px}'
@@ -4635,8 +4636,13 @@
           c.push('<td data-cell-text="'+encodeURIComponent(str)+'">'+(r.profissionalHtml || escapeHtml(str))+'</td>');
           t.push(str);
         } else {
-          c.push('<td'+(oculta ? ' class="part-col-oculta"' : '')+'>'+escapeHtml(str)+'</td>');
-          t.push(str.trim());
+          // Texto longo (responsáveis, participantes, tipo de atividade...) é
+          // abreviado com "…" para a linha caber na largura do container; o
+          // texto completo aparece ao passar o mouse (atributo title).
+          var strTrim = str.trim();
+          var tituloCel = strTrim.length > 14 ? ' title="'+escapeHtml(strTrim).replace(/"/g,'&quot;')+'"' : '';
+          c.push('<td class="cell-trunc'+(oculta ? ' part-col-oculta' : '')+'"'+tituloCel+'>'+escapeHtml(str)+'</td>');
+          t.push(strTrim);
         }
       });
       if(temAcaoM2){
@@ -4891,6 +4897,38 @@
         + '.risco-pager button:disabled{opacity:.4;cursor:default}';
       document.head.appendChild(stLp);
     }
+    // Abrevia (com "…") as células de texto longo até a linha caber na
+    // largura do container: tenta limites de 220px, 180px, ... 64px por
+    // célula e para no primeiro em que a tabela não estoura a largura.
+    // Não faz nada enquanto a lista está escondida (largura 0).
+    var TRUNC_PASSOS = [220, 180, 150, 120, 100, 80, 64];
+    function ajustarTruncamentoLista(card){
+      var wrap = card.querySelector('.table-wrap');
+      var tbl = card.querySelector('table.data-table');
+      if(!wrap || !tbl || !wrap.clientWidth) return;
+      for(var i = 0; i < TRUNC_PASSOS.length; i++){
+        tbl.style.setProperty('--cell-max', TRUNC_PASSOS[i] + 'px');
+        if(tbl.offsetWidth <= wrap.clientWidth + 1) break;
+      }
+    }
+    function observarTruncamentoLista(card){
+      var wrap = card.querySelector('.table-wrap');
+      if(!wrap || wrap._truncObs) return;
+      var ultima = -1;
+      var refazer = function(){
+        var w = wrap.clientWidth;
+        if(w === ultima) return;
+        ultima = w;
+        ajustarTruncamentoLista(card);
+      };
+      if(typeof ResizeObserver === 'function'){
+        wrap._truncObs = new ResizeObserver(refazer);
+        wrap._truncObs.observe(wrap);
+      } else {
+        wrap._truncObs = true;
+        window.addEventListener('resize', refazer);
+      }
+    }
     function paginarLista(card){
       var listName = card.getAttribute('data-list-card');
       var pagerEl = card.querySelector('[data-list-pager]');
@@ -4916,6 +4954,8 @@
           +   ' · mostrando '+fmtInt(ini+1)+'–'+fmtInt(Math.min(fim,total))+' de '+fmtInt(total)+'</span>'
           + '<button type="button" data-pg="next"'+(pg>=totalPaginas?' disabled':'')+'>Próxima ›</button>';
       }
+      ajustarTruncamentoLista(card);
+      observarTruncamentoLista(card);
     }
     el.querySelectorAll('[data-list-pager]').forEach(function(pagerEl){
       pagerEl.addEventListener('click', function(ev){
