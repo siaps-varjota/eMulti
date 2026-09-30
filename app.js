@@ -4018,6 +4018,106 @@
     if(qtd === 1) return {classe:"especifica", label:"Específica", qtd:qtd};
     return {classe:"semregistro", label:"Sem registro", qtd:qtd};
   }
+  // ---------- "Resumo Atividade Coletiva": AÇÃO M2 + Detalhes ----------
+  // Cada linha desta lista é UMA atividade coletiva. O enquadramento segue
+  // a mesma regra que alimenta o numerador do M2 (ver "atividadesCompartilhadasListas"):
+  // Compartilhada = pelo menos 1 profissional da eMulti (coluna "Total de
+  // Profissionais da EMulti", ligada a Participantes Ativ. Coletiva) E 2 ou
+  // mais profissionais no total ("Qtd total de profissionais"). Sem a coluna
+  // da eMulti para aquela linha, vale só a regra de 2+ profissionais.
+  function ehListaResumoAtividadeColetiva(name){
+    return displayListName(name) === "Resumo Atividade Coletiva";
+  }
+  function textoCelulaLista(row, idx){
+    if(idx < 0) return '';
+    var v = row[idx];
+    return (v===undefined||v===null) ? '' : String(v).trim();
+  }
+  function classificarAcaoM2Atividade(headers, row){
+    var iTot = colIndex(headers, "qtd_total_profissionais");
+    var iEnv = colIndex(headers, "qtd_profissionais_envolvidos");
+    var iEm = colTotalProfEmulti(headers);
+    if(iTot < 0 && iEnv < 0) return {classe:"semregistro", label:"Sem registro", qtd:0, totalEmulti:null, motivo:"semcolunas"};
+    var vTot = textoCelulaLista(row, iTot);
+    var totalGeral = (vTot !== '') ? toInt(vTot) : 1 + toInt(textoCelulaLista(row, iEnv));
+    var vEm = textoCelulaLista(row, iEm);
+    var totalEmulti = (vEm !== '') ? toInt(vEm) : null;
+    var temEmulti = (totalEmulti === null) ? true : totalEmulti >= 1;
+    if(totalGeral >= 2 && temEmulti) return {classe:"compartilhada", label:"Compartilhada", qtd:totalGeral, totalEmulti:totalEmulti, motivo:"ok"};
+    return {classe:"especifica", label:"Específica", qtd:totalGeral, totalEmulti:totalEmulti,
+            motivo: (totalGeral >= 2 && !temEmulti) ? "sememulti" : "umprofissional"};
+  }
+  // Escolhe o classificador certo conforme a lista (Participantes x Resumo).
+  function classificarAcaoM2Lista(name, headers, row){
+    return ehListaResumoAtividadeColetiva(name)
+      ? classificarAcaoM2Atividade(headers, row)
+      : classificarAcaoM2Participacao(headers, row);
+  }
+  function montarDetalhesAtividadeHTML(headers, row){
+    var classificacao = classificarAcaoM2Atividade(headers, row);
+    var iData = colIndex(headers, "data");
+    var iTipo = colIndex(headers, "tipo_atividade");
+    var iEquipe = colIndex(headers, "equipe_unidade");
+    if(iEquipe < 0 && typeof equipeColIndex === 'function') iEquipe = equipeColIndex(headers);
+    var iTot = colIndex(headers, "qtd_total_profissionais");
+    var iEm = colTotalProfEmulti(headers);
+    var data = textoCelulaLista(row, iData);
+    var tipo = textoCelulaLista(row, iTipo);
+    var equipe = textoCelulaLista(row, iEquipe);
+    var totalGeralTxt = textoCelulaLista(row, iTot);
+    var totalEmultiTxt = textoCelulaLista(row, iEm);
+
+    var camposGrid = [
+      equipe ? {label:'Equipe / Unidade', valor:equipe} : null,
+      tipo ? {label:'Tipo de Atividade', valor:tipo} : null,
+      totalGeralTxt ? {label:'Total de profissionais', valor:totalGeralTxt} : null,
+      totalEmultiTxt ? {label:'Profissionais da eMulti', valor:totalEmultiTxt} : null
+    ].filter(Boolean);
+    var infoBoxes = camposGrid.length
+      ? '<div class="part-modal-grid">' + camposGrid.map(function(c){
+          return '<div><div class="part-modal-label">'+escapeHtml(c.label)+'</div><div class="part-modal-value">'+escapeHtml(c.valor)+'</div></div>';
+        }).join('') + '</div>'
+      : '';
+
+    // Demais colunas da linha (as que ainda não apareceram acima), para a
+    // ficha mostrar a atividade completa sem depender do nome de cada coluna.
+    var jaMostradas = {};
+    [iData, iTipo, iEquipe, iTot, iEm].forEach(function(i){ if(i >= 0) jaMostradas[i] = true; });
+    var outros = [];
+    headers.forEach(function(h, i){
+      if(jaMostradas[i]) return;
+      var v = textoCelulaLista(row, i);
+      if(v !== '') outros.push({label:String(h), valor:v});
+    });
+    var outrosHtml = outros.length
+      ? '<div class="part-modal-section"><div class="part-modal-section-title">Demais informações</div>'
+        + '<div class="part-modal-grid">' + outros.map(function(c){
+            return '<div><div class="part-modal-label">'+escapeHtml(c.label)+'</div><div class="part-modal-value">'+escapeHtml(c.valor)+'</div></div>';
+          }).join('') + '</div></div>'
+      : '';
+
+    var notaClassificacao;
+    if(classificacao.classe === 'compartilhada'){
+      notaClassificacao = classificacao.qtd+' profissionais na atividade, com participação da eMulti — conta como Ação Compartilhada (M2).';
+    } else if(classificacao.motivo === 'sememulti'){
+      notaClassificacao = classificacao.qtd+' profissionais na atividade, mas nenhum da eMulti — não conta como Ação Compartilhada (M2).';
+    } else if(classificacao.classe === 'especifica'){
+      notaClassificacao = 'Apenas 1 profissional na atividade — conta como Ação Específica (individual).';
+    } else {
+      notaClassificacao = 'Não há coluna de quantidade de profissionais nesta lista para classificar a ação.';
+    }
+
+    return '<div class="part-modal-head"><span class="part-modal-eyebrow">Detalhes da Atividade Coletiva</span></div>'
+      + '<h3 class="part-modal-title">'+escapeHtml(tipo || 'Atividade coletiva')+'</h3>'
+      + (data ? '<div class="part-modal-sub">Data: '+escapeHtml(data)+'</div>' : '')
+      + infoBoxes
+      + outrosHtml
+      + '<div class="part-modal-section part-modal-enquadramento">'
+        + '<div class="part-modal-section-title">Enquadramento (AÇÃO M2)</div>'
+        + acaoM2BadgeHTML(classificacao)
+        + '<div class="part-modal-nota">'+escapeHtml(notaClassificacao)+'</div>'
+      + '</div>';
+  }
   function acaoM2BadgeHTML(classificacao){
     var icone = classificacao.classe === "compartilhada"
       ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="12" r="2.5"/><circle cx="17" cy="6" r="2.5"/><circle cx="17" cy="18" r="2.5"/><path d="M8.2 10.8l6.6-3.6M8.2 13.2l6.6 3.6"/></svg>'
@@ -4096,9 +4196,11 @@
   function fecharDetalhesParticipacao(){
     if(partModalEl) partModalEl.classList.remove('is-open');
   }
-  function abrirDetalhesParticipacao(headers, row){
+  function abrirDetalhesParticipacao(headers, row, listName){
     var el = partModalGarantirEl();
-    el.querySelector('.part-modal-body').innerHTML = montarDetalhesParticipacaoHTML(headers, row);
+    el.querySelector('.part-modal-body').innerHTML = (listName && ehListaResumoAtividadeColetiva(listName))
+      ? montarDetalhesAtividadeHTML(headers, row)
+      : montarDetalhesParticipacaoHTML(headers, row);
     el.classList.add('is-open');
   }
   function injectPartModalStyles(){
@@ -4521,6 +4623,8 @@
     var idxsProfNumerados = colsProfissionaisNumerados(cached.headers);
     var idxProfissionalPessoas = (name === suffixedName("Pessoas atendidas")) ? cached.headers.indexOf('Profissional') : -1;
     var isParticipantesColetiva = (displayListName(name) === "Participantes Ativ. Coletiva") && idxsProfNumerados.length > 0;
+    // AÇÃO M2 + Ações (Detalhes): Participantes Ativ. Coletiva e Resumo Atividade Coletiva.
+    var temAcaoM2 = isParticipantesColetiva || ehListaResumoAtividadeColetiva(name);
     var rows = cached.rows.map(function(r, rowIdx){
       var c = [], t = [];
       cached.headers.forEach(function(h, i){
@@ -4535,8 +4639,8 @@
           t.push(str.trim());
         }
       });
-      if(isParticipantesColetiva){
-        var classificacao = classificarAcaoM2Participacao(cached.headers, r);
+      if(temAcaoM2){
+        var classificacao = classificarAcaoM2Lista(name, cached.headers, r);
         c.push('<td>'+acaoM2BadgeHTML(classificacao)+'</td>'); t.push(classificacao.label);
         c.push('<td>'+detalhesBtnHTML(name, rowIdx)+'</td>'); t.push('Detalhes');
       }
@@ -4622,7 +4726,7 @@
           if(oculta) return '<th class="part-col-oculta">'+escapeHtml(h)+'</th>';
           return '<th class="sortable-th" data-col-idx="'+i+'">'+escapeHtml(h)+'<span class="sort-ind"></span></th>';
         }).join('')
-        + (isParticipantesColetiva
+        + ((isParticipantesColetiva || ehListaResumoAtividadeColetiva(name))
             ? '<th class="sortable-th" data-col-idx="'+cached.headers.length+'">AÇÃO M2<span class="sort-ind"></span></th><th>Ações</th>'
             : '')
         + '</tr>';
@@ -4639,7 +4743,7 @@
           }
           return '<option value="'+i+'">'+escapeHtml(h)+'</option>';
         }).join('')
-        + (isParticipantesColetiva ? '<option value="'+ACAO_M2_FILTER_VALUE+'">AÇÃO M2</option>' : '');
+        + ((isParticipantesColetiva || ehListaResumoAtividadeColetiva(name)) ? '<option value="'+ACAO_M2_FILTER_VALUE+'">AÇÃO M2</option>' : '');
       var filterPairsHtml = [0,1,2].map(function(idx){
         return '<div class="filter-pair">'
           + '<select class="filter-col">'+colOptionsHtml+'</select>'
@@ -5035,7 +5139,7 @@
           var seenAcao = {};
           var valuesAcao = [];
           (cached ? cached.rows : []).forEach(function(r){
-            var label = classificarAcaoM2Participacao(cached.headers, r).label;
+            var label = classificarAcaoM2Lista(listName, cached.headers, r).label;
             if(!seenAcao[label]){ seenAcao[label] = true; valuesAcao.push(label); }
           });
           valuesAcao.sort(function(a,b){ return a.localeCompare(b, 'pt-BR'); });
@@ -5113,7 +5217,7 @@
         var idx = parseInt(btn.getAttribute('data-detalhes-part-idx'), 10);
         var cachedLista = latestSheets[listName];
         if(!cachedLista || !cachedLista.rows[idx]) return;
-        abrirDetalhesParticipacao(cachedLista.headers, cachedLista.rows[idx]);
+        abrirDetalhesParticipacao(cachedLista.headers, cachedLista.rows[idx], listName);
       });
     });
 
