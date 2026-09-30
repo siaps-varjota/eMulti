@@ -619,7 +619,7 @@
 
   // ---------- Listas complementares ----------
   // As abas M1 e M2 mostram as MESMAS 7 tabelas, na mesma ordem.
-  function listasComplementaresNomes(){ return ["Atendimentos", "Atendimentos interprofissionais", "Participantes Ativ. Coletiva", "Pessoas atendidas", "Busca-Ativa", "Resumo Reuniões", "Resumo Atividade Coletiva"].map(suffixedName); }
+  function listasComplementaresNomes(){ return ["Atendimentos", "Atend. interprofissionais", "Participantes Ativ. Coletiva", "Pessoas atendidas", "Busca-Ativa", "Resumo Reuniões", "Resumo Atividade Coletiva"].map(suffixedName); }
   function m1ListNames(){ return listasComplementaresNomes(); }
   function m2ListNames(){ return listasComplementaresNomes(); }
   var latestSheets = {}; // nome da aba -> {headers, rows} | {error}
