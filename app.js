@@ -231,6 +231,35 @@
   // COMPLETO, sem restringir por período. 1+ marcados: as análises
   // passam a considerar só as consultas dentro desses quadrimestres.
   var analisesQuads = [];
+  // Filtro de profissional exclusivo da aba Frequência e Retorno.
+  // Vazio = todos; uma chave selecionada = apenas esse profissional.
+  var analisesProfissional = "";
+  var analisesProfissionalMs = null;
+  // Devolve true quando o profissional escolhido deixou de existir na lista
+  // (ex.: trocou de equipe) e o filtro voltou pra "Todos" — quem chamou
+  // precisa recalcular as análises, que ainda estavam com o filtro antigo.
+  function atualizarOpcoesProfissionaisAnalises(){
+    if(!analisesProfissionalMs) return false;
+    var rows = sheetToRows(((latestRawSheets || {})["Atendimentos"]) || []);
+    rows = filtrarLinhasPorEquipe(rows, analisesEquipes);
+    var header = rows[0] || [];
+    var idxProf = profissionalColIndex(header);
+    var nomes = {};
+    if(idxProf >= 0){
+      rows.slice(1).forEach(function(r){
+        var nome = String(r[idxProf]||'').trim();
+        if(!nome) return;
+        nomes[nome] = true;
+      });
+    }
+    var opts = Object.keys(nomes).sort(function(a,b){return a.localeCompare(b,'pt-BR');})
+      .map(function(nome){return {value:nome,label:nome};});
+    analisesProfissionalMs.setOptions([{value:'',label:'Todos'}].concat(opts));
+    var zerou = false;
+    if(analisesProfissional && !nomes[analisesProfissional]){ analisesProfissional = ''; zerou = true; }
+    analisesProfissionalMs.setSelected([analisesProfissional]);
+    return zerou;
+  }
 
   function suffixedName(baseName){
     return baseName + " — " + currentEquipes.map(function(e){ return e.suffix; }).join('+');
@@ -2292,8 +2321,10 @@
     rows.slice(1).forEach(function(r){
       var nome = String(r[iNome]||"").trim();
       var d = parseBRDate(r[iData]);
+      var prof = iProf >= 0 ? String(r[iProf]||"").trim() : "";
       if(!nome || !d) return;
       if(!dataDentroDoFiltro(d)) return;
+      if(analisesProfissional && prof !== analisesProfissional) return;
       var chave = nome.toUpperCase();
       if(!porPaciente[chave]) porPaciente[chave] = {nome:nome, datas:[], profissionais:{}, consultasPorProf:{}, ultimaDataPorProf:{}, equipes:{}, ultimaData:null, ultimaProfissionais:{}, totalAtendimentos:0};
       var p = porPaciente[chave];
@@ -2301,7 +2332,6 @@
       if(!isFinite(qtd) || qtd < 0) qtd = 1;
       p.totalAtendimentos += qtd;
       p.datas.push(d);
-      var prof = iProf >= 0 ? String(r[iProf]||"").trim() : "";
       if(prof){
         p.profissionais[prof] = true;
         p.consultasPorProf[prof] = (p.consultasPorProf[prof] || 0) + 1;
@@ -2887,8 +2917,6 @@
       +     '<div class="ms-wrap" id="riscoProfMs"></div></div>'
       +   '<div class="list-month-filter"><label class="list-month-filter-label">Profissional</label>'
       +     '<div class="ms-wrap" id="riscoProfAnyMs"></div></div>'
-      +   '<div class="list-month-filter"><label class="list-month-filter-label" for="riscoJanelaMes">Mês final · janela móvel de 4 meses</label>'
-      +     '<select class="filter-col" id="riscoJanelaMes"></select></div>'
       +   colFilterHtml
       + '</div>'
       + '<input class="list-search" type="text" placeholder="Filtrar nesta lista…" id="riscoSearchInput">'
@@ -2933,29 +2961,6 @@
     // tabela abaixo (ver filtroPredicado), pra esses números variarem
     // junto com Profissional/Equipe/coluna/busca em vez de ficar fixos.
     var kpiTodos = kpiRegistros || [];
-    // Janela móvel de quatro meses, encerrada no mês selecionado. O mês atual
-    // é o padrão; selecionar setembro, por exemplo, inclui junho a setembro.
-    var janelaMesEl = document.getElementById('riscoJanelaMes');
-    var hojeJanela = new Date();
-    var mesFinalPadrao = new Date(hojeJanela.getFullYear(), hojeJanela.getMonth(), 1);
-    var mesInicialDados = null;
-    kpiTodos.forEach(function(r){
-      if(!r.ultima) return;
-      var m = new Date(r.ultima.getFullYear(), r.ultima.getMonth(), 1);
-      if(!mesInicialDados || m < mesInicialDados) mesInicialDados = m;
-    });
-    if(janelaMesEl){
-      var mesInicioOpcoes = mesInicialDados && mesInicialDados < mesFinalPadrao ? mesInicialDados : mesFinalPadrao;
-      var opcoesMesHtml = '';
-      for(var mesOpcao = new Date(mesInicioOpcoes); mesOpcao <= mesFinalPadrao; mesOpcao = new Date(mesOpcao.getFullYear(), mesOpcao.getMonth()+1, 1)){
-        var valorMes = mesOpcao.getFullYear() + '-' + String(mesOpcao.getMonth()+1).padStart(2, '0');
-        var rotuloMes = mesOpcao.toLocaleDateString('pt-BR', {month:'long', year:'numeric'});
-        rotuloMes = rotuloMes.charAt(0).toUpperCase() + rotuloMes.slice(1);
-        opcoesMesHtml += '<option value="'+valorMes+'">'+escapeHtml(rotuloMes)+'</option>';
-      }
-      janelaMesEl.innerHTML = opcoesMesHtml;
-      janelaMesEl.value = mesFinalPadrao.getFullYear() + '-' + String(mesFinalPadrao.getMonth()+1).padStart(2, '0');
-    }
     // Opções do filtro: qualquer profissional que apareça como responsável
     // pela ÚLTIMA consulta de PELO MENOS UM paciente em risco (lista
     // completa, não só os 40 exibidos na tela).
@@ -2999,7 +3004,6 @@
     if(profAnyMs) profAnyMs.setOptions(profsAnyOpts);
 
     if(searchEl) searchEl.addEventListener('input', renderTabelaRisco);
-    if(janelaMesEl) janelaMesEl.addEventListener('change', renderTabelaRisco);
 
     // Filtro por coluna (Paciente/Equipe/Consultas/Última consulta/Dias sem
     // voltar): select da coluna + multisseleção de valores, mesmo padrão da
@@ -3052,16 +3056,6 @@
     // (nome/profissional/equipe/totalConsultas/ultima/diasDesde/
     // ultimoProfissionais/todosProfissionais) têm o mesmo formato nos dois
     // casos, o mesmo predicado serve pra ambos.
-    function pacienteNaJanelaMovel(r){
-      if(!janelaMesEl || !janelaMesEl.value || !r.ultima) return true;
-      var partes = janelaMesEl.value.split('-');
-      var ano = Number(partes[0]), mes = Number(partes[1]) - 1;
-      if(!isFinite(ano) || !isFinite(mes)) return true;
-      var inicio = new Date(ano, mes-3, 1);
-      var fimExclusivo = new Date(ano, mes+1, 1);
-      return r.ultima >= inicio && r.ultima < fimExclusivo;
-    }
-
     function filtroPredicado(r, paraTabela){
       var selecionados = profMs ? profMs.getSelected() : [];
       var selecionadosAny = profAnyMs ? profAnyMs.getSelected() : [];
@@ -3080,7 +3074,6 @@
       var profsLinhaAny = r.todosProfissionais || [];
       var matchesProfAny = !selecionadosAny.length || selecionadosAny.some(function(v){ return profsLinhaAny.indexOf(v) >= 0; });
       var matchesTexto = !termo || textoBusca(r).indexOf(termo) !== -1;
-      var matchesJanela = pacienteNaJanelaMovel(r);
       var matchesColuna = (colIdxFiltro === null || !valoresColSelecionados.length)
         || valoresColSelecionados.indexOf(RISCO_COLUNAS_FILTRAVEIS[colIdxFiltro].getValor(r)) >= 0;
       var matchesSituacao = true;
@@ -3091,7 +3084,7 @@
       // Sem situação escolhida, mantém o comportamento original: a tabela
       // começa mostrando apenas os pacientes em risco.
       else if(paraTabela) matchesSituacao = r.status === 'risco';
-      return matchesProf && matchesProfAny && matchesTexto && matchesJanela && matchesColuna && matchesSituacao;
+      return matchesProf && matchesProfAny && matchesTexto && matchesColuna && matchesSituacao;
     }
 
     // Recalcula e redesenha os cards de estatística acima da tabela a
@@ -3234,7 +3227,7 @@
     ws['!autofilter'] = {ref: XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:rows.length, c:head.length-1}})};
     var wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Risco de abandono');
-    var equipeLabel = analisesEquipes.map(function(e){ return e.label; }).join(' + ');
+    var equipeLabel = analisesEquipes.map(function(e){ return e.label; }).join(' + ') + (analisesProfissional ? ' — ' + analisesProfissional : '');
     XLSX.writeFile(wb, slugifyFileName('Pacientes_risco_abandono')+'__'+slugifyFileName(equipeLabel)+'__'+slugifyFileName(new Date().toLocaleDateString('pt-BR'))+'.xlsx');
   }
 
@@ -3253,7 +3246,7 @@
       return;
     }
     var filtroAtivo = typeof totalGeral === 'number' && totalGeral > risco.length;
-    var equipeLabel = analisesEquipes.map(function(e){ return e.label; }).join(' + ');
+    var equipeLabel = analisesEquipes.map(function(e){ return e.label; }).join(' + ') + (analisesProfissional ? ' — ' + analisesProfissional : '');
     var doc = new jspdfNs.jsPDF({orientation:'landscape', unit:'pt', format:'a4'});
     var pageWidth = doc.internal.pageSize.getWidth();
     var pageHeight = doc.internal.pageSize.getHeight();
@@ -3314,6 +3307,7 @@
   }
 
   function renderAnalises(data){
+    if(atualizarOpcoesProfissionaisAnalises()) data = calcularAnalises();
     analisesDataAtual = data;
     analisesChartInstances.forEach(function(c){ try{ c.destroy(); }catch(e){} });
     analisesChartInstances = [];
@@ -3327,7 +3321,7 @@
 
     if(!data || !data.totalPacientes){
       if(elTotal) elTotal.textContent = '—';
-      if(elIntervalos) elIntervalos.innerHTML = '<p class="footnote">Ainda não há dados suficientes pra esta equipe/período.</p>';
+      if(elIntervalos) elIntervalos.innerHTML = '<p class="footnote">Ainda não há dados suficientes pra esta equipe/período/profissional.</p>';
       if(elFunil) elFunil.innerHTML = '';
       if(elRiscoResumo) elRiscoResumo.innerHTML = '';
       if(elRisco) elRisco.innerHTML = '';
@@ -3615,6 +3609,7 @@
       +   '<div class="list-filters">'
       +     '<div class="list-month-filter"><label class="list-month-filter-label">Quadrimestre</label><div class="ms-wrap" id="analisesQuadMs"></div></div>'
       +     '<div class="list-month-filter"><label class="list-month-filter-label">Equipe</label><div class="ms-wrap" id="analisesEquipeMs"></div></div>'
+      +     '<div class="list-month-filter"><label class="list-month-filter-label">Profissional</label><div class="ms-wrap" id="analisesProfMs"></div></div>'
       +   '</div>'
       + '</div>'
       + '<div class="card" style="margin-bottom:16px;">'
@@ -3662,6 +3657,18 @@
     var quadContainer = document.getElementById('analisesQuadMs');
     var equipeContainer = document.getElementById('analisesEquipeMs');
     if(!quadContainer || !equipeContainer) return;
+    // O index.html atual não tem o campo "Profissional": cria aqui, logo
+    // depois do filtro de Equipe. Sem isso, esta função abortava e NENHUM
+    // dos filtros da aba (Quadrimestre/Equipe/Profissional) era ligado.
+    var profissionalContainer = document.getElementById('analisesProfMs');
+    if(!profissionalContainer){
+      var wrapProf = document.createElement('div');
+      wrapProf.className = 'list-month-filter';
+      wrapProf.innerHTML = '<label class="list-month-filter-label">Profissional</label><div class="ms-wrap" id="analisesProfMs"></div>';
+      var wrapEquipe = equipeContainer.closest('.list-month-filter') || equipeContainer.parentElement;
+      wrapEquipe.parentNode.insertBefore(wrapProf, wrapEquipe.nextSibling);
+      profissionalContainer = wrapProf.querySelector('#analisesProfMs');
+    }
 
     function recalcularERedesenhar(){
       renderAnalises(calcularAnalises());
@@ -3673,6 +3680,7 @@
       onChange: function(keys){
         analisesEquipes = keys[0] === TODAS_KEY ? EQUIPES.slice()
           : EQUIPES.filter(function(eq){ return eq.key === keys[0]; });
+        atualizarOpcoesProfissionaisAnalises();
         recalcularERedesenhar();
       }
     });
@@ -3689,6 +3697,7 @@
           var parts = k.split('-');
           return {ano: +parts[0], qIndex: +parts[1]};
         });
+        atualizarOpcoesProfissionaisAnalises();
         recalcularERedesenhar();
       }
     });
@@ -3704,6 +3713,15 @@
     }
     analisesQuadMs.setOptions(quadOpts);
     analisesQuadMs.setSelected(analisesQuads.map(function(q){ return q.ano+'-'+q.qIndex; }));
+
+    analisesProfissionalMs = createMultiSelect(profissionalContainer, {
+      placeholder: 'Todos', multi: false, search: true,
+      onChange: function(keys){
+        analisesProfissional = keys[0] || '';
+        renderAnalises(calcularAnalises());
+      }
+    });
+    atualizarOpcoesProfissionaisAnalises();
   }
 
   // ---------- Listas ----------
