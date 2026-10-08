@@ -231,16 +231,30 @@
   // COMPLETO, sem restringir por período. 1+ marcados: as análises
   // passam a considerar só as consultas dentro desses quadrimestres.
   var analisesQuads = [];
-  // Profissional selecionado no filtro da aba Frequência e Retorno (seleção
-  // ÚNICA). null = todos os profissionais (padrão, comportamento de sempre).
-  // Com um profissional escolhido, construirHistoricosPacientes só considera
-  // os atendimentos DELE — e como todos os gráficos/tabelas da aba saem
-  // dessa mesma base (calcularAnalises), o filtro vale pra aba inteira.
-  var analisesProfissional = null;
-  // Preenchida por wireAnalisesFiltrosTopo: recarrega as opções do filtro de
-  // Profissional conforme a equipe/planilha atual. Devolve true quando o
-  // profissional escolhido deixou de existir e o filtro voltou pra "Todos".
-  var atualizarOpcoesProfissionalAnalises = function(){ return false; };
+  // Filtro de profissional exclusivo da aba Frequência e Retorno.
+  // Vazio = todos; uma chave selecionada = apenas esse profissional.
+  var analisesProfissional = "";
+  var analisesProfissionalMs = null;
+  function atualizarOpcoesProfissionaisAnalises(){
+    if(!analisesProfissionalMs) return;
+    var rows = sheetToRows(((latestRawSheets || {})["Atendimentos"]) || []);
+    rows = filtrarLinhasPorEquipe(rows, analisesEquipes);
+    var header = rows[0] || [];
+    var idxProf = profissionalColIndex(header);
+    var nomes = {};
+    if(idxProf >= 0){
+      rows.slice(1).forEach(function(r){
+        var nome = String(r[idxProf]||'').trim();
+        if(!nome) return;
+        nomes[nome] = true;
+      });
+    }
+    var opts = Object.keys(nomes).sort(function(a,b){return a.localeCompare(b,'pt-BR');})
+      .map(function(nome){return {value:nome,label:nome};});
+    analisesProfissionalMs.setOptions([{value:'',label:'Todos'}].concat(opts));
+    if(analisesProfissional && !nomes[analisesProfissional]) analisesProfissional = '';
+    analisesProfissionalMs.setSelected([analisesProfissional]);
+  }
 
   function suffixedName(baseName){
     return baseName + " — " + currentEquipes.map(function(e){ return e.suffix; }).join('+');
@@ -2269,27 +2283,6 @@
   // se houver, pelo(s) Quadrimestre(s) marcados no filtro PRÓPRIO desta
   // aba (analisesEquipes/analisesQuads) — independente do filtro global
   // do topo e do filtro de Quadrimestre/Mês usado nas outras abas.
-  // Lista (ordem alfabética) dos profissionais que aparecem nos
-  // atendimentos da(s) equipe(s) selecionada(s) na aba — alimenta as
-  // opções do filtro de Profissional. Não depende do filtro de
-  // Quadrimestre, pra a lista não "encolher" ao marcar um período.
-  function listarProfissionaisAnalises(){
-    var rows = filtrarLinhasPorEquipe(sheetToRows(latestRawSheets["Atendimentos"] || []), analisesEquipes);
-    var header = rows[0] || [];
-    var iProf = colIndex(header, "profissional");
-    if(iProf < 0) return [];
-    var vistos = {}, nomes = [];
-    rows.slice(1).forEach(function(r){
-      var nome = String(r[iProf]||"").trim();
-      if(!nome) return;
-      var k = normalizeText(nome);
-      if(vistos[k]) return;
-      vistos[k] = true;
-      nomes.push(nome);
-    });
-    return nomes.sort(function(a,b){ return a.localeCompare(b,'pt-BR',{sensitivity:'base'}); });
-  }
-
   function construirHistoricosPacientes(){
     var rows = sheetToRows(latestRawSheets["Atendimentos"] || []);
     rows = filtrarLinhasPorEquipe(rows, analisesEquipes);
@@ -2299,16 +2292,6 @@
     var iProf = colIndex(header, "profissional");
     var iQtd = colIndex(header, "qtd_atendimentos");
     if(iData < 0 || iNome < 0) return [];
-    // Filtro de Profissional (seleção única): mantém só as linhas de
-    // atendimento desse profissional. Tudo que a aba calcula a partir
-    // daqui (intervalos, funil, perfil de frequência, dia da semana,
-    // comparativo, risco de abandono) passa a refletir só ele.
-    var profFiltroNorm = (analisesProfissional && iProf >= 0) ? normalizeText(analisesProfissional) : null;
-    if(profFiltroNorm){
-      rows = [header].concat(rows.slice(1).filter(function(r){
-        return normalizeText(String(r[iProf]||"").trim()) === profFiltroNorm;
-      }));
-    }
     // Com 2+ equipes selecionadas ao mesmo tempo neste filtro, um mesmo
     // paciente pode ter atendimentos vindos de equipes diferentes —
     // guarda qual(is) equipe(s) de fato atenderam cada paciente (coluna
@@ -2333,8 +2316,10 @@
     rows.slice(1).forEach(function(r){
       var nome = String(r[iNome]||"").trim();
       var d = parseBRDate(r[iData]);
+      var prof = iProf >= 0 ? String(r[iProf]||"").trim() : "";
       if(!nome || !d) return;
       if(!dataDentroDoFiltro(d)) return;
+      if(analisesProfissional && prof !== analisesProfissional) return;
       var chave = nome.toUpperCase();
       if(!porPaciente[chave]) porPaciente[chave] = {nome:nome, datas:[], profissionais:{}, consultasPorProf:{}, ultimaDataPorProf:{}, equipes:{}, ultimaData:null, ultimaProfissionais:{}, totalAtendimentos:0};
       var p = porPaciente[chave];
@@ -2342,7 +2327,6 @@
       if(!isFinite(qtd) || qtd < 0) qtd = 1;
       p.totalAtendimentos += qtd;
       p.datas.push(d);
-      var prof = iProf >= 0 ? String(r[iProf]||"").trim() : "";
       if(prof){
         p.profissionais[prof] = true;
         p.consultasPorProf[prof] = (p.consultasPorProf[prof] || 0) + 1;
@@ -2928,8 +2912,6 @@
       +     '<div class="ms-wrap" id="riscoProfMs"></div></div>'
       +   '<div class="list-month-filter"><label class="list-month-filter-label">Profissional</label>'
       +     '<div class="ms-wrap" id="riscoProfAnyMs"></div></div>'
-      +   '<div class="list-month-filter"><label class="list-month-filter-label" for="riscoJanelaMes">Mês final · janela móvel de 4 meses</label>'
-      +     '<select class="filter-col" id="riscoJanelaMes"></select></div>'
       +   colFilterHtml
       + '</div>'
       + '<input class="list-search" type="text" placeholder="Filtrar nesta lista…" id="riscoSearchInput">'
@@ -2974,29 +2956,6 @@
     // tabela abaixo (ver filtroPredicado), pra esses números variarem
     // junto com Profissional/Equipe/coluna/busca em vez de ficar fixos.
     var kpiTodos = kpiRegistros || [];
-    // Janela móvel de quatro meses, encerrada no mês selecionado. O mês atual
-    // é o padrão; selecionar setembro, por exemplo, inclui junho a setembro.
-    var janelaMesEl = document.getElementById('riscoJanelaMes');
-    var hojeJanela = new Date();
-    var mesFinalPadrao = new Date(hojeJanela.getFullYear(), hojeJanela.getMonth(), 1);
-    var mesInicialDados = null;
-    kpiTodos.forEach(function(r){
-      if(!r.ultima) return;
-      var m = new Date(r.ultima.getFullYear(), r.ultima.getMonth(), 1);
-      if(!mesInicialDados || m < mesInicialDados) mesInicialDados = m;
-    });
-    if(janelaMesEl){
-      var mesInicioOpcoes = mesInicialDados && mesInicialDados < mesFinalPadrao ? mesInicialDados : mesFinalPadrao;
-      var opcoesMesHtml = '';
-      for(var mesOpcao = new Date(mesInicioOpcoes); mesOpcao <= mesFinalPadrao; mesOpcao = new Date(mesOpcao.getFullYear(), mesOpcao.getMonth()+1, 1)){
-        var valorMes = mesOpcao.getFullYear() + '-' + String(mesOpcao.getMonth()+1).padStart(2, '0');
-        var rotuloMes = mesOpcao.toLocaleDateString('pt-BR', {month:'long', year:'numeric'});
-        rotuloMes = rotuloMes.charAt(0).toUpperCase() + rotuloMes.slice(1);
-        opcoesMesHtml += '<option value="'+valorMes+'">'+escapeHtml(rotuloMes)+'</option>';
-      }
-      janelaMesEl.innerHTML = opcoesMesHtml;
-      janelaMesEl.value = mesFinalPadrao.getFullYear() + '-' + String(mesFinalPadrao.getMonth()+1).padStart(2, '0');
-    }
     // Opções do filtro: qualquer profissional que apareça como responsável
     // pela ÚLTIMA consulta de PELO MENOS UM paciente em risco (lista
     // completa, não só os 40 exibidos na tela).
@@ -3040,7 +2999,6 @@
     if(profAnyMs) profAnyMs.setOptions(profsAnyOpts);
 
     if(searchEl) searchEl.addEventListener('input', renderTabelaRisco);
-    if(janelaMesEl) janelaMesEl.addEventListener('change', renderTabelaRisco);
 
     // Filtro por coluna (Paciente/Equipe/Consultas/Última consulta/Dias sem
     // voltar): select da coluna + multisseleção de valores, mesmo padrão da
@@ -3093,16 +3051,6 @@
     // (nome/profissional/equipe/totalConsultas/ultima/diasDesde/
     // ultimoProfissionais/todosProfissionais) têm o mesmo formato nos dois
     // casos, o mesmo predicado serve pra ambos.
-    function pacienteNaJanelaMovel(r){
-      if(!janelaMesEl || !janelaMesEl.value || !r.ultima) return true;
-      var partes = janelaMesEl.value.split('-');
-      var ano = Number(partes[0]), mes = Number(partes[1]) - 1;
-      if(!isFinite(ano) || !isFinite(mes)) return true;
-      var inicio = new Date(ano, mes-3, 1);
-      var fimExclusivo = new Date(ano, mes+1, 1);
-      return r.ultima >= inicio && r.ultima < fimExclusivo;
-    }
-
     function filtroPredicado(r, paraTabela){
       var selecionados = profMs ? profMs.getSelected() : [];
       var selecionadosAny = profAnyMs ? profAnyMs.getSelected() : [];
@@ -3121,7 +3069,6 @@
       var profsLinhaAny = r.todosProfissionais || [];
       var matchesProfAny = !selecionadosAny.length || selecionadosAny.some(function(v){ return profsLinhaAny.indexOf(v) >= 0; });
       var matchesTexto = !termo || textoBusca(r).indexOf(termo) !== -1;
-      var matchesJanela = pacienteNaJanelaMovel(r);
       var matchesColuna = (colIdxFiltro === null || !valoresColSelecionados.length)
         || valoresColSelecionados.indexOf(RISCO_COLUNAS_FILTRAVEIS[colIdxFiltro].getValor(r)) >= 0;
       var matchesSituacao = true;
@@ -3132,7 +3079,7 @@
       // Sem situação escolhida, mantém o comportamento original: a tabela
       // começa mostrando apenas os pacientes em risco.
       else if(paraTabela) matchesSituacao = r.status === 'risco';
-      return matchesProf && matchesProfAny && matchesTexto && matchesJanela && matchesColuna && matchesSituacao;
+      return matchesProf && matchesProfAny && matchesTexto && matchesColuna && matchesSituacao;
     }
 
     // Recalcula e redesenha os cards de estatística acima da tabela a
@@ -3275,7 +3222,7 @@
     ws['!autofilter'] = {ref: XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:rows.length, c:head.length-1}})};
     var wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Risco de abandono');
-    var equipeLabel = analisesEquipes.map(function(e){ return e.label; }).join(' + ') + (analisesProfissional ? ' — ' + analisesProfissional : '');
+    var equipeLabel = analisesEquipes.map(function(e){ return e.label; }).join(' + ');
     XLSX.writeFile(wb, slugifyFileName('Pacientes_risco_abandono')+'__'+slugifyFileName(equipeLabel)+'__'+slugifyFileName(new Date().toLocaleDateString('pt-BR'))+'.xlsx');
   }
 
@@ -3294,7 +3241,7 @@
       return;
     }
     var filtroAtivo = typeof totalGeral === 'number' && totalGeral > risco.length;
-    var equipeLabel = analisesEquipes.map(function(e){ return e.label; }).join(' + ') + (analisesProfissional ? ' — ' + analisesProfissional : '');
+    var equipeLabel = analisesEquipes.map(function(e){ return e.label; }).join(' + ');
     var doc = new jspdfNs.jsPDF({orientation:'landscape', unit:'pt', format:'a4'});
     var pageWidth = doc.internal.pageSize.getWidth();
     var pageHeight = doc.internal.pageSize.getHeight();
@@ -3355,12 +3302,7 @@
   }
 
   function renderAnalises(data){
-    // Mantém a lista do filtro de Profissional em dia com a planilha/equipe
-    // atuais; se o profissional escolhido sumiu, o filtro volta pra
-    // "Todos" e os dados abaixo precisam ser recalculados.
-    if(atualizarOpcoesProfissionalAnalises()){
-      data = calcularAnalises();
-    }
+    atualizarOpcoesProfissionaisAnalises();
     analisesDataAtual = data;
     analisesChartInstances.forEach(function(c){ try{ c.destroy(); }catch(e){} });
     analisesChartInstances = [];
@@ -3374,7 +3316,7 @@
 
     if(!data || !data.totalPacientes){
       if(elTotal) elTotal.textContent = '—';
-      if(elIntervalos) elIntervalos.innerHTML = '<p class="footnote">Ainda não há dados suficientes pra esta equipe/período/profissional.</p>';
+      if(elIntervalos) elIntervalos.innerHTML = '<p class="footnote">Ainda não há dados suficientes pra esta equipe/período.</p>';
       if(elFunil) elFunil.innerHTML = '';
       if(elRiscoResumo) elRiscoResumo.innerHTML = '';
       if(elRisco) elRisco.innerHTML = '';
@@ -3658,10 +3600,11 @@
       + '</style>'
       + '<div class="card" style="margin-bottom:16px;">'
       +   '<h3 style="margin:0 0 4px;">Perfil de pacientes — '+'<span id="analisesTotalPacientes">—</span> pacientes no período</h3>'
-      +   '<p class="footnote" style="margin:0 0 12px;">Estas análises usam um filtro de Equipe, Quadrimestre e Profissional PRÓPRIO desta aba (independente do filtro do topo). Sem nenhum quadrimestre marcado, olham pro histórico completo de atendimentos; escolhendo um profissional, todos os gráficos e a lista de risco passam a considerar só os atendimentos dele.</p>'
+      +   '<p class="footnote" style="margin:0 0 12px;">Estas análises usam um filtro de Equipe e Quadrimestre PRÓPRIO desta aba (independente do filtro do topo). Sem nenhum quadrimestre marcado, olham pro histórico completo de atendimentos.</p>'
       +   '<div class="list-filters">'
       +     '<div class="list-month-filter"><label class="list-month-filter-label">Quadrimestre</label><div class="ms-wrap" id="analisesQuadMs"></div></div>'
       +     '<div class="list-month-filter"><label class="list-month-filter-label">Equipe</label><div class="ms-wrap" id="analisesEquipeMs"></div></div>'
+      +     '<div class="list-month-filter"><label class="list-month-filter-label">Profissional</label><div class="ms-wrap" id="analisesProfMs"></div></div>'
       +   '</div>'
       + '</div>'
       + '<div class="card" style="margin-bottom:16px;">'
@@ -3708,54 +3651,12 @@
   function wireAnalisesFiltrosTopo(){
     var quadContainer = document.getElementById('analisesQuadMs');
     var equipeContainer = document.getElementById('analisesEquipeMs');
-    if(!quadContainer || !equipeContainer) return;
+    var profissionalContainer = document.getElementById('analisesProfMs');
+    if(!quadContainer || !equipeContainer || !profissionalContainer) return;
 
     function recalcularERedesenhar(){
       renderAnalises(calcularAnalises());
     }
-
-    // Filtro de Profissional (seleção única). O container é criado aqui
-    // mesmo (logo depois do filtro de Equipe), pra não depender de o
-    // index.html já ter esse campo.
-    var profContainer = document.getElementById('analisesProfMs');
-    if(!profContainer){
-      var wrapProf = document.createElement('div');
-      wrapProf.className = 'list-month-filter';
-      wrapProf.innerHTML = '<label class="list-month-filter-label">Profissional</label><div class="ms-wrap" id="analisesProfMs"></div>';
-      var wrapEquipe = equipeContainer.closest('.list-month-filter') || equipeContainer.parentElement;
-      wrapEquipe.parentElement.insertBefore(wrapProf, wrapEquipe.nextSibling);
-      profContainer = wrapProf.querySelector('#analisesProfMs');
-    }
-    var TODOS_PROF_KEY = '__todos__';
-    var analisesProfMs = createMultiSelect(profContainer, {
-      placeholder: 'Todos', multi: false, search: true,
-      onChange: function(keys){
-        analisesProfissional = (!keys.length || keys[0] === TODOS_PROF_KEY) ? null : keys[0];
-        recalcularERedesenhar();
-      }
-    });
-    var profOpcoesAssinatura = null;
-    // Recarrega as opções conforme a(s) equipe(s) da aba. Se o profissional
-    // escolhido não existe na nova lista, volta pra "Todos". Chamada ao
-    // trocar a equipe e também a cada renderAnalises (ver
-    // atualizarOpcoesProfissionalAnalises), porque na 1ª carga a
-    // planilha ainda pode não ter chegado quando os filtros são ligados.
-    atualizarOpcoesProfissionalAnalises = function(){
-      var nomes = listarProfissionaisAnalises();
-      var assinatura = analisesEquipes.map(function(e){ return e.key; }).join(',') + '|' + nomes.join('|');
-      if(assinatura === profOpcoesAssinatura) return false;
-      profOpcoesAssinatura = assinatura;
-      var aindaExiste = analisesProfissional && nomes.some(function(n){
-        return normalizeText(n) === normalizeText(analisesProfissional);
-      });
-      var mudou = !!analisesProfissional && !aindaExiste;
-      if(mudou) analisesProfissional = null;
-      analisesProfMs.setOptions(
-        [{value: TODOS_PROF_KEY, label: 'Todos'}].concat(nomes.map(function(n){ return {value: n, label: n}; }))
-      );
-      analisesProfMs.setSelected([analisesProfissional || TODOS_PROF_KEY]);
-      return mudou; // true = o filtro foi zerado e as análises precisam ser recalculadas
-    };
 
     var TODAS_KEY = 'todas';
     var analisesEquipeMs = createMultiSelect(equipeContainer, {
@@ -3763,7 +3664,6 @@
       onChange: function(keys){
         analisesEquipes = keys[0] === TODAS_KEY ? EQUIPES.slice()
           : EQUIPES.filter(function(eq){ return eq.key === keys[0]; });
-        atualizarOpcoesProfissionalAnalises();
         recalcularERedesenhar();
       }
     });
@@ -3772,7 +3672,6 @@
         .concat([{value: TODAS_KEY, label: 'Todas'}])
     );
     analisesEquipeMs.setSelected([analisesEquipes.length > 1 ? TODAS_KEY : analisesEquipes[0].key]);
-    atualizarOpcoesProfissionalAnalises();
 
     var analisesQuadMs = createMultiSelect(quadContainer, {
       placeholder: 'Histórico completo', multi: true, search: false, showTags: true,
@@ -3781,6 +3680,7 @@
           var parts = k.split('-');
           return {ano: +parts[0], qIndex: +parts[1]};
         });
+        atualizarOpcoesProfissionaisAnalises();
         recalcularERedesenhar();
       }
     });
@@ -3796,6 +3696,15 @@
     }
     analisesQuadMs.setOptions(quadOpts);
     analisesQuadMs.setSelected(analisesQuads.map(function(q){ return q.ano+'-'+q.qIndex; }));
+
+    analisesProfissionalMs = createMultiSelect(profissionalContainer, {
+      placeholder: 'Todos', multi: false, search: true,
+      onChange: function(keys){
+        analisesProfissional = keys[0] || '';
+        renderAnalises(calcularAnalises());
+      }
+    });
+    atualizarOpcoesProfissionaisAnalises();
   }
 
   // ---------- Listas ----------
