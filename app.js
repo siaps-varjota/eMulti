@@ -3515,11 +3515,25 @@
 
   function renderComparativoProfChart(canvas, comparativoProf, comparativoProf23){
     if(!canvas) return;
+    // Não destrói o <canvas>: só esconde e mostra um aviso ao lado. Antes, o
+    // aviso substituía o innerHTML do container, e uma renderização sem dados
+    // (ex.: filtro sem resultado) apagava o canvas pra sempre — mesmo depois
+    // de voltar a ter dados, o gráfico não reaparecia.
+    var wrapVazio = canvas.parentElement;
+    var avisoVazio = wrapVazio ? wrapVazio.querySelector('[data-aviso-vazio]') : null;
     if(!comparativoProf.length && !comparativoProf23.length){
-      var wrapVazio = canvas.parentElement;
-      if(wrapVazio) wrapVazio.innerHTML = '<p class="footnote">Sem dados suficientes ainda.</p>';
+      canvas.style.display = 'none';
+      if(wrapVazio && !avisoVazio){
+        avisoVazio = document.createElement('p');
+        avisoVazio.className = 'footnote';
+        avisoVazio.setAttribute('data-aviso-vazio','1');
+        avisoVazio.textContent = 'Sem dados suficientes ainda.';
+        wrapVazio.appendChild(avisoVazio);
+      }
       return;
     }
+    canvas.style.display = '';
+    if(avisoVazio && avisoVazio.parentNode) avisoVazio.parentNode.removeChild(avisoVazio);
     // União dos profissionais que aparecem em qualquer um dos dois
     // União dos profissionais que aparecem em qualquer um dos dois
     // intervalos, ordenada crescente pela mediana de "até a 2ª consulta"
