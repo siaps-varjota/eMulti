@@ -2485,7 +2485,7 @@
       var equipeTxtKpi = equipeLabelUnica || Object.keys(p.equipes||{}).sort().join(' + ');
       var ultima = p.datas[p.datas.length-1];
       var diasDesde = diffDias(ultima, hoje);
-      var status = (p.datas.length === 1 && diasDesde >= 45) ? 'unica45' : 'unica'; // consulta única com 45+ dias ganha situação própria na tabela
+      var status = 'unica'; // 1 consulta só — entra em "Total no histórico", mas não nas demais contagens
 
       if(p.datas.length >= 2){
         comRetorno++;
@@ -2559,7 +2559,7 @@
         ultimaColetiva: ultimaColetivaPorNome[p.nome.toUpperCase()] || null
       };
       registrosTabela.push(registroTabela);
-      if(status === 'risco' || status === 'unica45') risco.push(registroTabela);
+      if(status === 'risco') risco.push(registroTabela);
     });
     // Ordem padrão da tabela: mais dias sem voltar primeiro; no empate,
     // quem tem MENOS consultas primeiro; persistindo o empate, nome (A→Z).
@@ -2845,7 +2845,7 @@
   }
 
   function riscoTableHtml(risco){
-    if(!risco.length) return '<p class="footnote">Nenhum paciente elegível no momento: a tabela inclui pacientes em risco e pacientes com consulta única há 45 dias ou mais.</p>';
+    if(!risco.length) return '<p class="footnote">Nenhum paciente na janela de risco no momento (ou ainda não há intervalo histórico suficiente pra calcular).</p>';
     // A tabela/contador/rodapé começam vazios de propósito — quem preenche
     // (e reage ao filtro de profissional + coluna + busca) é
     // wireRiscoFiltros, logo depois deste HTML entrar no DOM. Isso garante
@@ -2864,7 +2864,6 @@
     // listas da aba Listas — ver RISCO_COLUNAS_FILTRAVEIS/wireRiscoFiltros.
     var opcoesSituacao = [
       {value:'status:2mais', label:'Com 2+ consultas'},
-      {value:'status:unica45', label:'Consulta única · 45+ dias'},
       {value:'status:emDia', label:'Em dia'},
       {value:'status:risco', label:'Em risco'},
       {value:'status:abandono', label:'Abandono consumado'}
@@ -2888,6 +2887,8 @@
       +     '<div class="ms-wrap" id="riscoProfMs"></div></div>'
       +   '<div class="list-month-filter"><label class="list-month-filter-label">Profissional</label>'
       +     '<div class="ms-wrap" id="riscoProfAnyMs"></div></div>'
+      +   '<div class="list-month-filter"><label class="list-month-filter-label" for="riscoJanelaMes">Mês final · janela móvel de 4 meses</label>'
+      +     '<select class="filter-col" id="riscoJanelaMes"></select></div>'
       +   colFilterHtml
       + '</div>'
       + '<input class="list-search" type="text" placeholder="Filtrar nesta lista…" id="riscoSearchInput">'
@@ -2932,6 +2933,29 @@
     // tabela abaixo (ver filtroPredicado), pra esses números variarem
     // junto com Profissional/Equipe/coluna/busca em vez de ficar fixos.
     var kpiTodos = kpiRegistros || [];
+    // Janela móvel de quatro meses, encerrada no mês selecionado. O mês atual
+    // é o padrão; selecionar setembro, por exemplo, inclui junho a setembro.
+    var janelaMesEl = document.getElementById('riscoJanelaMes');
+    var hojeJanela = new Date();
+    var mesFinalPadrao = new Date(hojeJanela.getFullYear(), hojeJanela.getMonth(), 1);
+    var mesInicialDados = null;
+    kpiTodos.forEach(function(r){
+      if(!r.ultima) return;
+      var m = new Date(r.ultima.getFullYear(), r.ultima.getMonth(), 1);
+      if(!mesInicialDados || m < mesInicialDados) mesInicialDados = m;
+    });
+    if(janelaMesEl){
+      var mesInicioOpcoes = mesInicialDados && mesInicialDados < mesFinalPadrao ? mesInicialDados : mesFinalPadrao;
+      var opcoesMesHtml = '';
+      for(var mesOpcao = new Date(mesInicioOpcoes); mesOpcao <= mesFinalPadrao; mesOpcao = new Date(mesOpcao.getFullYear(), mesOpcao.getMonth()+1, 1)){
+        var valorMes = mesOpcao.getFullYear() + '-' + String(mesOpcao.getMonth()+1).padStart(2, '0');
+        var rotuloMes = mesOpcao.toLocaleDateString('pt-BR', {month:'long', year:'numeric'});
+        rotuloMes = rotuloMes.charAt(0).toUpperCase() + rotuloMes.slice(1);
+        opcoesMesHtml += '<option value="'+valorMes+'">'+escapeHtml(rotuloMes)+'</option>';
+      }
+      janelaMesEl.innerHTML = opcoesMesHtml;
+      janelaMesEl.value = mesFinalPadrao.getFullYear() + '-' + String(mesFinalPadrao.getMonth()+1).padStart(2, '0');
+    }
     // Opções do filtro: qualquer profissional que apareça como responsável
     // pela ÚLTIMA consulta de PELO MENOS UM paciente em risco (lista
     // completa, não só os 40 exibidos na tela).
@@ -2975,6 +2999,7 @@
     if(profAnyMs) profAnyMs.setOptions(profsAnyOpts);
 
     if(searchEl) searchEl.addEventListener('input', renderTabelaRisco);
+    if(janelaMesEl) janelaMesEl.addEventListener('change', renderTabelaRisco);
 
     // Filtro por coluna (Paciente/Equipe/Consultas/Última consulta/Dias sem
     // voltar): select da coluna + multisseleção de valores, mesmo padrão da
@@ -3027,6 +3052,16 @@
     // (nome/profissional/equipe/totalConsultas/ultima/diasDesde/
     // ultimoProfissionais/todosProfissionais) têm o mesmo formato nos dois
     // casos, o mesmo predicado serve pra ambos.
+    function pacienteNaJanelaMovel(r){
+      if(!janelaMesEl || !janelaMesEl.value || !r.ultima) return true;
+      var partes = janelaMesEl.value.split('-');
+      var ano = Number(partes[0]), mes = Number(partes[1]) - 1;
+      if(!isFinite(ano) || !isFinite(mes)) return true;
+      var inicio = new Date(ano, mes-3, 1);
+      var fimExclusivo = new Date(ano, mes+1, 1);
+      return r.ultima >= inicio && r.ultima < fimExclusivo;
+    }
+
     function filtroPredicado(r, paraTabela){
       var selecionados = profMs ? profMs.getSelected() : [];
       var selecionadosAny = profAnyMs ? profAnyMs.getSelected() : [];
@@ -3045,18 +3080,18 @@
       var profsLinhaAny = r.todosProfissionais || [];
       var matchesProfAny = !selecionadosAny.length || selecionadosAny.some(function(v){ return profsLinhaAny.indexOf(v) >= 0; });
       var matchesTexto = !termo || textoBusca(r).indexOf(termo) !== -1;
+      var matchesJanela = pacienteNaJanelaMovel(r);
       var matchesColuna = (colIdxFiltro === null || !valoresColSelecionados.length)
         || valoresColSelecionados.indexOf(RISCO_COLUNAS_FILTRAVEIS[colIdxFiltro].getValor(r)) >= 0;
       var matchesSituacao = true;
       if(statusFiltro === '2mais') matchesSituacao = r.totalConsultas >= 2;
-      else if(statusFiltro === 'unica45') matchesSituacao = r.status === 'unica45';
       else if(statusFiltro === 'emDia') matchesSituacao = r.status === 'emDia';
       else if(statusFiltro === 'risco') matchesSituacao = r.status === 'risco';
       else if(statusFiltro === 'abandono') matchesSituacao = r.status === 'abandono';
       // Sem situação escolhida, mantém o comportamento original: a tabela
       // começa mostrando apenas os pacientes em risco.
-      else if(paraTabela) matchesSituacao = r.status === 'risco' || r.status === 'unica45';
-      return matchesProf && matchesProfAny && matchesTexto && matchesColuna && matchesSituacao;
+      else if(paraTabela) matchesSituacao = r.status === 'risco';
+      return matchesProf && matchesProfAny && matchesTexto && matchesJanela && matchesColuna && matchesSituacao;
     }
 
     // Recalcula e redesenha os cards de estatística acima da tabela a
@@ -3067,7 +3102,7 @@
       if(!resumoEl || !temMediana) return;
       var comRetornoF = 0, emDiaF = 0, riscoF = 0, abandonoF = 0;
       kpiFiltrados.forEach(function(r){
-        if(r.status === 'unica' || r.status === 'unica45' || r.status === 'semMediana') return;
+        if(r.status === 'unica' || r.status === 'semMediana') return;
         comRetornoF++;
         if(r.status === 'emDia') emDiaF++;
         else if(r.status === 'risco') riscoF++;
@@ -3169,17 +3204,15 @@
     }
     var mediana = analisesDataAtual && analisesDataAtual.medianaBase;
     var limite = mediana ? Math.floor(mediana*3) : null;
-    var SITUACAO = {emDia:'Em dia', risco:'Em risco', abandono:'Abandono consumado', unica:'Consulta única', unica45:'Consulta única · 45+ dias sem voltar', semMediana:'Sem mediana'};
+    var SITUACAO = {emDia:'Em dia', risco:'Em risco', abandono:'Abandono consumado', unica:'Consulta única', semMediana:'Sem mediana'};
     var ACAO = {
       risco:'Contato ativo (telefone/visita) para reagendar',
       abandono:'Busca ativa / visita domiciliar',
       emDia:'Manter acompanhamento',
       unica:'Verificar necessidade de retorno',
-      unica45:'Contato ativo para verificar necessidade de retorno',
       semMediana:'—'
     };
     function motivo(r){
-      if(r.status==='unica45') return fmtInt(r.diasDesde)+' dias sem voltar após consulta única (critério de inclusão: 45 dias ou mais)';
       if(!mediana || r.status==='unica' || r.status==='semMediana') return '—';
       var base = fmtInt(r.diasDesde)+' dias sem voltar; mediana de retorno '+fmtDec(mediana,0)+' dias';
       if(r.status==='emDia') return base+' (dentro da mediana)';
@@ -3216,7 +3249,7 @@
       return;
     }
     if(!risco.length){
-      alert('Não há pacientes pra exportar com o filtro atual.');
+      alert('Não há pacientes pra exportar (nenhum paciente na janela de risco com o filtro atual).');
       return;
     }
     var filtroAtivo = typeof totalGeral === 'number' && totalGeral > risco.length;
@@ -3250,7 +3283,7 @@
     doc.setFont('helvetica','normal');
     doc.setFontSize(9);
     doc.setTextColor(81,96,90);
-    doc.text('Inclui pacientes com 2+ consultas em risco de abandono e pacientes com apenas 1 consulta há 45 dias ou mais sem retorno.', margin, y, {maxWidth: pageWidth-margin*2});
+    doc.text('Pacientes com 2+ consultas cujo último atendimento já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível.', margin, y, {maxWidth: pageWidth-margin*2});
     y += 22;
     doc.text(fmtInt(risco.length)+(risco.length===1?' paciente no total':' pacientes no total')+(filtroAtivo ? ' (filtro de profissional/busca aplicado — total geral sem filtro: '+fmtInt(totalGeral)+')' : '')+'.', margin, y, {maxWidth: pageWidth-margin*2});
     y += 10;
