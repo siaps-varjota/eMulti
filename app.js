@@ -3004,18 +3004,30 @@
         });
       }
     }
-    // Fim do mês atual, zerado na hora (comparação só por dia).
+    // Fim do mês atual, zerado na hora (comparação só por dia) — usado só
+    // pra decidir quem ENTRA na janela de busca ativa (ver comentário da
+    // função: a lista fica estável o mês inteiro, ninguém entra/sai da
+    // janela de 30-120 dias no meio do mês). Hoje, também zerado na hora,
+    // é usado à parte pra calcular o valor REAL exibido na coluna "Dias sem
+    // Atendimento" — antes o mesmo número (até fim do mês) era reaproveitado
+    // pra exibir, o que fazia a coluna mostrar dias "do futuro" (ex.: última
+    // consulta 08/09 aparecia como 53 dias em 07/10, quando o real é 29) —
+    // confundia "dias projetados até o fim do mês" (critério de filtro) com
+    // "dias reais desde a última consulta" (o que a coluna promete mostrar).
     var fimMes = new Date(hoje.getFullYear(), hoje.getMonth()+1, 0);
+    var hojeDiaZero = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
     var MS_DIA = 24*60*60*1000;
     var lista = Object.keys(pessoasSet).map(function(k){ return pessoasSet[k]; })
       .map(function(p){
         var ultimaDiaZero = new Date(p.ultima.getFullYear(), p.ultima.getMonth(), p.ultima.getDate());
-        var dias = Math.round((fimMes - ultimaDiaZero) / MS_DIA);
-        return {nome:p.nome, count:p.countPeriodo, ultima:p.ultima, dias:dias, equipe:p.equipe, profissional:p.profissional};
+        var diasAteFimMes = Math.round((fimMes - ultimaDiaZero) / MS_DIA);
+        var diasReais = Math.round((hojeDiaZero - ultimaDiaZero) / MS_DIA);
+        return {nome:p.nome, count:p.countPeriodo, ultima:p.ultima, diasAteFimMes:diasAteFimMes, diasReais:diasReais, equipe:p.equipe, profissional:p.profissional};
       })
       // Janela: mais de 30 dias e no máximo 120 dias sem atendimento,
-      // contados até o último dia do mês atual.
-      .filter(function(p){ return p.dias > 30 && p.dias <= 120; })
+      // contados até o último dia do mês atual (critério de filtro — não é
+      // o número exibido na coluna, ver diasReais acima).
+      .filter(function(p){ return p.diasAteFimMes > 30 && p.diasAteFimMes <= 120; })
       .sort(function(a,b){
         var diffData = a.ultima - b.ultima;
         if(diffData !== 0) return diffData; // mais antiga primeiro
@@ -3023,7 +3035,7 @@
       });
     return {
       headers: ["Nome","Equipe","Profissional","Última Consulta","Dias sem Atendimento","Atendimentos"],
-      rows: lista.map(function(p){ return [p.nome, p.equipe, p.profissional, fmtBRDate(p.ultima), p.dias, p.count]; })
+      rows: lista.map(function(p){ return [p.nome, p.equipe, p.profissional, fmtBRDate(p.ultima), p.diasReais, p.count]; })
     };
   }
   function populateSheetsCache(wb){
