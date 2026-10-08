@@ -231,6 +231,16 @@
   // COMPLETO, sem restringir por período. 1+ marcados: as análises
   // passam a considerar só as consultas dentro desses quadrimestres.
   var analisesQuads = [];
+  // Profissional selecionado no filtro da aba Frequência e Retorno (seleção
+  // ÚNICA). null = todos os profissionais (padrão, comportamento de sempre).
+  // Com um profissional escolhido, construirHistoricosPacientes só considera
+  // os atendimentos DELE — e como todos os gráficos/tabelas da aba saem
+  // dessa mesma base (calcularAnalises), o filtro vale pra aba inteira.
+  var analisesProfissional = null;
+  // Preenchida por wireAnalisesFiltrosTopo: recarrega as opções do filtro de
+  // Profissional conforme a equipe/planilha atual. Devolve true quando o
+  // profissional escolhido deixou de existir e o filtro voltou pra "Todos".
+  var atualizarOpcoesProfissionalAnalises = function(){ return false; };
 
   function suffixedName(baseName){
     return baseName + " — " + currentEquipes.map(function(e){ return e.suffix; }).join('+');
@@ -2259,6 +2269,27 @@
   // se houver, pelo(s) Quadrimestre(s) marcados no filtro PRÓPRIO desta
   // aba (analisesEquipes/analisesQuads) — independente do filtro global
   // do topo e do filtro de Quadrimestre/Mês usado nas outras abas.
+  // Lista (ordem alfabética) dos profissionais que aparecem nos
+  // atendimentos da(s) equipe(s) selecionada(s) na aba — alimenta as
+  // opções do filtro de Profissional. Não depende do filtro de
+  // Quadrimestre, pra a lista não "encolher" ao marcar um período.
+  function listarProfissionaisAnalises(){
+    var rows = filtrarLinhasPorEquipe(sheetToRows(latestRawSheets["Atendimentos"] || []), analisesEquipes);
+    var header = rows[0] || [];
+    var iProf = colIndex(header, "profissional");
+    if(iProf < 0) return [];
+    var vistos = {}, nomes = [];
+    rows.slice(1).forEach(function(r){
+      var nome = String(r[iProf]||"").trim();
+      if(!nome) return;
+      var k = normalizeText(nome);
+      if(vistos[k]) return;
+      vistos[k] = true;
+      nomes.push(nome);
+    });
+    return nomes.sort(function(a,b){ return a.localeCompare(b,'pt-BR',{sensitivity:'base'}); });
+  }
+
   function construirHistoricosPacientes(){
     var rows = sheetToRows(latestRawSheets["Atendimentos"] || []);
     rows = filtrarLinhasPorEquipe(rows, analisesEquipes);
@@ -2268,6 +2299,16 @@
     var iProf = colIndex(header, "profissional");
     var iQtd = colIndex(header, "qtd_atendimentos");
     if(iData < 0 || iNome < 0) return [];
+    // Filtro de Profissional (seleção única): mantém só as linhas de
+    // atendimento desse profissional. Tudo que a aba calcula a partir
+    // daqui (intervalos, funil, perfil de frequência, dia da semana,
+    // comparativo, risco de abandono) passa a refletir só ele.
+    var profFiltroNorm = (analisesProfissional && iProf >= 0) ? normalizeText(analisesProfissional) : null;
+    if(profFiltroNorm){
+      rows = [header].concat(rows.slice(1).filter(function(r){
+        return normalizeText(String(r[iProf]||"").trim()) === profFiltroNorm;
+      }));
+    }
     // Com 2+ equipes selecionadas ao mesmo tempo neste filtro, um mesmo
     // paciente pode ter atendimentos vindos de equipes diferentes —
     // guarda qual(is) equipe(s) de fato atenderam cada paciente (coluna
@@ -3234,7 +3275,7 @@
     ws['!autofilter'] = {ref: XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:rows.length, c:head.length-1}})};
     var wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Risco de abandono');
-    var equipeLabel = analisesEquipes.map(function(e){ return e.label; }).join(' + ');
+    var equipeLabel = analisesEquipes.map(function(e){ return e.label; }).join(' + ') + (analisesProfissional ? ' — ' + analisesProfissional : '');
     XLSX.writeFile(wb, slugifyFileName('Pacientes_risco_abandono')+'__'+slugifyFileName(equipeLabel)+'__'+slugifyFileName(new Date().toLocaleDateString('pt-BR'))+'.xlsx');
   }
 
@@ -3253,7 +3294,7 @@
       return;
     }
     var filtroAtivo = typeof totalGeral === 'number' && totalGeral > risco.length;
-    var equipeLabel = analisesEquipes.map(function(e){ return e.label; }).join(' + ');
+    var equipeLabel = analisesEquipes.map(function(e){ return e.label; }).join(' + ') + (analisesProfissional ? ' — ' + analisesProfissional : '');
     var doc = new jspdfNs.jsPDF({orientation:'landscape', unit:'pt', format:'a4'});
     var pageWidth = doc.internal.pageSize.getWidth();
     var pageHeight = doc.internal.pageSize.getHeight();
@@ -3314,6 +3355,12 @@
   }
 
   function renderAnalises(data){
+    // Mantém a lista do filtro de Profissional em dia com a planilha/equipe
+    // atuais; se o profissional escolhido sumiu, o filtro volta pra
+    // "Todos" e os dados abaixo precisam ser recalculados.
+    if(atualizarOpcoesProfissionalAnalises()){
+      data = calcularAnalises();
+    }
     analisesDataAtual = data;
     analisesChartInstances.forEach(function(c){ try{ c.destroy(); }catch(e){} });
     analisesChartInstances = [];
@@ -3327,7 +3374,7 @@
 
     if(!data || !data.totalPacientes){
       if(elTotal) elTotal.textContent = '—';
-      if(elIntervalos) elIntervalos.innerHTML = '<p class="footnote">Ainda não há dados suficientes pra esta equipe/período.</p>';
+      if(elIntervalos) elIntervalos.innerHTML = '<p class="footnote">Ainda não há dados suficientes pra esta equipe/período/profissional.</p>';
       if(elFunil) elFunil.innerHTML = '';
       if(elRiscoResumo) elRiscoResumo.innerHTML = '';
       if(elRisco) elRisco.innerHTML = '';
@@ -3611,7 +3658,7 @@
       + '</style>'
       + '<div class="card" style="margin-bottom:16px;">'
       +   '<h3 style="margin:0 0 4px;">Perfil de pacientes — '+'<span id="analisesTotalPacientes">—</span> pacientes no período</h3>'
-      +   '<p class="footnote" style="margin:0 0 12px;">Estas análises usam um filtro de Equipe e Quadrimestre PRÓPRIO desta aba (independente do filtro do topo). Sem nenhum quadrimestre marcado, olham pro histórico completo de atendimentos.</p>'
+      +   '<p class="footnote" style="margin:0 0 12px;">Estas análises usam um filtro de Equipe, Quadrimestre e Profissional PRÓPRIO desta aba (independente do filtro do topo). Sem nenhum quadrimestre marcado, olham pro histórico completo de atendimentos; escolhendo um profissional, todos os gráficos e a lista de risco passam a considerar só os atendimentos dele.</p>'
       +   '<div class="list-filters">'
       +     '<div class="list-month-filter"><label class="list-month-filter-label">Quadrimestre</label><div class="ms-wrap" id="analisesQuadMs"></div></div>'
       +     '<div class="list-month-filter"><label class="list-month-filter-label">Equipe</label><div class="ms-wrap" id="analisesEquipeMs"></div></div>'
@@ -3667,12 +3714,56 @@
       renderAnalises(calcularAnalises());
     }
 
+    // Filtro de Profissional (seleção única). O container é criado aqui
+    // mesmo (logo depois do filtro de Equipe), pra não depender de o
+    // index.html já ter esse campo.
+    var profContainer = document.getElementById('analisesProfMs');
+    if(!profContainer){
+      var wrapProf = document.createElement('div');
+      wrapProf.className = 'list-month-filter';
+      wrapProf.innerHTML = '<label class="list-month-filter-label">Profissional</label><div class="ms-wrap" id="analisesProfMs"></div>';
+      var wrapEquipe = equipeContainer.closest('.list-month-filter') || equipeContainer.parentElement;
+      wrapEquipe.parentElement.insertBefore(wrapProf, wrapEquipe.nextSibling);
+      profContainer = wrapProf.querySelector('#analisesProfMs');
+    }
+    var TODOS_PROF_KEY = '__todos__';
+    var analisesProfMs = createMultiSelect(profContainer, {
+      placeholder: 'Todos', multi: false, search: true,
+      onChange: function(keys){
+        analisesProfissional = (!keys.length || keys[0] === TODOS_PROF_KEY) ? null : keys[0];
+        recalcularERedesenhar();
+      }
+    });
+    var profOpcoesAssinatura = null;
+    // Recarrega as opções conforme a(s) equipe(s) da aba. Se o profissional
+    // escolhido não existe na nova lista, volta pra "Todos". Chamada ao
+    // trocar a equipe e também a cada renderAnalises (ver
+    // atualizarOpcoesProfissionalAnalises), porque na 1ª carga a
+    // planilha ainda pode não ter chegado quando os filtros são ligados.
+    atualizarOpcoesProfissionalAnalises = function(){
+      var nomes = listarProfissionaisAnalises();
+      var assinatura = analisesEquipes.map(function(e){ return e.key; }).join(',') + '|' + nomes.join('|');
+      if(assinatura === profOpcoesAssinatura) return false;
+      profOpcoesAssinatura = assinatura;
+      var aindaExiste = analisesProfissional && nomes.some(function(n){
+        return normalizeText(n) === normalizeText(analisesProfissional);
+      });
+      var mudou = !!analisesProfissional && !aindaExiste;
+      if(mudou) analisesProfissional = null;
+      analisesProfMs.setOptions(
+        [{value: TODOS_PROF_KEY, label: 'Todos'}].concat(nomes.map(function(n){ return {value: n, label: n}; }))
+      );
+      analisesProfMs.setSelected([analisesProfissional || TODOS_PROF_KEY]);
+      return mudou; // true = o filtro foi zerado e as análises precisam ser recalculadas
+    };
+
     var TODAS_KEY = 'todas';
     var analisesEquipeMs = createMultiSelect(equipeContainer, {
       placeholder: 'Selecione', multi: false, search: false,
       onChange: function(keys){
         analisesEquipes = keys[0] === TODAS_KEY ? EQUIPES.slice()
           : EQUIPES.filter(function(eq){ return eq.key === keys[0]; });
+        atualizarOpcoesProfissionalAnalises();
         recalcularERedesenhar();
       }
     });
@@ -3681,6 +3772,7 @@
         .concat([{value: TODAS_KEY, label: 'Todas'}])
     );
     analisesEquipeMs.setSelected([analisesEquipes.length > 1 ? TODAS_KEY : analisesEquipes[0].key]);
+    atualizarOpcoesProfissionalAnalises();
 
     var analisesQuadMs = createMultiSelect(quadContainer, {
       placeholder: 'Histórico completo', multi: true, search: false, showTags: true,
