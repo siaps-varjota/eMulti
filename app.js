@@ -2424,6 +2424,17 @@
     var DIAS_SEMANA = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
     var porDiaSemana = [0,0,0,0,0,0,0];
     pacientes.forEach(function(p){ p.datas.forEach(function(d){ porDiaSemana[d.getDay()]++; }); });
+    // Média de atendimentos por dia da semana: total do dia da semana ÷
+    // nº de datas DISTINTAS daquele dia da semana com algum atendimento
+    // no período (feriados/dias sem expediente não entram no divisor).
+    var datasDistintasSemana = [{},{},{},{},{},{},{}];
+    pacientes.forEach(function(p){ p.datas.forEach(function(d){
+      datasDistintasSemana[d.getDay()][d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate()] = 1;
+    }); });
+    var mediaPorDiaSemana = porDiaSemana.map(function(n,i){
+      var qtd = Object.keys(datasDistintasSemana[i]).length;
+      return qtd ? n/qtd : 0;
+    });
 
     // Comparativo por profissional: mediana de dias entre duas consultas
     // consecutivas, atribuída a cada profissional que atendeu o paciente
@@ -2613,6 +2624,7 @@
       perfilFreq: perfilFreq,
       diasSemanaLabels: DIAS_SEMANA,
       porDiaSemana: porDiaSemana,
+      mediaPorDiaSemana: mediaPorDiaSemana,
       comparativoProf: comparativoProf,
       comparativoProf23: comparativoProf23,
       medianaBase: medianaBase,
@@ -3406,6 +3418,32 @@
         // tick corrige isso.
         setTimeout(function(){ try{ semanaChart.resize(); }catch(e){} }, 0);
       }
+      var mediaSemanaCanvas = document.getElementById('analisesMediaDiaSemana');
+      if(mediaSemanaCanvas){
+        var mediaSemanaChart = new Chart(mediaSemanaCanvas, {
+          type: 'bar',
+          data: {
+            labels: data.diasSemanaLabels,
+            datasets: [{ data: data.mediaPorDiaSemana, backgroundColor: '#C68A3D', borderRadius: 4, categoryPercentage:0.7, barPercentage:0.9 }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                bodyFont:{size:13}, titleFont:{size:13},
+                callbacks: { label: function(ctx){ return 'Média: ' + fmtDec(ctx.parsed.y,1) + ' atendimentos/dia'; } }
+              }
+            },
+            scales: {
+              y: { beginAtZero: true, ticks: { font:{size:13} } },
+              x: { ticks: { font:{size:13} } }
+            }
+          }
+        });
+        analisesChartInstances.push(mediaSemanaChart);
+        setTimeout(function(){ try{ mediaSemanaChart.resize(); }catch(e){} }, 0);
+      }
       var compCanvas = document.getElementById('analisesCompProf');
       renderComparativoProfChart(compCanvas, data.comparativoProf, data.comparativoProf23);
     }, 50);
@@ -3616,21 +3654,27 @@
       +   '<h4 style="margin-top:0;">Tempo entre consultas</h4>'
       +   '<div id="analisesIntervalos"></div>'
       + '</div>'
-      + '<div class="card" style="margin-bottom:16px;">'
-      +   '<h4 style="margin-top:0;">Funil de abandono</h4>'
-      +   '<div id="analisesFunil"></div>'
-      + '</div>'
       + '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;">'
-      +   '<div class="card" style="flex:1;min-width:280px;margin-bottom:0;">'
+      +   '<div class="card" style="flex:1 1 0;min-width:280px;margin-bottom:0;">'
+      +     '<h4 style="margin-top:0;">Funil de abandono</h4>'
+      +     '<div id="analisesFunil"></div>'
+      +   '</div>'
+      +   '<div class="card" style="flex:1 1 0;min-width:280px;margin-bottom:0;">'
       +     '<h4 style="margin-top:0;">Perfil de frequência</h4>'
       +     '<div class="card-charts-layout card-charts-layout--lg">'
       +       '<div class="chart-box"><canvas id="analisesFreqDonut"></canvas></div>'
       +       '<div id="analisesFreqLegenda" class="kpi-container kpi-legend-vertical" style="flex-direction:column;align-items:stretch;gap:6px;"></div>'
       +     '</div>'
       +   '</div>'
-      +   '<div class="card" style="flex:1;min-width:280px;margin-bottom:0;">'
+      + '</div>'
+      + '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;">'
+      +   '<div class="card" style="flex:1 1 0;min-width:280px;margin-bottom:0;">'
       +     '<h4 style="margin-top:0;">Atendimentos por dia da semana</h4>'
       +     '<div class="chart-box-full" style="height:220px;"><canvas id="analisesDiaSemana"></canvas></div>'
+      +   '</div>'
+      +   '<div class="card" style="flex:1 1 0;min-width:280px;margin-bottom:0;">'
+      +     '<h4 style="margin-top:0;">Média de atendimentos por dia da semana</h4>'
+      +     '<div class="chart-box-full" style="height:220px;"><canvas id="analisesMediaDiaSemana"></canvas></div>'
       +   '</div>'
       + '</div>'
       + '<div class="card" style="margin-bottom:16px;">'
