@@ -546,6 +546,8 @@
       equipe: currentEquipes.map(function(e){ return e.label; }).join(' + '),
       data: {
         atendimentosIndividuais: soma('atendimentosIndividuais'),
+        atendimentosEspecificos: soma('atendimentosEspecificos'),
+        atendimentosCompartilhados: soma('atendimentosCompartilhados'),
         participacoesColetivas: soma('participacoesColetivas'),
         numeradorM1: soma('numeradorM1'),
         denominadorM1: pessoasLista.length,
@@ -557,6 +559,8 @@
         // bate com a lista "Atendimentos" filtrada pelo mesmo período —
         // ver filtro "Tipo de Cálculo" / var tipoCalculo.
         atendimentosIndividuaisJanela: campoExibicao('atendimentosIndividuais'),
+        atendimentosEspecificosJanela: campoExibicao('atendimentosEspecificos'),
+        atendimentosCompartilhadosJanela: campoExibicao('atendimentosCompartilhados'),
         participacoesColetivasJanela: campoExibicao('participacoesColetivas'),
         numeradorM1Janela: numeradorM1Escolhido,
         denominadorM1Janela: denominadorM1Escolhido,
@@ -1375,7 +1379,7 @@
     "Atendimento individual (M1) só conta quando o profissional responsável (coluna 'profissional' da aba Atendimentos) está cadastrado na aba PROFISSIONAIS como sendo da eMulti — atendimentos de profissionais de fora da eMulti não entram no numerador.",
     "Participação coletiva (M1) só conta quando pelo menos um dos profissionais da atividade (coluna do Responsável — identificada pelo nome do cabeçalho ou, se não encontrada por nome, pela 4ª coluna da tabela — ou 'Profissional 1' a 'Profissional 5' da aba Participantes Ativ. Coletiva) está cadastrado na aba PROFISSIONAIS como sendo da eMulti — participações conduzidas só por profissionais de fora da eMulti não entram no numerador.",
     "M2 oficial soma 3 componentes: atendimentos individuais compartilhados, atividades coletivas compartilhadas e compartilhamento de cuidado (PEC). Esta extração só consegue aproximar as parcelas de 'atividades coletivas' e 'reuniões'. Regra de ação compartilhada aplicada: pelo menos 1 profissional identificado (CNS/CPF) da eMulti — seja como responsável ou como profissional envolvido, não precisa ser especificamente o responsável — e 2 ou mais profissionais distintos no total; compartilhamentos com eSB ou com qualquer profissional da APS contam igual, desde que identificados. Ainda não é possível checar CBO/CNS propriamente ditos (só o cadastro da aba PROFISSIONAIS), nem aplicar a regra de descartar ação específica duplicada quando a mesma pessoa/grupo também teve ação compartilhada registrada no mesmo dia.",
-    "Atendimentos individuais compartilhados e compartilhamento de cuidado (PEC) NÃO entram no numerador do M2 aqui (a Lista de Atendimentos do e-SUS não indica se um atendimento individual teve mais de um profissional; e não há aba equivalente pra solicitações de compartilhamento de cuidado no PEC) — por isso o M2 calculado aqui tende a ficar ABAIXO do valor oficial do indicador. O denominador do M2 é o TOTAL de ações da eMulti no período: atendimentos individuais + atividades coletivas (todas, específicas e compartilhadas, incluindo reuniões) — sem contar solicitações de compartilhamento de cuidado no PEC, pelo mesmo motivo.",
+    "Atendimentos individuais compartilhados são APROXIMADOS aqui (mesma pessoa, mesmo dia, 2+ profissionais distintos na lista de Atendimentos — a lista não traz os profissionais secundários nem o horário simultâneo); cada pessoa/dia compartilhado conta 1 ação e os registros específicos duplicados são desconsiderados. O compartilhamento de cuidado (PEC) NÃO entra aqui (não há aba equivalente) — por isso o M2 calculado tende a ficar ABAIXO do valor oficial. O denominador do M2 é o TOTAL de ações da eMulti no período: atendimentos individuais (específicos + compartilhados) + atividades coletivas (todas, específicas e compartilhadas, incluindo reuniões) — sem contar solicitações de compartilhamento de cuidado no PEC, pelo mesmo motivo.",
     "Atividade Coletiva só conta como 'compartilhada' aqui quando tem pelo menos 1 profissional da eMulti (coluna 'Total de Profissionais da EMulti', de Participantes Ativ. Coletiva) e 2 ou mais profissionais no total ('Qtd total de profissionais') — sem restrição de tipo de atividade (todos os tipos contam).",
     "Reuniões (Resumo Reuniões) só contam pra M2 quando o 'Tipo' é Reunião de Equipe, Reunião com outras equipes de saúde ou Reunião intersetorial/Conselho local de saúde/Controle social (códigos 01-03) E têm 2+ participantes E o tema 'Discussão de caso / Projeto terapêutico singular' marcado na coluna 'Temas da reunião' (a célula pode ter vários temas). Reuniões que não batem essas condições aparecem no total de reuniões, mas não entram como 'compartilhadas'.",
     "'Desempenho quadrimestral' usa a fórmula oficial da Nota Final do Componente III (Qualidade) para eMulti — NT 8/2026-DEAPS/SAPS/MS, Quadro 4: Nota final = pontos M1 × 6 + pontos M2 × 4 (pontos por classificação: Regular=0,25, Suficiente=0,5, Bom=0,75, Ótimo=1), classificada conforme o Quadro 6 da mesma nota: Regular ≤ 2,5, Suficiente > 2,5 e < 5, Bom ≥ 5 e ≤ 7,5, Ótimo > 7,5. O que NÃO é oficial aqui é o DADO de entrada: o M1 e o M2 usados nessa conta são os calculados por este painel a partir dos dados brutos (ver notas acima), não os valores publicados pelo Siaps — por isso o resultado exibido é uma aproximação do Componente III oficial, não o valor de cofinanciamento em si.",
@@ -1543,6 +1547,54 @@
       return true;
     });
     var atendimentosIndividuais = atFiltradas.length;
+
+    // ---- Atendimentos individuais: específicos x compartilhados (M2) ----
+    // NT 44/2026: específico = registrado por apenas 1 profissional;
+    // compartilhado = 2+ profissionais diferentes (CNS diferentes) com
+    // pelo menos 1 da eMulti. Esta extração não traz a lista de
+    // profissionais secundários do atendimento, então a detecção usa a
+    // mesma aproximação da lista "Atendimentos interprofissionais": mesma
+    // pessoa (CNS/CPF, ou nome) no mesmo dia atendida por 2+ profissionais
+    // distintos. Cada grupo pessoa+dia compartilhado conta como 1 ação
+    // compartilhada (as linhas duplicadas de ação específica são
+    // desconsideradas, como manda a NT); grupos com 1 só profissional
+    // contam 1 por linha, como ação específica. Só afeta o M2 — o M1
+    // continua usando atendimentosIndividuais (todas as linhas).
+    var iAtId = -1;
+    atHeader.forEach(function(h, i){
+      var key = normalizeText(h).replace(/[^A-Z0-9]/g, '');
+      if(iAtId < 0 && (key === 'CNS' || key === 'CPF' || key.indexOf('CARTAONACIONALDESAUDE') >= 0 || key.indexOf('CPF') >= 0)) iAtId = i;
+    });
+    var gruposAtend = {};
+    function chaveAtend(r){
+      var d = parseBRDate(r[iData]);
+      var nm = String(r[iNome]||'').trim();
+      var id = iAtId >= 0 ? String(r[iAtId]||'').trim() : '';
+      var pac = id ? 'ID:'+normalizeText(id).replace(/[^A-Z0-9]/g,'') : 'NOME:'+normalizeText(nm).trim();
+      var dia = d ? (d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate()) : '';
+      return pac+'|'+dia;
+    }
+    // Os profissionais do grupo vêm de TODAS as linhas do período (inclui
+    // profissionais fora da eMulti, ex.: eSF/eSB); só entram grupos que
+    // têm ao menos 1 linha de profissional da eMulti (atFiltradas).
+    atRows.slice(1).forEach(function(r){
+      var nm = String(r[iNome]||'').trim();
+      if(!nm || !withinPeriod(parseBRDate(r[iData]), periodo.inicio, periodo.fim)) return;
+      var prof = iAtProf >= 0 ? normalizeText(String(r[iAtProf]||'')).trim() : '';
+      if(!prof) return;
+      var k = chaveAtend(r);
+      if(!gruposAtend[k]) gruposAtend[k] = {profs:{}};
+      gruposAtend[k].profs[prof] = 1;
+    });
+    var atendimentosEspecificos = 0;
+    var gruposCompartilhados = {};
+    atFiltradas.forEach(function(r){
+      var k = chaveAtend(r);
+      var g = gruposAtend[k];
+      if(g && Object.keys(g.profs).length >= 2) gruposCompartilhados[k] = 1;
+      else atendimentosEspecificos++;
+    });
+    var atendimentosCompartilhados = Object.keys(gruposCompartilhados).length;
 
     // ---------- Participantes Ativ. Coletiva ----------
     var partRows = rowsOf("Participantes Ativ. Coletiva");
@@ -1777,9 +1829,9 @@
     // nesse caso, senão duplica. Só quando a parcela vem da contagem
     // detalhada (Lista) é que reunioesCompartilhadas (vinda de "Resumo
     // Reuniões", uma aba à parte) soma normalmente ao numerador.
-    var numeradorM2 = atividadesCompartilhadasFonte === "TOTAL RELATÓRIO AC"
+    var numeradorM2 = (atividadesCompartilhadasFonte === "TOTAL RELATÓRIO AC"
       ? atividadesCompartilhadas
-      : atividadesCompartilhadas + reunioesCompartilhadas;
+      : atividadesCompartilhadas + reunioesCompartilhadas) + atendimentosCompartilhados;
     // Denominador M2, conforme a NT 44/2026-CGIAD/DEAPS/SAPS/MS: TOTAL de
     // ações da eMulti no período — atendimentos individuais (específicos
     // + compartilhados), atividades coletivas (específicas +
@@ -1793,14 +1845,14 @@
     // tende a ficar um pouco ABAIXO do valor oficial, na mesma direção do
     // numerador (ver nota metodológica sobre atendimentos compartilhados
     // e PEC).
-    var denominadorM2 = atendimentosIndividuais + atividadesTotais + reunioesTotais;
+    var denominadorM2 = atendimentosEspecificos + atendimentosCompartilhados + atividadesTotais + reunioesTotais;
     var m2 = denominadorM2 ? (numeradorM2/denominadorM2*100) : null;
     var classificacaoM2 = classificarM2(m2);
     // Parcela de reuniões que de fato ENTROU no numerador (0 nos meses em
     // que a fonte foi TOTAL RELATÓRIO AC, ver acima) — usada só pelos
     // cards de "Composição do numerador" (stackbar), pra o segmento de
     // reuniões não aparecer nesses meses como se tivesse contribuído.
-    var reunioesCompartilhadasContrib = numeradorM2 - atividadesCompartilhadas;
+    var reunioesCompartilhadasContrib = numeradorM2 - atendimentosCompartilhados - atividadesCompartilhadas;
 
     // ---------- Desempenho quadrimestral (síntese própria) ----------
     var pontosM1 = PONTOS_POR_CLASSE[classificacaoM1];
@@ -1820,6 +1872,8 @@
       equipe: currentEquipes.map(function(e){ return e.label; }).join(' + '),
       data: {
         atendimentosIndividuais: atendimentosIndividuais,
+        atendimentosEspecificos: atendimentosEspecificos,
+        atendimentosCompartilhados: atendimentosCompartilhados,
         participacoesColetivas: participacoesColetivas,
         numeradorM1: numeradorM1,
         denominadorM1: denominadorM1,
@@ -7343,6 +7397,8 @@
     var numM2Gauge = d.numeradorM2Janela!=null ? d.numeradorM2Janela : d.numeradorM2;
     var denM2Gauge = d.denominadorM2Janela!=null ? d.denominadorM2Janela : d.denominadorM2;
     var atendIndGauge = d.atendimentosIndividuaisJanela!=null ? d.atendimentosIndividuaisJanela : d.atendimentosIndividuais;
+    var atendEspGauge = d.atendimentosEspecificosJanela!=null ? d.atendimentosEspecificosJanela : d.atendimentosEspecificos;
+    var atendCompGauge = d.atendimentosCompartilhadosJanela!=null ? d.atendimentosCompartilhadosJanela : d.atendimentosCompartilhados;
     var participColGauge = d.participacoesColetivasJanela!=null ? d.participacoesColetivasJanela : d.participacoesColetivas;
     // Contagem REAL de "Pessoas atendidas" (calculada a partir das listas,
     // ANTES do override oficial) — mesmo padrão de atendIndGauge/
@@ -7378,7 +7434,8 @@
     // Parcelas do numerador do M2 que esta extração não consegue medir
     // (não há aba com esses dados), mas que devem aparecer SEMPRE na
     // composição, mesmo zeradas — ver numM2Bar abaixo.
-    var DEF_ATEND_COMPARTILHADO = 'Atendimento individual realizado em conjunto por 2 ou mais profissionais — conta como ação compartilhada no Numerador do M2 (NT 44/2026). A Lista de Atendimentos do e-SUS não indica se o atendimento foi compartilhado, então esta extração não consegue contá-lo e o valor aparece zerado.';
+    var DEF_ATEND_COMPARTILHADO = 'Atendimento individual realizado em conjunto por 2 ou mais profissionais diferentes (CNS diferentes), com pelo menos 1 da eMulti — conta como ação compartilhada no Numerador e no Denominador do M2 (NT 44/2026). Aproximação desta extração: mesma pessoa, no mesmo dia, atendida por 2+ profissionais distintos (cada pessoa/dia conta 1 vez, e os registros específicos duplicados são desconsiderados).';
+    var DEF_ATEND_ESPECIFICO = 'Atendimento individual registrado por apenas 1 profissional da eMulti (NT 44/2026) — entra no Denominador do M2, mas NÃO no Numerador. Não inclui pessoa/dia que já foi contada como atendimento compartilhado.';
     var DEF_COMPART_CUIDADO = 'Solicitações respondidas de compartilhamento de cuidado no PEC — conta como ação compartilhada no Numerador do M2 (NT 44/2026). Não existe aba equivalente nesta extração, então o valor aparece zerado.';
 
     // ---- Composição (4 cartões: Numerador/Denominador de M1 e M2) ----
@@ -7390,13 +7447,14 @@
         {label:'Pessoas atendidas', value:denM1CalcGauge, color:'#153F35'}
       ], denM1Gauge);
     var numM2Bar = stackbar([
-        {label:'Atendimentos compartilhados', value:0, color:'#3B7DDD', title:DEF_ATEND_COMPARTILHADO},
+        {label:'Atendimentos compartilhados', value:atendCompGauge||0, color:'#3B7DDD', title:DEF_ATEND_COMPARTILHADO},
         {label:'Atividades coletivas compartilhadas', value:atividadesCompGauge, color:'#153F35', title:DEF_AC_COMPARTILHADA},
         {label:'Reuniões compartilhadas', value:reunioesCompGauge, color:'#C68A3D', title:DEF_REUNIAO_COMPARTILHADA},
         {label:'Compartilhamento de cuidado', value:0, color:'#7C5CBF', title:DEF_COMPART_CUIDADO}
       ], numM2Gauge);
     var denM2Bar = stackbar([
-        {label:'Atendimentos individuais', value:atendIndGauge||0, color:'#CBD3C4', title:DEF_ATEND_IND},
+        {label:'Atendimentos individuais (específicos)', value:atendEspGauge||0, color:'#CBD3C4', title:DEF_ATEND_ESPECIFICO},
+        {label:'Atendimentos individuais (compartilhados)', value:atendCompGauge||0, color:'#3B7DDD', title:DEF_ATEND_COMPARTILHADO},
         {label:'Atividades coletivas (específicas)', value:(atividadesTotaisGauge!=null && atividadesCompGauge!=null) ? Math.max(0, atividadesTotaisGauge-atividadesCompGauge) : 0, color:'#E7DFC9', title:DEF_AC_ESPECIFICA},
         {label:'Atividades coletivas compartilhadas', value:atividadesCompGauge||0, color:'#153F35', title:DEF_AC_COMPARTILHADA},
         {label:'Reuniões (específicas)', value:(reunioesTotaisGauge!=null && reunioesCompGauge!=null) ? Math.max(0, reunioesTotaisGauge-reunioesCompGauge) : 0, color:'#F1E6D2', title:DEF_REUNIAO_ESPECIFICA},
