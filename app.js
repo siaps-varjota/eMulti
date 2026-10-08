@@ -1352,6 +1352,7 @@
     "'Desempenho quadrimestral' usa a fórmula oficial da Nota Final do Componente III (Qualidade) para eMulti — NT 8/2026-DEAPS/SAPS/MS, Quadro 4: Nota final = pontos M1 × 6 + pontos M2 × 4 (pontos por classificação: Regular=0,25, Suficiente=0,5, Bom=0,75, Ótimo=1), classificada conforme o Quadro 6 da mesma nota: Regular ≤ 2,5, Suficiente > 2,5 e < 5, Bom ≥ 5 e ≤ 7,5, Ótimo > 7,5. O que NÃO é oficial aqui é o DADO de entrada: o M1 e o M2 usados nessa conta são os calculados por este painel a partir dos dados brutos (ver notas acima), não os valores publicados pelo Siaps — por isso o resultado exibido é uma aproximação do Componente III oficial, não o valor de cofinanciamento em si.",
     "Abandono consumado: o paciente precisa ter pelo menos 2 consultas. O painel calcula a mediana histórica do intervalo entre a 1ª e a 2ª consulta dos pacientes analisados e mede os dias desde a última consulta de cada paciente. Quando esse intervalo é maior que 3 vezes a mediana histórica, o paciente é classificado como abandono consumado.",
     "Classificação do acompanhamento: Em dia = dias desde a última consulta ≤ mediana; Em risco = dias desde a última consulta > mediana e ≤ 3 × mediana; Abandono consumado = dias desde a última consulta > 3 × mediana. O painel não usa um número fixo de dias: o limite é calculado dinamicamente com base no comportamento histórico dos pacientes incluídos nos filtros da aba Análises.",
+    "Também entram na tabela de risco os pacientes com apenas 1 consulta registrada e 45 dias ou mais sem voltar — como não têm um 2º atendimento próprio pra formar um intervalo, esse grupo usa um limite FIXO de dias (45), independente da mediana, em vez do critério de 'Em risco' acima (que vale só pra quem já tem 2+ consultas). Não entram nos cards 'Com 2+ consultas'/'Em dia'/'Abandono consumado', só no total de 'Em risco' e na tabela.",
     "Na aba Análises, a classificação considera o histórico inteiro ou os quadrimestres selecionados na própria aba Análises, e não necessariamente o filtro global de período.",
     "Filtro 'Fluxo' (tabela Pessoas Atendidas): calculado sobre o histórico COMPLETO de cada pessoa (Atendimentos + Participantes Ativ. Coletiva, ignorando o filtro de Mês próprio dessa tabela), na janela móvel dos últimos 4 meses terminando no último dia do mês ATUAL real (não no mês filtrado no topo da página). 'Entrada' = o primeiro atendimento/participação de todo o histórico da pessoa caiu dentro dessa janela. 'Saída' = a pessoa não tem nenhum atendimento/participação dentro dessa janela (mesmo tendo histórico anterior). Quem já vinha de antes da janela e também tem evento dentro dela (segue ativa) fica sem rótulo nessa coluna."
   ];
@@ -2424,6 +2425,12 @@
     // mediana) — depois disso, tratamos como provável abandono já
     // consumado, não mais "risco".
     var medianaBase = intervalos[0].stats ? intervalos[0].stats.mediana : null;
+    // Paciente com só 1 consulta registrada: a partir de quantos dias sem
+    // voltar ele também entra na tabela de risco (pedido do usuário,
+    // 07/10/2026) — critério fixo, independente da mediana (que não se
+    // aplica a quem não tem um 2º atendimento próprio pra formar um
+    // intervalo). Ver uso em "status = 'riscoUnica'", abaixo.
+    var LIMITE_DIAS_CONSULTA_UNICA_RISCO = 45;
     var hoje = new Date();
     var risco = [];
     var equipeLabelUnica = analisesEquipes.length === 1 ? analisesEquipes[0].label : null;
@@ -2498,6 +2505,18 @@
         } else {
           status = 'risco';
         }
+      } else if(diasDesde >= LIMITE_DIAS_CONSULTA_UNICA_RISCO){
+        // Consulta única, mas já se passaram muitos dias sem retorno —
+        // também entra na tabela de risco, com status PRÓPRIO
+        // ('riscoUnica'): esse paciente não tem um intervalo histórico
+        // dele mesmo (1ª→2ª consulta) pra comparar contra a mediana, então
+        // usamos um limite fixo em dias em vez do critério baseado em
+        // mediana usado pra quem já tem 2+ consultas. Fica de fora de
+        // comRetorno/emDiaCount/abandonoConsumadoCount (que são só pra
+        // quem tem 2+ consultas) pra não distorcer os cards "Com 2+
+        // consultas"/"Em dia"/"Abandono consumado" — mas entra na tabela
+        // igual (ver "risco.push" logo abaixo) e no filtro "Em risco".
+        status = 'riscoUnica';
       }
 
       kpiRegistros.push({
@@ -2559,7 +2578,7 @@
         ultimaColetiva: ultimaColetivaPorNome[p.nome.toUpperCase()] || null
       };
       registrosTabela.push(registroTabela);
-      if(status === 'risco') risco.push(registroTabela);
+      if(status === 'risco' || status === 'riscoUnica') risco.push(registroTabela);
     });
     // Ordem padrão da tabela: mais dias sem voltar primeiro; no empate,
     // quem tem MENOS consultas primeiro; persistindo o empate, nome (A→Z).
@@ -3049,11 +3068,15 @@
       var matchesSituacao = true;
       if(statusFiltro === '2mais') matchesSituacao = r.totalConsultas >= 2;
       else if(statusFiltro === 'emDia') matchesSituacao = r.status === 'emDia';
-      else if(statusFiltro === 'risco') matchesSituacao = r.status === 'risco';
+      // "Em risco" inclui tanto o cálculo baseado em mediana (2+ consultas)
+      // quanto o critério de consulta única com 45+ dias (ver
+      // LIMITE_DIAS_CONSULTA_UNICA_RISCO) — as duas situações aparecem
+      // juntas na mesma tabela/filtro.
+      else if(statusFiltro === 'risco') matchesSituacao = (r.status === 'risco' || r.status === 'riscoUnica');
       else if(statusFiltro === 'abandono') matchesSituacao = r.status === 'abandono';
       // Sem situação escolhida, mantém o comportamento original: a tabela
       // começa mostrando apenas os pacientes em risco.
-      else if(paraTabela) matchesSituacao = r.status === 'risco';
+      else if(paraTabela) matchesSituacao = (r.status === 'risco' || r.status === 'riscoUnica');
       return matchesProf && matchesProfAny && matchesTexto && matchesColuna && matchesSituacao;
     }
 
@@ -3063,8 +3086,15 @@
     // filtro, em vez de refletirem sempre o total geral sem filtro.
     function renderKpis(kpiFiltrados){
       if(!resumoEl || !temMediana) return;
-      var comRetornoF = 0, emDiaF = 0, riscoF = 0, abandonoF = 0;
+      // riscoUnica fica de fora deste bloco (como 'unica'/'semMediana') pra
+      // "Com 2+ consultas"/"Em dia"/"Abandono consumado" continuarem
+      // representando só quem tem 2+ consultas, como o rótulo promete —
+      // "Total no histórico" (kpiFiltrados.length, abaixo) já conta esses
+      // pacientes normalmente, e eles aparecem na TABELA de risco mesmo
+      // sem entrar nesta contagem.
+      var comRetornoF = 0, emDiaF = 0, riscoF = 0, abandonoF = 0, riscoUnicaF = 0;
       kpiFiltrados.forEach(function(r){
+        if(r.status === 'riscoUnica'){ riscoUnicaF++; return; }
         if(r.status === 'unica' || r.status === 'semMediana') return;
         comRetornoF++;
         if(r.status === 'emDia') emDiaF++;
@@ -3080,7 +3110,12 @@
         +   '<div class="kpi-item"><label>Total no histórico</label><span>'+fmtInt(kpiFiltrados.length)+'</span></div>'
         +   '<div class="kpi-item"><label>Com 2+ consultas</label><span>'+fmtInt(comRetornoF)+'</span></div>'
         +   '<div class="kpi-item"><label>Em dia</label><span>'+fmtInt(emDiaF)+' ('+pctRetorno(emDiaF)+'%)</span></div>'
-        +   '<div class="kpi-item"><label>Em risco</label><span>'+fmtInt(riscoF)+' ('+pctRetorno(riscoF)+'%)</span></div>'
+        // "Em risco" soma as 2 situações que entram na tabela: mediana
+        // (riscoF, só quem tem 2+ consultas) + consulta única com 45+ dias
+        // (riscoUnicaF) — a % continua calculada só sobre riscoF/comRetornoF
+        // (coerente com "Em dia"/"Abandono consumado"), já que riscoUnicaF
+        // não tem uma base "2+ consultas" equivalente pra comparar.
+        +   '<div class="kpi-item"><label>Em risco</label><span>'+fmtInt(riscoF+riscoUnicaF)+' ('+pctRetorno(riscoF)+'%'+(riscoUnicaF ? ' + '+fmtInt(riscoUnicaF)+' de consulta única' : '')+')</span></div>'
         +   '<div class="kpi-item"><label>Abandono consumado</label><span>'+fmtInt(abandonoF)+' ('+pctRetorno(abandonoF)+'%)</span></div>'
         + '</div>';
     }
@@ -3167,15 +3202,19 @@
     }
     var mediana = analisesDataAtual && analisesDataAtual.medianaBase;
     var limite = mediana ? Math.floor(mediana*3) : null;
-    var SITUACAO = {emDia:'Em dia', risco:'Em risco', abandono:'Abandono consumado', unica:'Consulta única', semMediana:'Sem mediana'};
+    var SITUACAO = {emDia:'Em dia', risco:'Em risco', riscoUnica:'Em risco (consulta única)', abandono:'Abandono consumado', unica:'Consulta única', semMediana:'Sem mediana'};
     var ACAO = {
       risco:'Contato ativo (telefone/visita) para reagendar',
+      riscoUnica:'Contato ativo (telefone/visita) para reagendar',
       abandono:'Busca ativa / visita domiciliar',
       emDia:'Manter acompanhamento',
       unica:'Verificar necessidade de retorno',
       semMediana:'—'
     };
     function motivo(r){
+      // Consulta única: não há mediana própria pra comparar — o critério é
+      // o limite fixo de dias (ver LIMITE_DIAS_CONSULTA_UNICA_RISCO).
+      if(r.status === 'riscoUnica') return fmtInt(r.diasDesde)+' dias sem voltar desde a única consulta registrada (limite de 45 dias)';
       if(!mediana || r.status==='unica' || r.status==='semMediana') return '—';
       var base = fmtInt(r.diasDesde)+' dias sem voltar; mediana de retorno '+fmtDec(mediana,0)+' dias';
       if(r.status==='emDia') return base+' (dentro da mediana)';
@@ -3246,7 +3285,7 @@
     doc.setFont('helvetica','normal');
     doc.setFontSize(9);
     doc.setTextColor(81,96,90);
-    doc.text('Pacientes com 2+ consultas cujo último atendimento já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível.', margin, y, {maxWidth: pageWidth-margin*2});
+    doc.text('Pacientes com 2+ consultas cujo último atendimento já passou da mediana histórica de retorno da equipe (mas ainda dentro de uma janela em que voltar é plausível), e pacientes com apenas 1 consulta há 45 dias ou mais sem voltar.', margin, y, {maxWidth: pageWidth-margin*2});
     y += 22;
     doc.text(fmtInt(risco.length)+(risco.length===1?' paciente no total':' pacientes no total')+(filtroAtivo ? ' (filtro de profissional/busca aplicado — total geral sem filtro: '+fmtInt(totalGeral)+')' : '')+'.', margin, y, {maxWidth: pageWidth-margin*2});
     y += 10;
@@ -3607,7 +3646,7 @@
       + '</div>'
       + '<div class="card">'
       +   '<h4 style="margin-top:0;">Pacientes em risco de abandono</h4>'
-      +   '<p class="footnote" style="margin-top:0;line-height:1.5;">Pacientes com 2+ consultas cujo último atendimento já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível. Quando o paciente tem 2 ou mais profissionais no histórico, o nome <b>que aparece visível</b> na coluna "Profissional" é de quem realizou a última consulta. <b>Dias restantes</b> é uma estimativa: quanto falta pra passar de 3x a mediana histórica de retorno (limite de abandono consumado); depois disso aparece "Ultrapassou há X dias". <b>Última participação coletiva</b> é só informativa — não entra no cálculo de risco.</p>'
+      +   '<p class="footnote" style="margin-top:0;line-height:1.5;">Pacientes com 2+ consultas cujo último atendimento já passou da mediana histórica de retorno da equipe (mas ainda dentro de uma janela em que voltar é plausível), e pacientes com apenas 1 consulta há 45 dias ou mais sem voltar. Quando o paciente tem 2 ou mais profissionais no histórico, o nome <b>que aparece visível</b> na coluna "Profissional" é de quem realizou a última consulta. <b>Dias restantes</b> é uma estimativa: quanto falta pra passar de 3x a mediana histórica de retorno (limite de abandono consumado); depois disso aparece "Ultrapassou há X dias" — não se aplica a quem entrou pelo critério de consulta única (fica "—"). <b>Última participação coletiva</b> é só informativa — não entra no cálculo de risco.</p>'
       +   '<div id="analisesRiscoResumo" style="margin-bottom:14px;"></div>'
       +   '<div id="analisesRisco"></div>'
       + '</div>';
