@@ -2431,8 +2431,9 @@
     pacientes.forEach(function(p){ p.datas.forEach(function(d){
       datasDistintasSemana[d.getDay()][d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate()] = 1;
     }); });
+    var diasDistintosSemana = datasDistintasSemana.map(function(o){ return Object.keys(o).length; });
     var mediaPorDiaSemana = porDiaSemana.map(function(n,i){
-      var qtd = Object.keys(datasDistintasSemana[i]).length;
+      var qtd = diasDistintosSemana[i];
       return qtd ? n/qtd : 0;
     });
 
@@ -2625,6 +2626,7 @@
       diasSemanaLabels: DIAS_SEMANA,
       porDiaSemana: porDiaSemana,
       mediaPorDiaSemana: mediaPorDiaSemana,
+      diasDistintosSemana: diasDistintosSemana,
       comparativoProf: comparativoProf,
       comparativoProf23: comparativoProf23,
       medianaBase: medianaBase,
@@ -3243,6 +3245,169 @@
     XLSX.writeFile(wb, slugifyFileName('Pacientes_risco_abandono')+'__'+slugifyFileName(equipeLabel)+'__'+slugifyFileName(new Date().toLocaleDateString('pt-BR'))+'.xlsx');
   }
 
+  // ---------- Exportar os gráficos da aba "Frequência e Retorno" em PDF ----------
+  // Mesma faixa de cabeçalho dos outros PDFs. Gráficos Chart.js entram como
+  // imagem (PNG do próprio canvas); a cascata de tempo entre consultas e o
+  // funil são desenhados direto no PDF a partir dos dados calculados.
+  function gerarPdfGraficosAnalises(){
+    var jspdfNs = window.jspdf;
+    if(!jspdfNs || !jspdfNs.jsPDF){
+      alert('Não foi possível carregar a biblioteca de geração de PDF (verifique a conexão com a internet) — tente novamente.');
+      return;
+    }
+    var data = analisesDataAtual;
+    if(!data || !data.totalPacientes){
+      alert('Não há dados pra gerar o PDF com o filtro atual.');
+      return;
+    }
+    var equipeLabel = analisesEquipes.map(function(e){ return e.label; }).join(' + ') + (analisesProfissional ? ' — ' + analisesProfissional : '');
+    var doc = new jspdfNs.jsPDF({orientation:'landscape', unit:'pt', format:'a4'});
+    var pageWidth = doc.internal.pageSize.getWidth();
+    var pageHeight = doc.internal.pageSize.getHeight();
+    var margin = 28, gap = 16;
+    var colW = (pageWidth - margin*2 - gap) / 2;
+    var fullW = pageWidth - margin*2;
+
+    function cabecalho(){
+      doc.setFillColor(21,63,53);
+      doc.rect(0,0,pageWidth,64,'F');
+      doc.setTextColor(238,243,234);
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(15);
+      doc.text('Painel eMulti — Frequência e Retorno', margin, 26);
+      doc.setFont('helvetica','normal');
+      doc.setFontSize(10);
+      doc.setTextColor(159,192,174);
+      doc.text(equipeLabel, margin, 42);
+      doc.setFontSize(8.5);
+      doc.text('Gerado em '+new Date().toLocaleString('pt-BR'), pageWidth-margin, 26, {align:'right'});
+      doc.text('Período: '+(data.intervaloSelecionado || 'Histórico completo'), margin, 55);
+      doc.text(fmtInt(data.totalPacientes)+' pacientes · '+fmtInt(data.totalAtendimentos || 0)+' atendimentos', pageWidth-margin, 42, {align:'right'});
+    }
+    // Card branco com borda + título; devolve a Y onde o conteúdo começa.
+    function card(x, y, w, h, titulo){
+      doc.setFillColor(255,255,255);
+      doc.setDrawColor(224,228,220);
+      doc.roundedRect(x, y, w, h, 6, 6, 'FD');
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(11);
+      doc.setTextColor(21,63,53);
+      doc.text(titulo, x+14, y+20, {maxWidth: w-28});
+      return y + 34;
+    }
+    function imagemChart(canvasId, x, y, w, h){
+      var inst = null;
+      analisesChartInstances.forEach(function(c){ if(c && c.canvas && c.canvas.id === canvasId) inst = c; });
+      if(!inst){
+        doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(81,96,90);
+        doc.text('Sem dados suficientes ainda.', x, y+14);
+        return;
+      }
+      var img = inst.toBase64Image('image/png', 1);
+      var cw = inst.canvas.width || 1, ch = inst.canvas.height || 1;
+      var escala = Math.min(w/cw, h/ch);
+      var iw = cw*escala, ih = ch*escala;
+      doc.addImage(img, 'PNG', x + (w-iw)/2, y + (h-ih)/2, iw, ih);
+    }
+
+    // ---------- Página 1 ----------
+    cabecalho();
+    var y0 = 80;
+
+    // Tempo entre consultas (cascata)
+    var hCasc = 170;
+    var yc = card(margin, y0, fullW, hCasc, 'Tempo entre consultas');
+    var comDados = (data.intervalos || []).filter(function(it){ return it.stats; });
+    if(!comDados.length){
+      doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(81,96,90);
+      doc.text('Ainda não há dados suficientes pra montar a cascata.', margin+14, yc+8);
+    } else {
+      var cum = 0;
+      var steps = comDados.map(function(it){
+        var inc = Math.round(it.stats.mediana), ini = cum; cum += inc;
+        return {label: it.label, inc: inc, ini: ini, fim: cum, n: it.stats.n};
+      });
+      var maxTotal = cum || 1;
+      var px = margin+24, pw = fullW-48, ptop = yc+14, ph = hCasc-34-14-30;
+      var nBars = steps.length, bgap = 26, bw = (pw - bgap*(nBars-1))/nBars;
+      var cores = ['#2F6F5E','#3E8571','#57A088','#7CB89F','#A3CFBB'];
+      function yy(v){ return ptop + ph - (v/maxTotal)*ph; }
+      doc.setDrawColor(120,130,125); doc.setLineWidth(0.6);
+      doc.line(px, yy(0), px+pw, yy(0));
+      steps.forEach(function(st, i){
+        var bx = px + i*(bw+bgap), top = yy(st.fim), bh = Math.max(2, yy(st.ini)-top);
+        if(i > 0){
+          var prevX = px + (i-1)*(bw+bgap) + bw;
+          doc.setLineDashPattern([3,3], 0); doc.line(prevX, yy(st.ini), bx, yy(st.ini)); doc.setLineDashPattern([], 0);
+        }
+        doc.setFillColor(cores[i % cores.length]);
+        doc.roundedRect(bx, top, bw, bh, 3, 3, 'F');
+        doc.setFont('helvetica','bold'); doc.setFontSize(9.5); doc.setTextColor(21,63,53);
+        doc.text('+'+fmtInt(st.inc)+' dias', bx+bw/2, top-5, {align:'center'});
+        doc.setFontSize(9);
+        doc.text(st.label, bx+bw/2, yy(0)+13, {align:'center'});
+        doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(81,96,90);
+        doc.text('mediana · n='+st.n, bx+bw/2, yy(0)+23, {align:'center'});
+      });
+      doc.setFont('helvetica','bold'); doc.setFontSize(9.5); doc.setTextColor(21,63,53);
+      doc.text('Total acumulado: '+fmtInt(cum)+' dias', margin+fullW-14, y0+20, {align:'right'});
+    }
+
+    // Funil | Perfil de frequência
+    var y1 = y0 + hCasc + gap, h1 = pageHeight - margin - y1;
+    var yf = card(margin, y1, colW, h1, 'Funil de abandono');
+    var funil = data.funil || [], base = (funil[0] && funil[0].n) || 0;
+    var coresF = ['#2F6F5E','#6B8F71','#C68A3D','#B5474B'];
+    var yb = yf + 10, bx0 = margin+14, bwTot = colW-28;
+    funil.forEach(function(f, i){
+      var pct = base ? Math.round(f.n/base*100) : 0;
+      doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(60,72,66);
+      doc.text(f.label, bx0, yb);
+      doc.setFont('helvetica','bold'); doc.setTextColor(21,63,53);
+      doc.text(fmtInt(f.n)+' pacientes · '+pct+'%', bx0+bwTot, yb, {align:'right'});
+      doc.setFillColor(234,234,227); doc.roundedRect(bx0, yb+5, bwTot, 10, 4, 4, 'F');
+      if(pct > 0){ doc.setFillColor(coresF[i] || '#2F6F5E'); doc.roundedRect(bx0, yb+5, Math.max(6, bwTot*pct/100), 10, 4, 4, 'F'); }
+      yb += 36;
+    });
+
+    var xp = margin + colW + gap;
+    var yp = card(xp, y1, colW, h1, 'Perfil de frequência');
+    var imgW = colW*0.5 - 14, imgH = h1 - 34 - 12;
+    imagemChart('analisesFreqDonut', xp+10, yp, imgW, imgH);
+    var f = data.perfilFreq, tot = f.unica+f.ocasional+f.consolidado;
+    function pctF(n){ return tot ? Math.round(n/tot*100) : 0; }
+    var linhasKpi = [
+      ['Consulta única', fmtInt(f.unica)+' ('+pctF(f.unica)+'%)'],
+      ['Retorno ocasional (2-3)', fmtInt(f.ocasional)+' ('+pctF(f.ocasional)+'%)'],
+      ['Vínculo consolidado (4+)', fmtInt(f.consolidado)+' ('+pctF(f.consolidado)+'%)'],
+      ['Média de atendimentos por paciente', fmtDec(f.mediaConsultas,1)],
+      ['Total de atendimentos no período', fmtInt(data.totalAtendimentos || 0)]
+    ];
+    var kx = xp + colW*0.5 + 4, ky = yp + 6, kw = colW*0.5 - 18;
+    doc.setFillColor(243,244,239); doc.roundedRect(kx, ky-6, kw, linhasKpi.length*30+6, 5, 5, 'F');
+    linhasKpi.forEach(function(l, i){
+      doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(81,96,90);
+      doc.text(l[0], kx+kw/2, ky+6+i*30, {align:'center', maxWidth: kw-8});
+      doc.setFont('helvetica','bold'); doc.setFontSize(10.5); doc.setTextColor(21,63,53);
+      doc.text(l[1], kx+kw/2, ky+19+i*30, {align:'center'});
+    });
+
+    // ---------- Página 2 ----------
+    doc.addPage();
+    cabecalho();
+    var h2 = 250;
+    var ys = card(margin, y0, colW, h2, 'Atendimentos por dia da semana');
+    imagemChart('analisesDiaSemana', margin+10, ys, colW-20, h2-34-10);
+    var ym = card(margin + colW + gap, y0, colW, h2, 'Média de atendimentos por dia da semana');
+    imagemChart('analisesMediaDiaSemana', margin+colW+gap+10, ym, colW-20, h2-34-10);
+
+    var y3 = y0 + h2 + gap, h3 = pageHeight - margin - y3;
+    var yco = card(margin, y3, fullW, h3, 'Tempo até a 2ª e da 2ª até a 3ª consulta de acordo com o Profissional');
+    imagemChart('analisesCompProf', margin+10, yco, fullW-20, h3-34-10);
+
+    doc.save(slugifyFileName('Graficos_frequencia_retorno')+'__'+slugifyFileName(equipeLabel)+'__'+slugifyFileName(new Date().toLocaleDateString('pt-BR'))+'.pdf');
+  }
+
   // ---------- Exportar "Pacientes em risco de abandono" em PDF ----------
   // Mesma linha visual dos outros PDFs do painel (faixa de cabeçalho +
   // tabela), mas usa a lista COMPLETA de risco (não só os 40 primeiros
@@ -3393,15 +3558,24 @@
       }
       var semanaCanvas = document.getElementById('analisesDiaSemana');
       if(semanaCanvas){
+        // Média dos totais por dia da semana (só dias com atendimento —
+        // domingo/sábado zerados não puxam a média pra baixo).
+        var totaisSemana = data.porDiaSemana.filter(function(v){ return v > 0; });
+        var mediaLinhaSemana = totaisSemana.length ? totaisSemana.reduce(function(a,b){ return a+b; }, 0) / totaisSemana.length : null;
         var semanaChart = new Chart(semanaCanvas, {
           type: 'bar',
+          plugins: [linhaMediaDiaPlugin],
           data: {
             labels: data.diasSemanaLabels,
             datasets: [{ data: data.porDiaSemana, backgroundColor: '#2F6F5E', borderRadius: 4, categoryPercentage:0.7, barPercentage:0.9 }]
           },
           options: {
             responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { display: false }, tooltip: { bodyFont:{size:13}, titleFont:{size:13} } },
+            plugins: {
+              legend: { display: false },
+              tooltip: { bodyFont:{size:13}, titleFont:{size:13} },
+              linhaMediaDia: { valor: mediaLinhaSemana, cor: '#B5474B', texto: mediaLinhaSemana == null ? '' : 'Média: ' + fmtDec(mediaLinhaSemana,0) + ' atend./dia da semana' }
+            },
             scales: {
               y: { beginAtZero: true, ticks: { font:{size:13} } },
               x: { ticks: { font:{size:13} } }
@@ -3420,8 +3594,15 @@
       }
       var mediaSemanaCanvas = document.getElementById('analisesMediaDiaSemana');
       if(mediaSemanaCanvas){
+        // Média geral por dia de atendimento: total de atendimentos ÷ total
+        // de datas distintas com atendimento (ponderada, não a média simples
+        // das barras).
+        var somaAtend = data.porDiaSemana.reduce(function(a,b){ return a+b; }, 0);
+        var somaDias = (data.diasDistintosSemana || []).reduce(function(a,b){ return a+b; }, 0);
+        var mediaLinhaGeral = somaDias ? somaAtend/somaDias : null;
         var mediaSemanaChart = new Chart(mediaSemanaCanvas, {
           type: 'bar',
+          plugins: [linhaMediaDiaPlugin],
           data: {
             labels: data.diasSemanaLabels,
             datasets: [{ data: data.mediaPorDiaSemana, backgroundColor: '#C68A3D', borderRadius: 4, categoryPercentage:0.7, barPercentage:0.9 }]
@@ -3433,7 +3614,8 @@
               tooltip: {
                 bodyFont:{size:13}, titleFont:{size:13},
                 callbacks: { label: function(ctx){ return 'Média: ' + fmtDec(ctx.parsed.y,1) + ' atendimentos/dia'; } }
-              }
+              },
+              linhaMediaDia: { valor: mediaLinhaGeral, cor: '#B5474B', texto: mediaLinhaGeral == null ? '' : 'Média geral: ' + fmtDec(mediaLinhaGeral,1) + ' atend./dia' }
             },
             scales: {
               y: { beginAtZero: true, ticks: { font:{size:13} } },
@@ -3509,6 +3691,42 @@
         ctx.fillStyle = cor;
         ctx.fillText(texto, chart.chartArea.left + 4, y + (ehMenor ? 4 : -4));
       });
+      ctx.restore();
+    }
+  };
+
+  // Linha de média tracejada pros gráficos de dia da semana. O valor, a
+  // cor e o texto vêm de options.plugins.linhaMediaDia (calculados em
+  // renderAnalises), então não depende dos valores das barras.
+  var linhaMediaDiaPlugin = {
+    id: 'linhaMediaDia',
+    afterDatasetsDraw: function(chart, args, opts){
+      if(!opts || typeof opts.valor !== 'number' || !isFinite(opts.valor)) return;
+      var yScale = chart.scales && chart.scales.y, area = chart.chartArea;
+      if(!yScale || !area) return;
+      var y = yScale.getPixelForValue(opts.valor);
+      if(y < area.top || y > area.bottom) return;
+      var cor = opts.cor || '#B5474B';
+      var ctx = chart.ctx;
+      ctx.save();
+      ctx.beginPath();
+      ctx.setLineDash([7,5]);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = cor;
+      ctx.moveTo(area.left, y);
+      ctx.lineTo(area.right, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = "600 11px 'Inter', sans-serif";
+      ctx.textBaseline = 'bottom';
+      ctx.textAlign = 'left';
+      var texto = opts.texto || '';
+      var w = ctx.measureText(texto).width;
+      // fundo claro pra o texto não se perder em cima das barras
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.fillRect(area.left + 2, y - 17, w + 8, 16);
+      ctx.fillStyle = cor;
+      ctx.fillText(texto, area.left + 6, y - 4);
       ctx.restore();
     }
   };
@@ -3773,6 +3991,19 @@
 
     function recalcularERedesenhar(){
       renderAnalises(calcularAnalises());
+    }
+
+    // Botão "Gerar PDF" (gráficos da aba) no mesmo container dos filtros.
+    if(!document.getElementById('btnAnalisesPdf')){
+      var filtrosBox = equipeContainer.closest('.list-filters') || equipeContainer.parentElement.parentElement;
+      var wrapPdf = document.createElement('div');
+      wrapPdf.className = 'list-month-filter';
+      wrapPdf.style.alignSelf = 'flex-end';
+      wrapPdf.innerHTML = '<button type="button" class="pdf-btn" id="btnAnalisesPdf">'
+        + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h1a1.5 1.5 0 0 0 0-3H9v5"/><path d="M13 12v5h1a2 2 0 0 0 0-5z"/></svg>'
+        + '<span>Gerar PDF</span></button>';
+      filtrosBox.appendChild(wrapPdf);
+      wrapPdf.querySelector('button').addEventListener('click', gerarPdfGraficosAnalises);
     }
 
     var TODAS_KEY = 'todas';
