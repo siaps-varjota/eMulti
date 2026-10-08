@@ -6,9 +6,7 @@
   // (o Google ignorava o parâmetro), o que quebrava o fetch no navegador.
   // Agora buscamos cada aba separadamente via endpoint gviz/tq (CSV com
   // suporte a CORS de verdade), que funciona para qualquer aba por nome.
-  // A planilha de dados agora é PRIVADA: o ID dela vive só no Apps Script
-  // (Codigo.gs, DADOS_SHEET_ID). O painel pede cada aba ao backend com o
-  // token da sessão (ver fetchSheetCsv) — sem login, não há dados.
+  var SPREADSHEET_ID = "1ujHEI_pERAcKmxQRuF9AmgU0bN22w0A9nnpakCVjY18";
   // Janela móvel usada SÓ pela aba "Tendência" (mês a mês): cada ponto do
   // gráfico é o M1/M2 calculado com uma janela de JANELA_MESES meses
   // terminando naquele mês. Mude só este número se quiser 3, 4 ou 6 meses
@@ -22,7 +20,7 @@
   // calculado pelo painel a partir dos dados brutos (ver
   // aplicarOverrideOficial, mais abaixo) — o cálculo próprio continua
   // valendo só pros meses/indicadores sem dado oficial disponível.
-  var OFFICIAL_SHEET_NAME = "SIAPS-OFICIAL";
+  var OFFICIAL_SHEET_NAME = "Q2-26";
   // chave "centro|2026-05|M1" -> {numerador, denominador}
   var officialOverrides = {};
   // Quantos pontos (meses) mostrar nos gráficos de tendência — cada ponto
@@ -32,33 +30,17 @@
   // ---- Filtro principal da Visão geral: Quadrimestre + Mês (opcional) ----
   // Quadrimestres fixos do ano civil: Q1 Jan–Abr, Q2 Mai–Ago, Q3 Set–Dez.
   var QUAD_LABELS = ['Jan–Abr (Q1)', 'Mai–Ago (Q2)', 'Set–Dez (Q3)'];
-  // Quadrimestre(s) selecionado(s): agora os filtros "Ano" e
-  // "Quadrimestre" do topo são multisseleção INDEPENDENTES (ver
-  // renderAnoQuadSelects, mais abaixo) — quadsSelecionados guarda todo
-  // combo {ano, qIndex} resultante do cruzamento das duas seleções (ex.:
-  // anos [2025,2026] + quadrimestres [Q1,Q3] marcados = 4 combos). Nunca
-  // fica vazio (renderAnoQuadSelects garante isso, do mesmo jeito que
-  // currentEquipes sempre tem pelo menos 1 equipe marcada). Quando há
-  // mais de 1 combo, os meses de TODOS eles entram como uma união única
-  // (ver mesesDosQuadsSelecionadosUniao/mesesElapsedDosQuadsSelecionadosUniao,
-  // logo abaixo de mesesElapsedDoQuadrimestre) — mesma ideia da média de
-  // vários meses já usada pelo filtro de Mês, só que aplicada aos meses
-  // de cada quadrimestre marcado. Começa no quadrimestre que contém o mês
-  // atual.
-  var quadsSelecionados = [quadrimestreDoMes(new Date())];
-  // Data(s) escolhida(s) no filtro de Mês. Array vazio = usa a MÉDIA dos
-  // meses do(s) quadrimestre(s) selecionado(s). Um ou mais meses
+  // Quadrimestre selecionado (ano + índice 0/1/2). Começa no quadrimestre
+  // que contém o mês atual; muda quando o usuário mexe no filtro de Quadrimestre.
+  var quadSelecionado = quadrimestreDoMes(new Date());
+  // Data(s) escolhida(s) no filtro de Mês. Array vazio = padrão => usa a
+  // MÉDIA dos 4 meses do quadrimestre selecionado. Um ou mais meses
   // marcados: cada mês entra com o SEU PRÓPRIO resultado (já calculado
   // com a janela móvel de JANELA_MESES meses terminando nele — ver
   // calcularJanelaPeriodo) e, havendo mais de um, os resultados são
   // combinados pela média (mesma lógica já usada pra média do
   // quadrimestre, ver mediaDeMeses).
-  // PADRÃO: já começa com o mês atual marcado (em vez de vazio/média) —
-  // populateMonthSelectForQuad, mais abaixo, descarta esse valor inicial
-  // se por algum motivo o mês atual não pertencer ao(s) quadrimestre(s)
-  // selecionado(s) (quadsSelecionados também parte do mês atual, então
-  // isso não deve acontecer no carregamento normal da página).
-  var refMonthDates = [startOfMonth(new Date())];
+  var refMonthDates = [];
   function quadrimestreDoMes(d){
     return {ano: d.getFullYear(), qIndex: Math.floor(d.getMonth()/4)};
   }
@@ -108,60 +90,6 @@
     });
     return elapsed.length ? elapsed : meses.slice(0,1);
   }
-  // ---- Combinação de múltiplos quadrimestres/anos (quadsSelecionados) ----
-  // Com os filtros "Ano" e "Quadrimestre" agora em multisseleção
-  // independente, quadsSelecionados pode ter mais de 1 combo {ano,
-  // qIndex} ao mesmo tempo. As 3 funções abaixo tratam esse conjunto como
-  // se fosse "um quadrimestre só", pra todo o resto do painel (Visão
-  // geral, Meta do quadrimestre, Tendência etc.) continuar funcionando
-  // sem precisar saber quantos combos estão marcados: a união de todos os
-  // meses envolvidos, ordenada cronologicamente, sem repetir mês (isso
-  // importa se dois combos compartilharem algum mês, o que não deveria
-  // acontecer entre quadrimestres distintos, mas evita duplicar de
-  // qualquer forma).
-  function mesesDosQuadsSelecionadosUniao(){
-    var vistos = {}, meses = [];
-    quadsSelecionados.forEach(function(c){
-      mesesDoQuadrimestre(c.ano, c.qIndex).forEach(function(m){
-        var v = monthOptionValue(m);
-        if(!vistos[v]){ vistos[v] = true; meses.push(m); }
-      });
-    });
-    meses.sort(function(a,b){ return a-b; });
-    return meses;
-  }
-  function mesesElapsedDosQuadsSelecionadosUniao(){
-    var vistos = {}, meses = [];
-    quadsSelecionados.forEach(function(c){
-      mesesElapsedDoQuadrimestre(c.ano, c.qIndex).forEach(function(m){
-        var v = monthOptionValue(m);
-        if(!vistos[v]){ vistos[v] = true; meses.push(m); }
-      });
-    });
-    meses.sort(function(a,b){ return a-b; });
-    return meses;
-  }
-  // Último mês (dia 1) entre todos os combos marcados — usado como
-  // "âncora" quando nenhum mês específico está selecionado no filtro de
-  // Mês (ver anchorMonthDate) e pro cálculo do "quadrimestre anterior"
-  // (calcularQuadrimestreAnterior).
-  function ultimoMesDosQuadsSelecionados(){
-    var max = null;
-    quadsSelecionados.forEach(function(c){
-      var d = new Date(c.ano, c.qIndex*4+3, 1);
-      if(!max || d.getTime() > max.getTime()) max = d;
-    });
-    return max || startOfMonth(new Date());
-  }
-  // Rótulo textual combinando todos os combos marcados, ex.: "Set–Dez
-  // (Q3)/2026" (1 combo) ou "Jan–Abr (Q1)/2025 + Set–Dez (Q3)/2026" (2+
-  // combos) — usado no texto "Média de …" ao lado dos filtros.
-  function labelQuadsSelecionados(){
-    return quadsSelecionados.slice()
-      .sort(function(a,b){ return (a.ano-b.ano) || (a.qIndex-b.qIndex); })
-      .map(function(c){ return QUAD_LABELS[c.qIndex]+'/'+c.ano; })
-      .join(' + ');
-  }
   // Período de um único mês (do dia 1 ao último dia do mesmo mês).
   function periodoMesUnico(d){
     var inicio = new Date(d.getFullYear(), d.getMonth(), 1, 0,0,0,0);
@@ -182,7 +110,7 @@
   // selecionado.
   function anchorMonthDate(){
     if(refMonthDates.length) return refMonthDates[refMonthDates.length-1];
-    return ultimoMesDosQuadsSelecionados();
+    return new Date(quadSelecionado.ano, quadSelecionado.qIndex*4+3, 1);
   }
   // Só as abas de dados BRUTOS — o painel calcula M1/M2 sozinho a partir
   // delas (não lê mais nenhum valor pronto da aba "Indicadores M1 e M2").
@@ -318,80 +246,43 @@
     }
     return pontos;
   }
-  // Popula #anoMs (anos disponíveis: ano atual + 2 anteriores) e #quadMs
-  // (Q1/Q2/Q3, sem ano — o ano agora é um filtro à parte), os dois em
-  // multisseleção independente. quadsSelecionados vira o PRODUTO de todo
-  // ano marcado em anoMs por todo quadrimestre marcado em quadMs (ex.:
-  // anos [2025,2026] + quadrimestres [Q1,Q3] marcados = os 4 combos
-  // 2025-Q1, 2025-Q3, 2026-Q1, 2026-Q3 — ver recomputarQuadsSelecionados).
-  // Como os dois filtros são independentes, não dá mais pra esconder
-  // "quadrimestre futuro" (dependeria de quais anos estão marcados), então
-  // as 3 opções de quadrimestre ficam sempre visíveis — quadrimestres
-  // ainda não iniciados simplesmente não têm nenhum mês "decorrido" (ver
-  // mesesElapsedDoQuadrimestre), então entram como projeção normalmente.
-  var quadMs = null, anoMs = null, mesMs = null;
-  // Remove duplicatas de um array de strings e ordena — usado só pra
-  // sincronizar os widgets anoMs/quadMs com quadsSelecionados.
-  function valoresUnicosOrdenados(arr){
-    var vistos = {}, out = [];
-    arr.forEach(function(v){ if(!vistos[v]){ vistos[v] = true; out.push(v); } });
-    return out.sort();
-  }
-  // Cruza a seleção atual de anoMs com a de quadMs e atualiza
-  // quadsSelecionados. Se o usuário limpar por completo um dos dois
-  // filtros (0 anos ou 0 quadrimestres marcados), restaura nos dois
-  // widgets a última seleção válida em vez de deixar o painel sem nenhum
-  // combo — mesmo princípio do filtro de Equipe, que sempre mantém pelo
-  // menos 1 equipe marcada.
-  function recomputarQuadsSelecionados(){
-    var anos = anoMs ? anoMs.getSelected().map(Number) : [];
-    var qIdxs = quadMs ? quadMs.getSelected().map(Number) : [];
-    if(!anos.length || !qIdxs.length){
-      if(anoMs) anoMs.setSelected(valoresUnicosOrdenados(quadsSelecionados.map(function(c){ return String(c.ano); })));
-      if(quadMs) quadMs.setSelected(valoresUnicosOrdenados(quadsSelecionados.map(function(c){ return String(c.qIndex); })));
-      return;
-    }
-    var combos = [];
-    anos.forEach(function(ano){
-      qIdxs.forEach(function(qIndex){ combos.push({ano:ano, qIndex:qIndex}); });
-    });
-    combos.sort(function(a,b){ return (a.ano-b.ano) || (a.qIndex-b.qIndex); });
-    quadsSelecionados = combos;
-    refMonthDates = []; // volta a mostrar a média do(s) quadrimestre(s) escolhido(s)
-    populateMonthSelectForQuad();
-    aplicarMesReferencia(false);
-  }
-  function populateAnoQuadSelects(){
-    var anoContainer = document.getElementById('anoMs');
-    var quadContainer = document.getElementById('quadMs');
-    if(!anoContainer || !quadContainer || quadMs) return; // já populado (não recria a cada render)
-    anoMs = createMultiSelect(anoContainer, {
-      placeholder: 'Selecione', multi: true, search: false, showTags: true,
-      onChange: function(){ recomputarQuadsSelecionados(); }
+  // Popula o #quadMs com quadrimestres do ano atual e dos 2 anteriores
+  // (mais recente primeiro), e o #mesMs com os 4 meses do quadrimestre
+  // atualmente selecionado + uma opção vazia ("média"). Os dois são
+  // widgets de valor único (multi:false) com o mesmo visual arredondado
+  // do seletor de Equipe.
+  var quadMs = null, mesMs = null;
+  function populateQuadSelect(){
+    var container = document.getElementById('quadMs');
+    if(!container || quadMs) return; // já populado (não recria a cada render)
+    quadMs = createMultiSelect(container, {
+      placeholder: 'Selecione', multi: false, search: false,
+      onChange: function(keys){
+        var parts = keys[0].split('-');
+        quadSelecionado = {ano: +parts[0], qIndex: +parts[1]};
+        refMonthDates = []; // volta a mostrar a média do quadrimestre escolhido
+        populateMonthSelectForQuad();
+        aplicarMesReferencia(false);
+      }
     });
     var anoAtual = new Date().getFullYear();
-    var anoOpts = [];
-    for(var ano=anoAtual; ano>=anoAtual-2; ano--){ anoOpts.push({value:String(ano), label:String(ano)}); }
-    anoMs.setOptions(anoOpts);
-
-    quadMs = createMultiSelect(quadContainer, {
-      placeholder: 'Selecione', multi: true, search: false, showTags: true,
-      onChange: function(){ recomputarQuadsSelecionados(); }
-    });
-    quadMs.setOptions(QUAD_LABELS.map(function(label, idx){ return {value:String(idx), label:label}; }));
-
-    anoMs.setSelected(valoresUnicosOrdenados(quadsSelecionados.map(function(c){ return String(c.ano); })));
-    quadMs.setSelected(valoresUnicosOrdenados(quadsSelecionados.map(function(c){ return String(c.qIndex); })));
+    var opts = [];
+    for(var ano=anoAtual; ano>=anoAtual-2; ano--){
+      for(var q=2; q>=0; q--){
+        if(ano===anoAtual && q > quadSelecionado.qIndex) continue; // não mostra quadrimestre futuro do ano atual
+        opts.push({value: ano+'-'+q, label: QUAD_LABELS[q]+'/'+ano});
+      }
+    }
+    quadMs.setOptions(opts);
+    quadMs.setSelected([quadSelecionado.ano+'-'+quadSelecionado.qIndex]);
     populateMonthSelectForQuad();
   }
-  // Preenche #mesMs com os meses do(s) quadrimestre(s) selecionado(s)
-  // (união de todos os combos marcados — ver
-  // mesesDosQuadsSelecionadosUniao) — em multisseleção: marcar 1+ meses
-  // troca o resultado pro(s) mês(es) escolhido(s) (cada um com sua janela
-  // móvel própria, combinados pela média quando há mais de um); nenhum
-  // marcado = média de todos os meses selecionados. As opções são
-  // refeitas toda vez que a seleção de Ano/Quadrimestre muda; o widget em
-  // si (mesMs) é criado uma única vez.
+  // Preenche #mesMs com os 4 meses do quadrimestre selecionado — agora em
+  // multisseleção: marcar 1+ meses troca o resultado pro(s) mês(es)
+  // escolhido(s) (cada um com sua janela móvel própria, combinados pela
+  // média quando há mais de um); nenhum marcado = média do quadrimestre
+  // inteiro. As opções são refeitas toda vez que o quadrimestre muda; o
+  // widget em si (mesMs) é criado uma única vez.
   function populateMonthSelectForQuad(){
     var container = document.getElementById('mesMs');
     if(!container) return;
@@ -407,14 +298,13 @@
         }
       });
     }
-    var meses = mesesDosQuadsSelecionadosUniao();
+    var meses = mesesDoQuadrimestre(quadSelecionado.ano, quadSelecionado.qIndex);
     var mesesValidos = meses.map(monthOptionValue);
     var opts = meses.map(function(d){
       return {value: monthOptionValue(d), label: monthOptionLabel(d)};
     });
-    // Ao trocar de quadrimestre/ano, mantém só a seleção que ainda faz
-    // parte do novo conjunto de meses (evita "mês fantasma" de outro
-    // período).
+    // Ao trocar de quadrimestre, mantém só a seleção que ainda faz parte
+    // do novo quadrimestre (evita "mês fantasma" de outro período).
     refMonthDates = refMonthDates.filter(function(d){ return mesesValidos.indexOf(monthOptionValue(d)) >= 0; });
     mesMs.setOptions(opts);
     mesMs.setSelected(refMonthDates.map(monthOptionValue));
@@ -544,11 +434,9 @@
         classificacaoM1: classificacaoM1,
         atividadesTotais: soma('atividadesTotais'),
         atividadesCompartilhadas: soma('atividadesCompartilhadas'),
-        atividadesTotaisJanela: campoExibicao('atividadesTotais'),
         reunioesTotais: soma('reunioesTotais'),
         reunioesCompartilhadas: soma('reunioesCompartilhadas'),
         reunioesCompartilhadasContrib: soma('reunioesCompartilhadasContrib'),
-        reunioesTotaisJanela: campoExibicao('reunioesTotais'),
         denominadorM2: soma('denominadorM2'),
         numeradorM2: soma('numeradorM2'),
         atividadesCompartilhadasJanela: campoExibicao('atividadesCompartilhadas'),
@@ -576,29 +464,17 @@
       pessoasAtendidas: {headers: ["Nome","Atendimentos","Participantes Ativ. Coletiva","Total"], rows: pessoasAtendidasRows}
     };
   }
-  // Busca o CSV de uma aba pelo backend (Apps Script), autenticado pelo
-  // token da sessão. Devolve uma Promise com o texto CSV.
-  function fetchSheetCsv(sheetName){
-    var api = window.PAINEL_API;
-    var token = window.painelToken && window.painelToken();
-    if(!api || !token) return Promise.reject(new Error('Sessão não iniciada — faça login.'));
-    return fetch(api.url, {
-      method:'POST', headers:{'Content-Type':'text/plain'}, cache:'no-store',
-      body: JSON.stringify({chave:api.chave, acao:'dados', token:token, aba:sheetName})
-    })
-      .then(function(res){ if(!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
-      .then(function(r){
-        if(r.status === 'sessao_expirada'){
-          if(window.logoutPainelEmulti) window.logoutPainelEmulti();
-          throw new Error('Sessão expirada — faça login novamente.');
-        }
-        if(r.status !== 'ok') throw new Error(r.mensagem || 'Falha ao ler a aba');
-        return r.csv;
-      });
+  function sheetCsvUrl(sheetName){
+    return "https://docs.google.com/spreadsheets/d/" + SPREADSHEET_ID
+      + "/gviz/tq?tqx=out:csv&sheet=" + encodeURIComponent(sheetName);
   }
   function fetchAllSheets(){
     return Promise.all(requiredSheetNames().map(function(name){
-      return fetchSheetCsv(name)
+      return fetch(sheetCsvUrl(name), {cache:'no-store'})
+        .then(function(res){
+          if(!res.ok) throw new Error('HTTP ' + res.status);
+          return res.text();
+        })
         .then(function(csvText){ return {name:name, csvText:csvText, ok:true}; })
         .catch(function(err){ return {name:name, error:err, ok:false}; });
     }));
@@ -618,10 +494,8 @@
   var CLASS_ARC_HEX_OV_ATIVA = {"Regular":"#C61010","Suficiente":"#D67D00","Bom":"#15933F","Ótimo":"#0553C7"};
 
   // ---------- Listas complementares ----------
-  // As abas M1 e M2 mostram as MESMAS 7 tabelas, na mesma ordem.
-  function listasComplementaresNomes(){ return ["Atendimentos", "Atendimentos interprofissionais", "Participantes Ativ. Coletiva", "Pessoas atendidas", "Busca-Ativa", "Resumo Reuniões", "Resumo Atividade Coletiva"].map(suffixedName); }
-  function m1ListNames(){ return listasComplementaresNomes(); }
-  function m2ListNames(){ return listasComplementaresNomes(); }
+  function m1ListNames(){ return ["Atendimentos", "Participantes Ativ. Coletiva", "Pessoas atendidas", "Busca-Ativa"].map(suffixedName); }
+  function m2ListNames(){ return ["Atendimentos", "Resumo Reuniões", "Resumo Atividade Coletiva"].map(suffixedName); }
   var latestSheets = {}; // nome da aba -> {headers, rows} | {error}
   // Filtro de mês (multisseleção) das listas das abas M1/M2: por lista
   // (chave = nome sufixado da aba), guarda o índice da coluna de data
@@ -630,13 +504,6 @@
   // usuário a cada atualização dos dados.
   var listDateColIdx = {};
   var listMonthFilters = {};
-  // "Pessoas atendidas": true quando as colunas Data 4+ estão expandidas (por container+lista).
-  var listDatasExpandidas = {};
-  // Modelo de dados de cada lista (M1/M2): {rows, view, sortCol, sortDir}.
-  // Só as linhas da página atual vão pro DOM (mesmo modelo de paginação da
-  // tabela "Pacientes em risco de abandono"); filtro/busca/ordenação/PDF
-  // trabalham sobre este modelo, não sobre <tr> escondidos.
-  var listModel = {};
   // Acha a coluna de data de uma lista bruta, testando os nomes usados
   // nas abas de origem ("data" na maioria, "data_hora" em Atendimentos).
   function dateColIndexForList(headers){
@@ -683,18 +550,6 @@
   }
   function escapeHtml(s){
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  }
-  // Texto "completo" de uma célula pra busca/filtro-por-coluna/PDF: normalmente
-  // é só o texto renderizado (cell.textContent), mas algumas células (ex.: a
-  // coluna "Profissional" de "Pessoas Atendidas", que exibe só o profissional
-  // responsável + um badge "+N") guardam o valor original completo em
-  // data-cell-text (URI-encoded) — ver renderListCard — porque o texto
-  // renderizado na tela não é mais igual ao dado bruto usado pra filtrar.
-  function cellFullText(cell){
-    if(!cell) return '';
-    var raw = cell.getAttribute ? cell.getAttribute('data-cell-text') : null;
-    if(raw === null || raw === undefined) return cell.textContent.trim();
-    try{ return decodeURIComponent(raw); }catch(e){ return cell.textContent.trim(); }
   }
   // Debounce simples: só executa fn depois que o usuário parou de disparar
   // o evento por `ms` milissegundos (ex.: parar de digitar). Evita
@@ -746,13 +601,8 @@
       +   '<span class="ms-btn-text"></span>'
       +   '<svg class="ms-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>'
       + '</button>'
-      + '<div class="ms-panel" style="display:none;"></div>';
-      // Obs.: não existe mais uma caixa de "tags" fora do botão listando
-      // cada valor selecionado (cfg.showTags é ignorado de propósito) — o
-      // valor selecionado só aparece DENTRO do próprio filtro (ms-btn-text,
-      // abaixo, ex.: "3 selecionados"), nunca plotado fora dele. Vale pra
-      // todo filtro (Profissional, Equipe, Mês, coluna etc.) em todas as
-      // tabelas do painel, já que todas usam este mesmo componente.
+      + '<div class="ms-panel" style="display:none;"></div>'
+      + (cfg.showTags ? '<div class="ms-tags"></div>' : '');
     var btn = container.querySelector('.ms-btn');
     var btnText = container.querySelector('.ms-btn-text');
     var panel = container.querySelector('.ms-panel');
@@ -817,20 +667,6 @@
           }).join('');
       html += '</div>';
       panel.innerHTML = html;
-
-      // Abre pra cima quando não cabe embaixo (mesmo comportamento do
-      // <select> nativo do navegador, usado no "Filtrar por coluna…"):
-      // sem isso, este painel customizado sempre abria pra baixo, mesmo
-      // perto do fim da tela, cortando a lista ou saindo da viewport —
-      // vale pra todo filtro deste componente (Mês, Equipe, Profissional
-      // etc.) em qualquer tabela, já que todas usam createMultiSelect.
-      panel.classList.remove('ms-panel-up');
-      var btnRect = btn.getBoundingClientRect();
-      var espacoAbaixo = window.innerHeight - btnRect.bottom;
-      var espacoAcima = btnRect.top;
-      if(panel.offsetHeight > espacoAbaixo && espacoAcima > espacoAbaixo){
-        panel.classList.add('ms-panel-up');
-      }
 
       var searchInput = panel.querySelector('.ms-search');
       if(searchInput){
@@ -1011,7 +847,8 @@
   // carregados antes (ou vazio, na primeira vez), sem travar o resto do
   // carregamento do painel.
   function fetchOfficialOverridesSafe(){
-    return fetchSheetCsv(OFFICIAL_SHEET_NAME)
+    return fetch(sheetCsvUrl(OFFICIAL_SHEET_NAME), {cache:'no-store'})
+      .then(function(res){ if(!res.ok) throw new Error('HTTP ' + res.status); return res.text(); })
       .then(function(csvText){ officialOverrides = parseOfficialSheetCsv(csvText); })
       .catch(function(){ /* mantém officialOverrides como estava */ });
   }
@@ -1111,7 +948,8 @@
   // vez) e calcularPerformanceProfissionais cai no comportamento antigo
   // (lista derivada da aba Atendimentos — ver mais abaixo).
   function fetchProfissionaisSafe(){
-    return fetchSheetCsv(PROFISSIONAIS_SHEET_NAME)
+    return fetch(sheetCsvUrl(PROFISSIONAIS_SHEET_NAME), {cache:'no-store'})
+      .then(function(res){ if(!res.ok) throw new Error('HTTP ' + res.status); return res.text(); })
       .then(function(csvText){ profissionaisRoster = parseProfissionaisCsv(csvText); })
       .catch(function(){ /* mantém profissionaisRoster como estava */ });
   }
@@ -1258,22 +1096,10 @@
       // diferente do esperado, nenhuma das duas colunas é encontrada e o
       // painel nunca consegue contar nenhuma atividade como compartilhada
       // (ver comentário em cima do cálculo de atividadesCompartilhadasListas).
-      // ID da atividade (chave que liga "Resumo Atividade Coletiva" a
-      // "Participantes Ativ. Coletiva") e total de profissionais da eMulti
-      // vindo de Participantes.
-      id_atividade: ['id_atividade','id atividade','id da atividade','codigo_atividade','codigo da atividade','cod_atividade','cod atividade','id_ativ','id','codigo'],
-      responsavel: ['responsavel','responsavel atividade','responsavel da atividade'],
-      total_prof_emulti: ['total de profissionails da emulti','total profissionails emulti','total_prof_emulti','total de profissionais da emulti','total de profissionais emulti','total profissionais emulti','qtd_profissionais_emulti','qtd total de profissionais da emulti','quantidade de profissionais da emulti'],
       qtd_total_profissionais: ['qtd_total_profissionais','quantidade total de profissionais','total de profissionais','qtd_de_profissionais','qtd total de profissionais'],
       qtd_profissionais_envolvidos: ['qtd_profissionais_envolvidos','profissionais_envolvidos','quantidade de profissionais envolvidos','nº de profissionais envolvidos','numero de profissionais envolvidos','profissionais envolvidos'],
       // Variação de nome pra coluna de participantes da aba Resumo Reuniões.
-      qtd_participantes: ['qtd_participantes','quantidade de participantes','participantes','qtd de participantes'],
-      // Coluna "Temas da reunião" da aba Resumo Reuniões (pode trazer mais de um tema na mesma célula).
-      temas_reuniao: ['temas_reuniao','temas da reuniao','temas_da_reuniao','temas','tema','tema_reuniao','tema da reuniao'],
-      // Coluna "Tipo" da reunião na aba Resumo Reuniões (códigos 01-03:
-      // Reunião de Equipe, Reunião com outras equipes de saúde, Reunião
-      // intersetorial/Conselho local de saúde/Controle social).
-      tipo_reuniao: ['tipo_reuniao','tipo de reuniao','tipo_da_reuniao','tipo']
+      qtd_participantes: ['qtd_participantes','quantidade de participantes','participantes','qtd de participantes']
     };
     var wanted = String(name||'').trim().toLowerCase();
     var candidates = aliases[wanted] || [wanted];
@@ -1286,20 +1112,6 @@
     }
     return -1;
   }
-  // Coluna do profissional "Responsável" na aba "Participantes Ativ.
-  // Coletiva": SEMPRE a 4ª coluna (índice 3) da tabela — é onde esse
-  // profissional fica registrado nessa aba (junto com Profissional 1 a
-  // 5, na mesma linha). Não busca mais por nome de cabeçalho: a tentativa
-  // anterior de achar por nome ("responsavel"/"Responsável"/"Responsavel
-  // Atividade") não batia com o cabeçalho real da planilha e, pior,
-  // podia achar por engano outra coluna antes de chegar no fallback
-  // posicional — por isso a posição fixa é a fonte principal agora, com
-  // busca por nome só como reforço se a tabela tiver 4 colunas ou menos
-  // (não deveria acontecer nesta aba).
-  function colRespParticipantes(headerRow){
-    if(headerRow && headerRow.length > 3) return 3;
-    return colIndex(headerRow, "responsavel");
-  }
   function toInt(v){
     var n = parseInt(String(v===undefined||v===null?"":v).trim(), 10);
     return isNaN(n) ? 0 : n;
@@ -1311,6 +1123,18 @@
     return String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"")
       .toLowerCase().replace(/\s+/g," ").replace(/\s*\/\s*/g,"/").trim();
   }
+  // Só estes 4 tipos (códigos 04-07 da Atividade Coletiva) contam como
+  // "Atividade Coletiva Compartilhada" pra M2 (NT 44/2026-CGIAD/DEAPS/SAPS/MS,
+  // Quadro 1) — reuniões (códigos 01-03) vêm de outra aba (Resumo Reuniões) e
+  // têm regra própria. Movido pro escopo do módulo (era local a
+  // calcularIndicadoresDoPeriodo) pra poder ser reaproveitado também na
+  // coluna calculada "Conta como atividade compartilhada (M2)?" exibida na
+  // tabela "Resumo Atividade Coletiva" (ver populateSheetsCache) — assim as
+  // duas lógicas não podem divergir.
+  var TIPOS_ATIV_COLETIVA_COMPARTILHADA = [
+    "educacao em saude", "atendimento em grupo",
+    "avaliacao/procedimento coletivo", "mobilizacao social"
+  ];
 
   var PONTOS_POR_CLASSE = {"Regular":0.25, "Suficiente":0.5, "Bom":0.75, "Ótimo":1};
   // Mesmas cores dos "pills" de classificação (ver :root), usadas pra
@@ -1332,6 +1156,10 @@
     if(v>1) return "Suficiente";
     return "Regular";
   }
+  // Limiares conforme Quadro 6 da NT 8/2026-DEAPS/SAPS/MS: Ótimo > 7,5;
+  // Bom ≥ 5 e ≤ 7,5; Suficiente > 2,5 e < 5; Regular ≤ 2,5. (Antes usava
+  // nota>=2.6 pra "Suficiente", o que classificava notas entre 2,5 e 2,6
+  // erradamente como "Regular".)
   function classificarDesempenho(nota){
     if(nota===null) return "—";
     if(nota>7.5) return "Ótimo";
@@ -1344,133 +1172,16 @@
     "Cálculo feito pelo próprio painel, direto dos dados brutos extraídos do e-SUS PEC (Atendimentos + Registro Tardio + Atividade Coletiva + Reuniões) para esta equipe/EMULTI, seguindo as fórmulas das Notas Metodológicas M1 (NT 43/2026-CGIAD/DEAPS/SAPS/MS) e M2 (NT 44/2026-CGIAD/DEAPS/SAPS/MS), na janela dos últimos 4 meses (ver 'Período' no topo da página) — não um quadrimestre fixo do calendário.",
     "M1 usa NOME da pessoa (a nota oficial usa CPF/CNS) — pessoas diferentes com o mesmo nome seriam contadas como se fossem uma só.",
     "Atendimento individual (M1) só conta quando o profissional responsável (coluna 'profissional' da aba Atendimentos) está cadastrado na aba PROFISSIONAIS como sendo da eMulti — atendimentos de profissionais de fora da eMulti não entram no numerador.",
-    "Participação coletiva (M1) só conta quando pelo menos um dos profissionais da atividade (coluna do Responsável — identificada pelo nome do cabeçalho ou, se não encontrada por nome, pela 4ª coluna da tabela — ou 'Profissional 1' a 'Profissional 5' da aba Participantes Ativ. Coletiva) está cadastrado na aba PROFISSIONAIS como sendo da eMulti — participações conduzidas só por profissionais de fora da eMulti não entram no numerador.",
-    "M2 oficial soma 3 componentes: atendimentos individuais compartilhados, atividades coletivas compartilhadas e compartilhamento de cuidado (PEC). Esta extração só consegue aproximar as parcelas de 'atividades coletivas' e 'reuniões'. Regra de ação compartilhada aplicada: pelo menos 1 profissional identificado (CNS/CPF) da eMulti — seja como responsável ou como profissional envolvido, não precisa ser especificamente o responsável — e 2 ou mais profissionais distintos no total; compartilhamentos com eSB ou com qualquer profissional da APS contam igual, desde que identificados. Ainda não é possível checar CBO/CNS propriamente ditos (só o cadastro da aba PROFISSIONAIS), nem aplicar a regra de descartar ação específica duplicada quando a mesma pessoa/grupo também teve ação compartilhada registrada no mesmo dia.",
-    "Atendimentos individuais compartilhados e compartilhamento de cuidado (PEC) NÃO entram no numerador do M2 aqui (a Lista de Atendimentos do e-SUS não indica se um atendimento individual teve mais de um profissional; e não há aba equivalente pra solicitações de compartilhamento de cuidado no PEC) — por isso o M2 calculado aqui tende a ficar ABAIXO do valor oficial do indicador. O denominador do M2 é o TOTAL de ações da eMulti no período: atendimentos individuais + atividades coletivas (todas, específicas e compartilhadas, incluindo reuniões) — sem contar solicitações de compartilhamento de cuidado no PEC, pelo mesmo motivo.",
-    "Atividade Coletiva só conta como 'compartilhada' aqui quando tem pelo menos 1 profissional da eMulti (coluna 'Total de Profissionais da EMulti', de Participantes Ativ. Coletiva) e 2 ou mais profissionais no total ('Qtd total de profissionais') — sem restrição de tipo de atividade (todos os tipos contam).",
-    "Reuniões (Resumo Reuniões) só contam pra M2 quando o 'Tipo' é Reunião de Equipe, Reunião com outras equipes de saúde ou Reunião intersetorial/Conselho local de saúde/Controle social (códigos 01-03) E têm 2+ participantes E o tema 'Discussão de caso / Projeto terapêutico singular' marcado na coluna 'Temas da reunião' (a célula pode ter vários temas). Reuniões que não batem essas condições aparecem no total de reuniões, mas não entram como 'compartilhadas'.",
-    "'Desempenho quadrimestral' usa a fórmula oficial da Nota Final do Componente III (Qualidade) para eMulti — NT 8/2026-DEAPS/SAPS/MS, Quadro 4: Nota final = pontos M1 × 6 + pontos M2 × 4 (pontos por classificação: Regular=0,25, Suficiente=0,5, Bom=0,75, Ótimo=1), classificada conforme o Quadro 6 da mesma nota: Regular ≤ 2,5, Suficiente > 2,5 e < 5, Bom ≥ 5 e ≤ 7,5, Ótimo > 7,5. O que NÃO é oficial aqui é o DADO de entrada: o M1 e o M2 usados nessa conta são os calculados por este painel a partir dos dados brutos (ver notas acima), não os valores publicados pelo Siaps — por isso o resultado exibido é uma aproximação do Componente III oficial, não o valor de cofinanciamento em si.",
+    "Participação coletiva (M1) só conta quando pelo menos um dos profissionais da atividade (colunas 'Responsavel Atividade' ou 'Profissional 1' a 'Profissional 5' da aba Participantes Ativ. Coletiva) está cadastrado na aba PROFISSIONAIS como sendo da eMulti — participações conduzidas só por profissionais de fora da eMulti não entram no numerador.",
+    "M2 oficial soma 3 componentes: atendimentos individuais compartilhados, atividades coletivas compartilhadas e compartilhamento de cuidado (PEC). Esta extração só consegue aproximar as parcelas de 'atividades coletivas' e 'reuniões', usando 'nº de profissionais envolvidos ≥ 2' como indício de ação compartilhada — não há como checar CBO/CNS de cada profissional (principal/secundário) pra aplicar a regra oficial à risca.",
+    "Atendimentos individuais compartilhados e compartilhamento de cuidado (PEC) NÃO entram no numerador do M2 aqui (a Lista de Atendimentos do e-SUS não indica se um atendimento individual teve mais de um profissional) — por isso o M2 calculado aqui tende a ficar ABAIXO do valor oficial do indicador.",
+    "Atividade Coletiva só conta como 'compartilhada' aqui quando o tipo_atividade é Educação em saúde, Atendimento em grupo, Avaliação/Procedimento coletivo ou Mobilização social (códigos 04-07) E tem 2+ profissionais envolvidos — sem CBO/CNS de cada um, não dá pra confirmar que um deles é de fato cadastrado em eMulti, então ainda é uma aproximação.",
+    "Reuniões (Resumo Reuniões) só contam oficialmente pra M2 quando são dos tipos 'Reunião de equipe', 'Reunião com outras equipes de saúde' ou 'Reunião intersetorial' (códigos 01-03) E registradas com o tema 'Discussão de Caso/Projeto Terapêutico Singular' — como a aba de reuniões não tem uma coluna de tema, esta extração conta qualquer reunião com 2+ profissionais, o que pode puxar o M2 um pouco PRA CIMA nesse componente específico.",
+    "'Desempenho quadrimestral' é o cálculo oficial da Nota Final do Componente III — Qualidade do Cuidado para eMulti, conforme a NT 8/2026-DEAPS/SAPS/MS (Quadro 4): Nota final = pontos M1 × 6 + pontos M2 × 4 (pontos por classificação: Regular=0,25, Suficiente=0,5, Bom=0,75, Ótimo=1), sobre um total de 10. Classificação (Quadro 6 da mesma nota): Regular ≤ 2,5, Suficiente > 2,5 e < 5, Bom ≥ 5 e ≤ 7,5, Ótimo > 7,5. O painel calcula essa nota a partir do M1/M2 já apurados aqui (não é o valor oficial do Siaps, que usa a média mensal informada pelo Ministério) — os indicadores oficiais continuam sendo M1 e M2 separados.",
     "Abandono consumado: o paciente precisa ter pelo menos 2 consultas. O painel calcula a mediana histórica do intervalo entre a 1ª e a 2ª consulta dos pacientes analisados e mede os dias desde a última consulta de cada paciente. Quando esse intervalo é maior que 3 vezes a mediana histórica, o paciente é classificado como abandono consumado.",
     "Classificação do acompanhamento: Em dia = dias desde a última consulta ≤ mediana; Em risco = dias desde a última consulta > mediana e ≤ 3 × mediana; Abandono consumado = dias desde a última consulta > 3 × mediana. O painel não usa um número fixo de dias: o limite é calculado dinamicamente com base no comportamento histórico dos pacientes incluídos nos filtros da aba Análises.",
-    "Na aba Análises, a classificação considera o histórico inteiro ou os quadrimestres selecionados na própria aba Análises, e não necessariamente o filtro global de período.",
-    "Filtro 'Fluxo' (tabela Pessoas Atendidas): calculado sobre o histórico COMPLETO de cada pessoa (Atendimentos + Participantes Ativ. Coletiva, ignorando o filtro de Mês próprio dessa tabela), na janela móvel dos últimos 4 meses terminando no último dia do mês ATUAL real (não no mês filtrado no topo da página). 'Entrada' = o primeiro atendimento/participação de todo o histórico da pessoa caiu dentro dessa janela. 'Saída' = a pessoa não tem nenhum atendimento/participação dentro dessa janela (mesmo tendo histórico anterior). Quem já vinha de antes da janela e também tem evento dentro dela (segue ativa) fica sem rótulo nessa coluna."
+    "Na aba Análises, a classificação considera o histórico inteiro ou os quadrimestres selecionados na própria aba Análises, e não necessariamente o filtro global de período."
   ];
-
-  // ---------- "Total de Profissionais da EMulti" (coluna virtual) ----------
-  // Coluna calculada aqui (não existe na planilha de origem de "Participantes
-  // Ativ. Coletiva"): nº de profissionais DISTINTOS da eMulti (cadastrados na
-  // aba PROFISSIONAIS) entre "Responsavel Atividade" + "Profissional 1..5" da
-  // linha. Se a planilha um dia trouxer uma coluna real com esse nome, ela
-  // tem prioridade. É a mesma fonte usada no M2 e nas listas exibidas (aba
-  // Participantes Ativ. Coletiva e Resumo Atividade Coletiva).
-  var TOTAL_PROF_EMULTI_HEADER = "Total de Profissionais da EMulti";
-  // Acha a coluna "Total de Profissionais da EMulti" mesmo com variações de
-  // grafia (a planilha tem "Profissionails" com erro de digitação): primeiro
-  // pelos apelidos conhecidos, depois por um cabeçalho que contenha
-  // "total" + "profission" + "emulti".
-  function colTotalProfEmulti(headerRow){
-    var i = colIndex(headerRow, "total_prof_emulti");
-    if(i >= 0) return i;
-    for(var j=0;j<headerRow.length;j++){
-      var h = normalizeText(headerRow[j]);
-      if(h.indexOf("TOTAL") !== -1 && h.indexOf("PROFISSION") !== -1 && h.indexOf("EMULTI") !== -1) return j;
-    }
-    return -1;
-  }
-  function criarCalculadoraTotalProfEmulti(partHeader){
-    var iReal = colTotalProfEmulti(partHeader);
-    var profCols = [colRespParticipantes(partHeader)].concat(
-        ["profissional 1","profissional 2","profissional 3","profissional 4","profissional 5"]
-          .map(function(n){ return colIndex(partHeader, n); })
-      )
-      .filter(function(i){ return i >= 0; });
-    var podeVirtual = profissionaisRoster.length > 0 && profCols.length > 0;
-    return {
-      disponivel: iReal >= 0 || podeVirtual,
-      calcular: function(r){
-        if(iReal >= 0 && String(r[iReal]===undefined||r[iReal]===null?"":r[iReal]).trim() !== "") return toInt(r[iReal]);
-        var vistos = {}, n = 0;
-        for(var i=0;i<profCols.length;i++){
-          var nomeP = r[profCols[i]];
-          if(!nomeP || !nomeEhDaEmulti(nomeP)) continue;
-          var k = normalizeText(nomeP);
-          if(vistos[k]) continue;
-          vistos[k] = true; n++;
-        }
-        return n;
-      }
-    };
-  }
-  // Liga cada linha de "Resumo Atividade Coletiva" às linhas de
-  // "Participantes Ativ. Coletiva". Se as duas abas têm coluna de ID da
-  // atividade, liga por ID; senão, pela combinação data + equipe +
-  // responsável (+ tipo de atividade, quando as duas abas têm). Devolve
-  // {total(linhaDoResumo) -> número | undefined, modo} ou null.
-  function criarLigacaoAtividades(partRows, racHeader){
-    if(!partRows || !partRows.length) return null;
-    var partHeader = partRows[0];
-    var calc = criarCalculadoraTotalProfEmulti(partHeader);
-    if(!calc.disponivel) return null;
-    function eqKey(v){
-      var t = normalizeText(v);
-      for(var i=0;i<EQUIPES.length;i++){ if(t.indexOf(EQUIPES[i].matchKeyword) !== -1) return EQUIPES[i].key; }
-      return t.trim();
-    }
-    function dataKey(v){
-      var d = parseBRDate(v);
-      return d ? (d.getFullYear()+"-"+d.getMonth()+"-"+d.getDate()) : String(v||"").trim();
-    }
-    var idP = colIndex(partHeader, "id_atividade"), idR = colIndex(racHeader, "id_atividade");
-    function limpa(v){ return normalizeText(v).replace(/\s+/g," ").trim(); }
-    // Cada "nível" é uma forma de ligar Resumo -> Participantes, da mais
-    // precisa pra mais frouxa. O primeiro nível que achar a atividade vence.
-    var niveis = [];
-    if(idP >= 0 && idR >= 0){
-      niveis.push({nome:"id",
-        kp:function(r){ return String(r[idP]||"").trim(); },
-        kr:function(r){ return String(r[idR]||"").trim(); }});
-    }
-    var dP = colIndex(partHeader,"data"), dR = colIndex(racHeader,"data");
-    var eP = colIndex(partHeader,"equipe_unidade"); if(eP<0) eP = equipeColIndex(partHeader);
-    var eR = colIndex(racHeader,"equipe_unidade"); if(eR<0) eR = equipeColIndex(racHeader);
-    var rP = colIndex(partHeader,"responsavel"), rR = colIndex(racHeader,"responsavel");
-    var tP = colIndex(partHeader,"tipo_atividade"), tR = colIndex(racHeader,"tipo_atividade");
-    if(dP>=0 && dR>=0 && rP>=0 && rR>=0){
-      if(eP>=0 && eR>=0 && tP>=0 && tR>=0){
-        niveis.push({nome:"data+equipe+responsavel+tipo",
-          kp:function(r){ return [dataKey(r[dP]), eqKey(r[eP]), limpa(r[rP]), limpa(r[tP])].join("|"); },
-          kr:function(r){ return [dataKey(r[dR]), eqKey(r[eR]), limpa(r[rR]), limpa(r[tR])].join("|"); }});
-      }
-      if(eP>=0 && eR>=0){
-        niveis.push({nome:"data+equipe+responsavel",
-          kp:function(r){ return [dataKey(r[dP]), eqKey(r[eP]), limpa(r[rP])].join("|"); },
-          kr:function(r){ return [dataKey(r[dR]), eqKey(r[eR]), limpa(r[rR])].join("|"); }});
-      }
-      niveis.push({nome:"data+responsavel",
-        kp:function(r){ return [dataKey(r[dP]), limpa(r[rP])].join("|"); },
-        kr:function(r){ return [dataKey(r[dR]), limpa(r[rR])].join("|"); }});
-    }
-    if(!niveis.length) return null;
-    niveis.forEach(function(nv){
-      nv.mapa = {};
-      partRows.slice(1).forEach(function(r){
-        var k = nv.kp(r);
-        if(!k || /^\|+$/.test(k)) return;
-        var v = calc.calcular(r);
-        if(!nv.mapa.hasOwnProperty(k) || v > nv.mapa[k]) nv.mapa[k] = v;
-      });
-    });
-    return {
-      modo: niveis.map(function(n){ return n.nome; }).join(" > "),
-      total: function(racRow){
-        for(var i=0;i<niveis.length;i++){
-          var k = niveis[i].kr(racRow);
-          if(k && niveis[i].mapa.hasOwnProperty(k)) return niveis[i].mapa[k];
-        }
-        return undefined;
-      }
-    };
-  }
 
   // Motor de cálculo: recebe o "workbook" (abas já em formato de matriz de
   // linhas) e o período {inicio, fim} (objetos Date) e calcula M1, M2 e o
@@ -1526,7 +1237,7 @@
     // cadastrado na aba PROFISSIONAIS como sendo da eMulti. Sem isso, o
     // numerador do M1 contaria participações coletivas conduzidas só por
     // profissionais de fora da eMulti (outros programas/equipes).
-    var iPResp = colRespParticipantes(partHeader);
+    var iPResp = colIndex(partHeader, "Responsavel Atividade");
     var iPProf1 = colIndex(partHeader, "profissional 1");
     var iPProf2 = colIndex(partHeader, "profissional 2");
     var iPProf3 = colIndex(partHeader, "profissional 3");
@@ -1584,21 +1295,12 @@
     var iRacTipo = colIndex(racHeader, "tipo_atividade");
     var iRacTotalProf = colIndex(racHeader, "qtd_total_profissionais");
     var iRacProfEnv = colIndex(racHeader, "qtd_profissionais_envolvidos");
-    // Nenhum tipo de atividade é excluído aqui — qualquer atividade desta
-    // aba (junto com Participantes Ativ. Coletiva) conta como "Atividade
-    // Coletiva Compartilhada" pra M2, desde que bata os critérios de
-    // profissionais abaixo. A restrição de tipo só se aplica a reuniões
-    // (aba Resumo Reuniões — ver TIPOS_REUNIAO_COMPARTILHADA mais abaixo).
+    // TIPOS_ATIV_COLETIVA_COMPARTILHADA agora é uma constante do módulo
+    // (ver declaração perto de normalizarTexto) — reaproveitada também pela
+    // coluna calculada da tabela "Resumo Atividade Coletiva".
     var racFiltradas = racRows.slice(1).filter(function(r){
       return withinPeriod(parseBRDate(r[iRacData]), periodo.inicio, periodo.fim);
     });
-    // "Total de Profissionais da EMulti": passa a vir da aba Participantes
-    // Ativ. Coletiva, ligada ao Resumo por ID da atividade (ou, sem ID, por
-    // data + equipe + responsável + tipo) — ver criarLigacaoAtividades.
-    var ligacaoAtiv = criarLigacaoAtividades(partRows, racHeader);
-    if(!ligacaoAtiv){
-      console.warn('[Participantes Ativ. Coletiva] não foi possível ligar "Total de Profissionais da EMulti" ao Resumo Atividade Coletiva — usando a coluna da própria aba Resumo. cabeçalho Resumo:', racHeader, '| cabeçalho Participantes:', partHeader);
-    }
     // Se NENHUMA das duas colunas de profissionais for encontrada, o
     // painel não tem como saber quantos profissionais participaram de
     // cada atividade — "totalProf" abaixo sempre vira 1 e NENHUMA
@@ -1666,23 +1368,10 @@
     var atividadesTotais = Math.max(atividadesTotaisListas, totalRelatorioAc);
     var atividadesTotaisFonte = totalRelatorioAc > atividadesTotaisListas
       ? "TOTAL RELATÓRIO AC" : "Resumo Atividade Coletiva";
-    // Atividade coletiva COMPARTILHADA (numerador do M2): tem pelo menos 1
-    // profissional da eMulti ("Total de Profissionais da EMulti" >= 1, vindo
-    // de Participantes Ativ. Coletiva) E 2 ou mais profissionais no total
-    // ("Qtd total de profissionais" do Resumo Atividade Coletiva). NÃO há
-    // restrição de tipo de atividade aqui — qualquer tipo, vindo de "Resumo
-    // Atividade Coletiva"/"Participantes Ativ. Coletiva", conta desde que
-    // bata essas duas condições. A restrição de tipo só existe pra reuniões
-    // (aba "Resumo Reuniões", ver TIPOS_REUNIAO_COMPARTILHADA abaixo).
     var atividadesCompartilhadasListas = racFiltradas.filter(function(r){
-      var totalEmultiPart = ligacaoAtiv ? ligacaoAtiv.total(r) : undefined;
-      var totalProfGeral = (iRacTotalProf>=0 && r[iRacTotalProf]!=="" && r[iRacTotalProf]!==undefined)
-        ? toInt(r[iRacTotalProf])
-        : 1+toInt(r[iRacProfEnv]);
-      // Sem ligação com Participantes não dá pra checar a eMulti: não
-      // zera a atividade por isso (mantém só a regra de 2+ profissionais).
-      var temEmulti = (totalEmultiPart === undefined) ? true : totalEmultiPart >= 1;
-      return temEmulti && totalProfGeral >= 2;
+      var totalProf = iRacTotalProf>=0 && r[iRacTotalProf]!=="" ? toInt(r[iRacTotalProf]) : 1+toInt(r[iRacProfEnv]);
+      var tipoOk = iRacTipo<0 || TIPOS_ATIV_COLETIVA_COMPARTILHADA.indexOf(normalizarTexto(r[iRacTipo])) >= 0;
+      return totalProf >= 2 && tipoOk;
     }).length;
     // Mesma regra do "atividadesTotais" acima, mas aplicada ao componente
     // que de fato alimenta o numerador do M2 (numeradorM2 → card "M2 —
@@ -1702,43 +1391,7 @@
       return withinPeriod(parseBRDate(r[iRrData]), periodo.inicio, periodo.fim);
     });
     var reunioesTotais = rrFiltradas.length;
-    // Regra oficial do M2: a reunião só conta como ação compartilhada se
-    // (a) o "Tipo" da reunião for um dos 3 aceitos — "Reunião de Equipe",
-    // "Reunião com outras equipes de saúde" ou "Reunião intersetorial /
-    // Conselho local de saúde / Controle social" (com ou sem "CDS" no
-    // final, daí a comparação por "contém" abaixo, igual à de tipo de
-    // atividade coletiva) —, (b) tiver "Discussão de caso / Projeto
-    // terapêutico singular" entre os "Temas da reunião" (a célula pode
-    // listar vários temas) E (c) 2+ participantes. Se a coluna de tipo ou
-    // de temas não existir na aba, essa parte da regra não é aplicada
-    // (não zera a reunião por isso) e avisa no console.
-    var iRrTema = colIndex(rrHeader, "temas_reuniao");
-    var iRrTipo = colIndex(rrHeader, "tipo_reuniao");
-    if(iRrTema < 0 && rrRows.length){
-      console.warn('[painel] Coluna "Temas da reunião" não encontrada na aba Resumo Reuniões — contando toda reunião com 2+ participantes.');
-    }
-    if(iRrTipo < 0 && rrRows.length){
-      console.warn('[painel] Coluna "Tipo" da reunião não encontrada na aba Resumo Reuniões — não filtrando reunião por tipo (só por tema + participantes).');
-    }
-    var TIPOS_REUNIAO_COMPARTILHADA = [
-      "reuniao de equipe",
-      "reuniao com outras equipes de saude",
-      "reuniao intersetorial/conselho local de saude/controle social"
-    ];
-    function reuniaoTipoOk(r){
-      if(iRrTipo < 0) return true;
-      var t = normalizarTexto(r[iRrTipo]);
-      return TIPOS_REUNIAO_COMPARTILHADA.some(function(tp){ return t.indexOf(tp) >= 0; });
-    }
-    function reuniaoTemDiscussaoCaso(r){
-      if(iRrTema < 0) return true;
-      var t = normalizarTexto(r[iRrTema]);
-      return t.indexOf('discussao de caso') >= 0 || t.indexOf('projeto terapeutico singular') >= 0;
-    }
-    var reunioesCompartilhadas = rrFiltradas.filter(function(r){
-      return toInt(r[iRrQtd]) >= 2 && reuniaoTipoOk(r) && reuniaoTemDiscussaoCaso(r);
-    }).length;
-
+    var reunioesCompartilhadas = rrFiltradas.filter(function(r){ return toInt(r[iRrQtd]) >= 2; }).length;
 
     // ---------- M2 ----------
     // Quando a parcela de "atividades coletivas compartilhadas" veio da
@@ -1751,20 +1404,7 @@
     var numeradorM2 = atividadesCompartilhadasFonte === "TOTAL RELATÓRIO AC"
       ? atividadesCompartilhadas
       : atividadesCompartilhadas + reunioesCompartilhadas;
-    // Denominador M2, conforme a NT 44/2026-CGIAD/DEAPS/SAPS/MS: TOTAL de
-    // ações da eMulti no período — atendimentos individuais (específicos
-    // + compartilhados), atividades coletivas (específicas +
-    // compartilhadas, incluindo reuniões) e solicitações respondidas de
-    // compartilhamento de cuidado no PEC. Usa os TOTAIS de cada aba
-    // (atendimentosIndividuais, atividadesTotais, reunioesTotais), não o
-    // numerador — o numerador é só a parcela COMPARTILHADA, que já está
-    // contida dentro desses totais (não deve ser somada de novo aqui).
-    // Compartilhamento de cuidado no PEC não é rastreável nesta extração
-    // (não existe aba equivalente), então o denominador calculado aqui
-    // tende a ficar um pouco ABAIXO do valor oficial, na mesma direção do
-    // numerador (ver nota metodológica sobre atendimentos compartilhados
-    // e PEC).
-    var denominadorM2 = atendimentosIndividuais + atividadesTotais + reunioesTotais;
+    var denominadorM2 = atendimentosIndividuais + numeradorM2;
     var m2 = denominadorM2 ? (numeradorM2/denominadorM2*100) : null;
     var classificacaoM2 = classificarM2(m2);
     // Parcela de reuniões que de fato ENTROU no numerador (0 nos meses em
@@ -2079,8 +1719,8 @@
     if(pillPercent) pillPercent.classList.toggle('active', mode==='percent');
     if(pillAbsolute) pillAbsolute.classList.toggle('active', mode==='absolute');
     if(title) title.innerText = mode==='percent'
-      ? 'Quadro Geral de Distribuição de Consultas por Profissional (%)'
-      : 'Quadro Geral de Distribuição de Consultas  por Profissional (Valores Absolutos)';
+      ? 'Comparativo Geral de Distribuição de Consultas (%)'
+      : 'Comparativo Geral de Distribuição de Consultas (Valores Absolutos)';
     renderProfMainChart(profListaAtual);
   }
   (function setupProfPills(){
@@ -2295,7 +1935,7 @@
       if(!nome || !d) return;
       if(!dataDentroDoFiltro(d)) return;
       var chave = nome.toUpperCase();
-      if(!porPaciente[chave]) porPaciente[chave] = {nome:nome, datas:[], profissionais:{}, consultasPorProf:{}, ultimaDataPorProf:{}, equipes:{}, ultimaData:null, ultimaProfissionais:{}, totalAtendimentos:0};
+      if(!porPaciente[chave]) porPaciente[chave] = {nome:nome, datas:[], profissionais:{}, consultasPorProf:{}, equipes:{}, ultimaData:null, ultimaProfissionais:{}, totalAtendimentos:0};
       var p = porPaciente[chave];
       var qtd = iQtd >= 0 ? Number(String(r[iQtd]||'').replace(',', '.')) : 1;
       if(!isFinite(qtd) || qtd < 0) qtd = 1;
@@ -2305,13 +1945,6 @@
       if(prof){
         p.profissionais[prof] = true;
         p.consultasPorProf[prof] = (p.consultasPorProf[prof] || 0) + 1;
-        // Última data em que ESSE profissional específico atendeu o
-        // paciente (independente de ser ou não quem fez a última consulta
-        // geral) — usada pro popover "Também atendido por" na lista de
-        // risco de abandono (ver risco.push, mais abaixo).
-        if(!p.ultimaDataPorProf[prof] || d.getTime() > p.ultimaDataPorProf[prof].getTime()){
-          p.ultimaDataPorProf[prof] = d;
-        }
       }
       // Guarda o(s) profissional(is) da consulta MAIS RECENTE (por data) de
       // cada paciente, pra poder destacar quem de fato atendeu na última
@@ -2434,79 +2067,16 @@
     // em dia (ainda dentro da mediana) / em risco (na janela) / abandono
     // consumado (já passou de 3x a mediana sem voltar).
     var comRetorno = 0, emDiaCount = 0, abandonoConsumadoCount = 0;
-    // Registro "leve" com o mesmo formato usado pelo filtro da tabela de
-    // risco (nome/profissional/equipe/consultas/última consulta/dias sem
-    // voltar + ultimoProfissionais/todosProfissionais), mas pra TODO
-    // paciente com pelo menos 1 consulta — não só os que estão na janela
-    // de risco. É contra essa lista (kpiRegistros, abaixo) que os cards de
-    // estatística (Total no histórico / Com 2+ consultas / Em dia / Em
-    // risco / Abandono consumado) são recalculados a cada mudança nos
-    // filtros da tabela (ver wireRiscoFiltros), em vez de ficarem fixos no
-    // total geral independente do filtro.
-    var kpiRegistros = [];
-    var registrosTabela = [];
-    // Última participação em atividade coletiva de cada paciente (nome em
-    // maiúsculas -> Date), lida da aba Participantes Ativ. Coletiva. Só é
-    // INFORMATIVA (coluna "Última participação coletiva"): NÃO entra na
-    // "última consulta" nem na mediana, pra quem só vai a grupo não sumir
-    // da lista de risco de acompanhamento individual.
-    var ultimaColetivaPorNome = {};
-    (function(){
-      var pr = filtrarLinhasPorEquipe(sheetToRows(latestRawSheets["Participantes Ativ. Coletiva"] || []), analisesEquipes);
-      var h = pr[0] || [];
-      var iN = colIndex(h, "participante"), iD = colIndex(h, "data");
-      if(iN < 0 || iD < 0) return;
-      pr.slice(1).forEach(function(r){
-        var nome = String(r[iN]||"").trim();
-        if(!nome || nome.indexOf("(sem lista nominal") === 0) return;
-        var d = parseBRDate(r[iD]);
-        if(!d) return;
-        var k = nome.toUpperCase();
-        if(!ultimaColetivaPorNome[k] || d > ultimaColetivaPorNome[k]) ultimaColetivaPorNome[k] = d;
-      });
-    })();
     pacientes.forEach(function(p){
-      if(!p.datas.length) return;
-      var todosProfs = Object.keys(p.profissionais).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); });
-      var ultimosProfsSet = p.ultimaProfissionais || {};
-      // Ordena os profissionais da ÚLTIMA consulta com a MESMA prioridade
-      // usada no resto do painel (profissional da eMulti primeiro, depois
-      // alfabética) — o primeiro da lista vira o nome PRINCIPAL da célula;
-      // os demais (inclusive co-profissional da MESMA última consulta,
-      // quando há empate de data) entram no popover "+N" junto com os
-      // profissionais de consultas mais antigas, em vez de ficarem
-      // grudados no texto principal sem badge (ver outrosProfissionais
-      // logo abaixo).
-      var ultimoProfissionaisArrKpi = Object.keys(ultimosProfsSet).sort(function(a,b){
-        var eA = nomeEhDaEmulti(a) ? 0 : 1, eB = nomeEhDaEmulti(b) ? 0 : 1;
-        if(eA !== eB) return eA - eB;
-        return a.localeCompare(b,'pt-BR');
-      });
-      var equipeTxtKpi = equipeLabelUnica || Object.keys(p.equipes||{}).sort().join(' + ');
+      if(p.datas.length < 2) return;
+      comRetorno++;
       var ultima = p.datas[p.datas.length-1];
       var diasDesde = diffDias(ultima, hoje);
-      var status = 'unica'; // 1 consulta só — entra em "Total no histórico", mas não nas demais contagens
-
-      if(p.datas.length >= 2){
-        comRetorno++;
-        if(!medianaBase){
-          status = 'semMediana'; // sem histórico suficiente ainda pra classificar
-        } else if(diasDesde <= medianaBase){
-          status = 'emDia'; emDiaCount++;
-        } else if(diasDesde > medianaBase*3){
-          status = 'abandono'; abandonoConsumadoCount++;
-        } else {
-          status = 'risco';
-        }
-      }
-
-      kpiRegistros.push({
-        nome: p.nome, status: status, diasDesde: diasDesde, ultima: ultima,
-        totalConsultas: p.datas.length, equipe: equipeTxtKpi || '—',
-        profissional: todosProfs.join(', ') || '—',
-        ultimoProfissionais: ultimoProfissionaisArrKpi, todosProfissionais: todosProfs
-      });
-
+      if(!medianaBase) return;
+      if(diasDesde <= medianaBase){ emDiaCount++; return; }
+      if(diasDesde > medianaBase*3){ abandonoConsumadoCount++; return; }
+      var todosProfs = Object.keys(p.profissionais).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); });
+      var ultimosProfsSet = p.ultimaProfissionais || {};
       // Com 2+ profissionais no histórico do paciente, destaca em
       // negrito quem de fato fez a ÚLTIMA consulta (profissionalHtml,
       // usado na tela). O PDF continua em texto puro (profissional).
@@ -2514,65 +2084,20 @@
         var escapado = escapeHtml(nomeProf);
         return (todosProfs.length >= 2 && ultimosProfsSet[nomeProf]) ? '<b>'+escapado+'</b>' : escapado;
       }).join(', ');
-      var ultimoProfissionaisArr = ultimoProfissionaisArrKpi;
       var profissionalTxt = todosProfs.join(', ');
-      // Coluna "Profissional" da tabela: SEMPRE 1 nome principal (o
-      // primeiro de ultimoProfissionaisArr, já com a prioridade
-      // eMulti-primeiro acima) + badge "+N" com popover pros demais — em
-      // TODOS os casos em que o paciente tem mais de 1 profissional no
-      // histórico, mesmo quando os "outros" são só o(s) co-profissional(is)
-      // da PRÓPRIA última consulta (empate de data), que antes ficavam
-      // grudados no texto principal sem popover nenhum. Cada item do
-      // popover leva a data em que ESSE profissional atendeu a pessoa pela
-      // última vez (ultimaDataPorProf, ou a própria "ultima" quando é
-      // co-profissional do último dia), do mais recente pro mais antigo.
-      var principalNome = ultimoProfissionaisArr[0] || null;
-      var extrasUltimaData = ultimoProfissionaisArr.slice(1).map(function(nomeProf){
-        return {nome: nomeProf, data: ultima};
-      });
-      var outrosProfissionaisAntigos = todosProfs
-        .filter(function(nomeProf){ return !ultimosProfsSet[nomeProf]; })
-        .map(function(nomeProf){ return {nome: nomeProf, data: (p.ultimaDataPorProf||{})[nomeProf] || null}; });
-      var outrosProfissionais = extrasUltimaData.concat(outrosProfissionaisAntigos)
-        .sort(function(a,b){
-          var ta = a.data ? a.data.getTime() : 0, tb = b.data ? b.data.getTime() : 0;
-          return tb - ta;
-        });
-      var equipeTxt = equipeTxtKpi;
-      var registroTabela = {
-        nome:p.nome, status:status, diasDesde:diasDesde, ultima:ultima,
+      var ultimoProfissionaisArr = Object.keys(ultimosProfsSet).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); });
+      var equipeTxt = equipeLabelUnica || Object.keys(p.equipes||{}).sort().join(' + ');
+      risco.push({
+        nome:p.nome, diasDesde:diasDesde, ultima:ultima,
         totalConsultas:p.datas.length,
         consultasPorProf:p.consultasPorProf || {},
         profissional: profissionalTxt || '—',
         profissionalHtml: profissionalHtml || '—',
-        profissionalUltimo: principalNome || '—',
-        outrosProfissionais: outrosProfissionais,
         ultimoProfissionais: ultimoProfissionaisArr,
-        todosProfissionais: todosProfs,
-        equipe: equipeTxt || '—',
-        // Estimativa: dias até cruzar 3x a mediana histórica (limite de
-        // "abandono consumado"). Negativo = já ultrapassou. null = não se
-        // aplica (em dia, consulta única ou sem mediana).
-        diasRestantes: (status === 'risco' || status === 'abandono') && medianaBase
-          ? (status === 'risco' ? Math.floor(medianaBase*3 - diasDesde) : -Math.ceil(diasDesde - medianaBase*3))
-          : null,
-        ultimaColetiva: ultimaColetivaPorNome[p.nome.toUpperCase()] || null
-      };
-      registrosTabela.push(registroTabela);
-      if(status === 'risco') risco.push(registroTabela);
+        equipe: equipeTxt || '—'
+      });
     });
-    // Ordem padrão da tabela: mais dias sem voltar primeiro; no empate,
-    // quem tem MENOS consultas primeiro; persistindo o empate, nome (A→Z).
-    // Aplicada também a registrosTabela (a lista que de fato alimenta a
-    // tabela) — antes só "risco" era ordenada, e a tabela saía na ordem em
-    // que os pacientes aparecem na planilha.
-    function ordemPadraoRisco(a, b){
-      if(b.diasDesde !== a.diasDesde) return b.diasDesde - a.diasDesde;
-      if(a.totalConsultas !== b.totalConsultas) return a.totalConsultas - b.totalConsultas;
-      return String(a.nome).localeCompare(String(b.nome), 'pt-BR', {sensitivity:'base'});
-    }
-    risco.sort(ordemPadraoRisco);
-    registrosTabela.sort(ordemPadraoRisco);
+    risco.sort(function(a,b){ return b.diasDesde - a.diasDesde; });
 
     return {
       totalPacientes: pacientes.length,
@@ -2589,9 +2114,7 @@
       comRetorno: comRetorno,
       emDiaCount: emDiaCount,
       abandonoConsumadoCount: abandonoConsumadoCount,
-      risco: risco,
-      kpiRegistros: kpiRegistros,
-      registrosTabela: registrosTabela
+      risco: risco
     };
   }
 
@@ -2679,221 +2202,48 @@
     }).join('') + '</div>';
   }
 
-  // Cabeçalhos da tabela "Pacientes em risco de abandono", na mesma ordem
-  // das células montadas em linhaRiscoHtml — usado tanto pro <thead>
-  // quanto pro comparador de ordenação (compareRiscoPorColuna).
-  var RISCO_HEADERS = ['Paciente','Profissional','Equipe','Consultas','Última consulta','Dias sem voltar','Dias restantes','Última participação coletiva'];
-  // Colunas oferecidas no "Filtrar por coluna…" da tabela de risco — cada
-  // uma expõe o MESMO texto exibido na célula (fmtInt/fmtBRDate/etc.), pra
-  // bater exatamente com o que aparece na tela. "Profissional" fica de
-  // fora porque já tem o filtro dedicado ao lado (Profissional da última
-  // consulta); o índice aqui é só a posição no <select>, não o índice da
-  // coluna na tabela (ver RISCO_HEADERS pra esse outro índice).
-  var RISCO_COLUNAS_FILTRAVEIS = [
-    {label:'Paciente', getValor: function(r){ return r.nome; }},
-    {label:'Equipe', getValor: function(r){ return r.equipe; }},
-    {label:'Consultas', numeric:true, getValor: function(r){ return fmtInt(r.totalConsultas); }},
-    {label:'Última consulta', isDate:true, getValor: function(r){ return fmtBRDate(r.ultima); }},
-    // "Dias sem voltar" filtra por FAIXAS (não por valor exato de dias):
-    // até 30, 31–60, 61–90 e mais de 90 dias. A lista de opções é fixa
-    // (fixedValues), na ordem das faixas, mesmo que alguma esteja vazia.
-    {label:'Dias sem voltar', fixedValues: ['Até 30 dias','31 a 60 dias','61 a 90 dias','Mais de 90 dias'],
-      getValor: function(r){
-        var d = r.diasDesde;
-        if(d <= 30) return 'Até 30 dias';
-        if(d <= 60) return '31 a 60 dias';
-        if(d <= 90) return '61 a 90 dias';
-        return 'Mais de 90 dias';
-      }}
-  ];
-  // Valores distintos de uma coluna filtrável, na ordem certa pro tipo:
-  // cronológica (isDate), numérica (numeric) ou alfanumérica (padrão) —
-  // mesmo critério já usado pros filtros de coluna da aba Listas.
-  function valoresDistintosRisco(colDef, dados){
-    if(colDef.fixedValues) return colDef.fixedValues.slice();
-    var seen = {}, values = [];
-    dados.forEach(function(r){
-      var v = colDef.getValor(r);
-      v = (v===undefined||v===null) ? '' : String(v).trim();
-      if(!v || seen[v]) return;
-      seen[v] = true;
-      values.push(v);
-    });
-    if(colDef.isDate){
-      values.sort(function(a,b){
-        var da = parseBRDate(a), db = parseBRDate(b);
-        return (da ? da.getTime() : 0) - (db ? db.getTime() : 0);
-      });
-    } else if(colDef.numeric){
-      values.sort(function(a,b){ return parseFloat(a.replace(',','.')) - parseFloat(b.replace(',','.')); });
-    } else {
-      values.sort(function(a,b){ return a.localeCompare(b, 'pt-BR'); });
-    }
-    return values;
-  }
-  // Comparador usado pela ordenação alfanumérica ao clicar num cabeçalho
-  // (ver wireRiscoFiltros) — opera direto sobre os dados (não sobre texto
-  // já renderizado), pra ordenar a lista INTEIRA filtrada antes do corte
-  // dos 40 exibidos, e não só as linhas já visíveis na tela.
-  function compareRiscoPorColuna(a, b, idx){
-    switch(idx){
-      case 3: return a.totalConsultas - b.totalConsultas;
-      case 5: return a.diasDesde - b.diasDesde;
-      case 6: { // nulos (não se aplica) ficam no fim da ordem crescente
-        var ra = a.diasRestantes==null ? 1e9 : a.diasRestantes, rb = b.diasRestantes==null ? 1e9 : b.diasRestantes;
-        return ra - rb;
-      }
-      case 7: return (a.ultimaColetiva ? a.ultimaColetiva.getTime() : 0) - (b.ultimaColetiva ? b.ultimaColetiva.getTime() : 0);
-      case 4: return a.ultima - b.ultima;
-      case 1: return String(a.profissional).localeCompare(String(b.profissional), 'pt-BR', {numeric:true, sensitivity:'base'});
-      case 2: return String(a.equipe).localeCompare(String(b.equipe), 'pt-BR', {numeric:true, sensitivity:'base'});
-      default: return String(a.nome).localeCompare(String(b.nome), 'pt-BR', {numeric:true, sensitivity:'base'});
-    }
-  }
-
   // Uma linha da tabela de risco — função à parte porque agora é usada
   // tanto no render inicial quanto toda vez que o filtro (profissional ou
   // busca) muda (ver renderTabelaRisco, dentro de wireRiscoFiltros).
   function linhaRiscoHtml(r, profissionaisSelecionados){
-    // Só recalcula "Consultas"/"Profissional" a partir de um subconjunto de
-    // nomes quando o usuário de fato filtrou por profissional específico
-    // (profissionaisSelecionados não vazio). Sem esse filtro ("Todos"), usa
-    // sempre os valores "crus" do paciente (r.totalConsultas/r.profissionalHtml)
-    // — os MESMOS usados pela ordenação (compareRiscoPorColuna) e pelo filtro
-    // "Filtrar por coluna… → Consultas" (RISCO_COLUNAS_FILTRAVEIS). Antes,
-    // como fallback usava (r.ultimoProfissionais||[]) mesmo sem filtro
-    // aplicado, a célula acabava mostrando só a soma de consultas do(s)
-    // profissional(is) da ÚLTIMA consulta — um número menor/diferente do
-    // total real sempre que o paciente também foi atendido por outro(s)
-    // profissional(is) em consultas anteriores. Isso fazia a coluna
-    // "Consultas" exibida na tela não bater com o valor que a ordenação/
-    // filtro realmente usam, parecendo que o filtro "não reconhecia" o
-    // número certo. (r.profissionalHtml não é mais usado na célula — ver
-    // profissionalCelulaHtml, abaixo — mas continua guardado em "risco"
-    // caso sirva de referência futura.)
-    var temFiltroProf = profissionaisSelecionados && profissionaisSelecionados.length;
-    var nomesVisiveis = temFiltroProf
-      ? profissionaisSelecionados.filter(function(nome){
-          return (r.consultasPorProf || {})[nome] > 0;
-        })
-      : [];
-    // Coluna "Profissional": com filtro específico marcado, o NOME
-    // PRINCIPAL mostrado é só quem foi filtrado (comportamento de antes) —
-    // mas o popover "+N" continua aparecendo quando o paciente tem OUTROS
-    // profissionais no histórico além dos filtrados (r.outrosProfissionais,
-    // menos quem já está no nome principal), em vez de sumir só porque um
-    // filtro está ativo. Sem filtro ("Todos"), mostra só quem fez a
-    // ÚLTIMA consulta (r.profissionalUltimo) + o mesmo badge "+N" —
-    // clicar nele abre um popover com esses nomes e a data da última
-    // consulta de cada um (ver profissionalBadgeHtml/abrirProfPopover).
-    var profissional;
-    if(temFiltroProf){
-      var principalFiltro = nomesVisiveis.join(', ') || r.profissionalUltimo || r.profissional;
-      var extrasFiltro = (r.outrosProfissionais || []).filter(function(o){
-        return nomesVisiveis.indexOf(o.nome) === -1;
-      });
-      profissional = profissionalBadgeHtml(principalFiltro, extrasFiltro);
-    } else {
-      profissional = profissionalCelulaHtml(r);
-    }
-    var totalConsultas = (temFiltroProf && nomesVisiveis.length)
+    var profs = profissionaisSelecionados && profissionaisSelecionados.length
+      ? profissionaisSelecionados
+      : (r.ultimoProfissionais || []);
+    var nomesVisiveis = profs.filter(function(nome){
+      return (r.consultasPorProf || {})[nome] > 0;
+    });
+    var profissional = nomesVisiveis.length
+      ? nomesVisiveis.join(', ')
+      : (r.profissionalHtml || escapeHtml(r.profissional));
+    var totalConsultas = nomesVisiveis.length
       ? nomesVisiveis.reduce(function(total, nome){
           return total + ((r.consultasPorProf || {})[nome] || 0);
         }, 0)
       : r.totalConsultas;
     var profAttr = escapeHtml((r.ultimoProfissionais||[]).join('|'));
-    return '<tr data-ultimo-prof="'+profAttr+'"><td>'+escapeHtml(r.nome)+'</td><td>'+profissional+'</td><td>'+escapeHtml(r.equipe)+'</td><td>'+fmtInt(totalConsultas)+'</td><td>'+fmtBRDate(r.ultima)+'</td><td>'+fmtInt(r.diasDesde)+' dias</td><td>'+diasRestantesTxt(r)+'</td><td>'+(r.ultimaColetiva ? fmtBRDate(r.ultimaColetiva) : '—')+'</td></tr>';
-  }
-  // Texto da coluna "Dias restantes" (estimativa até o limite de abandono
-  // consumado = 3x a mediana histórica 1ª→2ª consulta).
-  function diasRestantesTxt(r){
-    if(r.diasRestantes == null) return '—';
-    if(r.diasRestantes < 0) return 'Ultrapassou há '+fmtInt(-r.diasRestantes)+' dias';
-    return fmtInt(r.diasRestantes)+' dias';
-  }
-
-  // Monta a célula "Profissional" no modo padrão (sem filtro de
-  // profissional marcado): nome de quem fez a última consulta, mais um
-  // botão "+N" (só quando há outros profissionais no histórico do
-  // paciente) que abre o popover com "Também atendido por…". Os dados dos
-  // outros profissionais vão codificados em data-prof-extra (JSON +
-  // encodeURIComponent, pra não depender de escapeHtml lidar com aspas em
-  // atributo) e são lidos pelo listener delegado em wireRiscoFiltros.
-  // Monta a célula "Profissional" no padrão "1 nome + badge +N com
-  // popover pros demais": usada tanto pela tabela "Pacientes em risco de
-  // abandono" (profissionalCelulaHtml, abaixo) quanto por "Pessoas
-  // Atendidas" (pessoasAtendidasParaMeses/renderListCard). extras é um
-  // array de {nome, data:Date|null}; a data já formatada
-  // (fmtBRDate) vai codificada em data-prof-extra (JSON +
-  // encodeURIComponent, pra não depender de escapeHtml lidar com aspas em
-  // atributo) e é lida pelo listener delegado que abre o popover
-  // (abrirProfPopover) — ver wireRiscoFiltros e wireListasProfPopover.
-  function profissionalBadgeHtml(nomePrincipal, extras){
-    var nomeHtml = escapeHtml(nomePrincipal || '—');
-    if(!extras || !extras.length) return nomeHtml;
-    // "t" (tipo: Atendimento / Participação em Atividade Coletiva) é
-    // opcional — a tabela "Pacientes em risco de abandono" não informa
-    // (só usa Atendimentos), e o popover simplesmente não mostra a linha
-    // de tipo nesse caso (ver abrirProfPopover).
-    var payload = extras.map(function(o){ return {n:o.nome, d: o.data ? fmtBRDate(o.data) : '', t: o.tipo || ''}; });
-    var attr = encodeURIComponent(JSON.stringify(payload));
-    return nomeHtml
-      + ' <button type="button" class="prof-mais-btn" data-prof-extra="'+attr+'" title="Ver outros profissionais envolvidos">+'+extras.length+'</button>';
-  }
-  function profissionalCelulaHtml(r){
-    return profissionalBadgeHtml(r.profissionalUltimo || r.profissional, r.outrosProfissionais);
+    return '<tr data-ultimo-prof="'+profAttr+'"><td>'+escapeHtml(r.nome)+'</td><td>'+profissional+'</td><td>'+escapeHtml(r.equipe)+'</td><td>'+fmtInt(totalConsultas)+'</td><td>'+fmtBRDate(r.ultima)+'</td><td>'+fmtInt(r.diasDesde)+' dias</td></tr>';
   }
 
   function riscoTableHtml(risco){
     if(!risco.length) return '<p class="footnote">Nenhum paciente na janela de risco no momento (ou ainda não há intervalo histórico suficiente pra calcular).</p>';
     // A tabela/contador/rodapé começam vazios de propósito — quem preenche
-    // (e reage ao filtro de profissional + coluna + busca) é
-    // wireRiscoFiltros, logo depois deste HTML entrar no DOM. Isso garante
-    // que o quantitativo mostrado na tela E o PDF sempre reflitam o filtro
-    // atual, em vez de só esconder linhas já renderizadas da lista
-    // completa.
+    // (e reage ao filtro de profissional + busca) é wireRiscoFiltros, logo
+    // depois deste HTML entrar no DOM. Isso garante que o quantitativo
+    // mostrado na tela E o PDF sempre reflitam o filtro atual, em vez de
+    // só esconder linhas já renderizadas da lista completa.
     var pdfBtnHtml = '<button type="button" class="pdf-btn" id="btnRiscoPdf">'
       + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h1a1.5 1.5 0 0 0 0-3H9v5"/><path d="M13 12v5h1a2 2 0 0 0 0-5z"/><path d="M18.5 12H17v5"/><path d="M17 14.5h1.3"/></svg>'
       + '<span>Gerar PDF</span></button>';
-    var xlsxBtnHtml = '<button type="button" class="pdf-btn" id="btnRiscoXlsx" style="margin-right:8px;">'
-      + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13l4 5M13 13l-4 5"/></svg>'
-      + '<span>Exportar Excel</span></button>';
-    // Filtro por coluna (Paciente/Equipe/Consultas/Última consulta/Dias sem
-    // voltar — "Profissional" fica de fora porque já tem o filtro dedicado
-    // ao lado): mesmo padrão visual (select + multisseleção de valores) das
-    // listas da aba Listas — ver RISCO_COLUNAS_FILTRAVEIS/wireRiscoFiltros.
-    var opcoesSituacao = [
-      {value:'status:2mais', label:'Com 2+ consultas'},
-      {value:'status:emDia', label:'Em dia'},
-      {value:'status:risco', label:'Em risco'},
-      {value:'status:abandono', label:'Abandono consumado'}
-    ];
-    var colOptionsHtml = '<option value="">Filtrar…</option>'
-      + opcoesSituacao.map(function(o){ return '<option value="'+o.value+'">'+escapeHtml(o.label)+'</option>'; }).join('')
-      + RISCO_COLUNAS_FILTRAVEIS.map(function(c, i){ return '<option value="col:'+i+'">'+escapeHtml(c.label)+'</option>'; }).join('');
-    var colFilterHtml = '<div class="filter-pair">'
-      + '<select class="filter-col" id="riscoFilterCol">'+colOptionsHtml+'</select>'
-      + '<div class="ms-wrap filter-val-ms ms-disabled" id="riscoFilterValMs"></div>'
-      + '</div>';
-    // Cabeçalhos clicáveis (ordenação alfanumérica, mesmo padrão visual
-    // .sortable-th/.sort-ind usado na aba Listas) — ver ordenarTabelaRisco.
-    var theadHtml = RISCO_HEADERS.map(function(h, i){
-      return '<th class="sortable-th" data-risco-col-idx="'+i+'">'+escapeHtml(h)+'<span class="sort-ind"></span></th>';
-    }).join('');
-    return '<div style="display:flex;justify-content:flex-end;margin-bottom:8px;">'+xlsxBtnHtml+pdfBtnHtml+'</div>'
+    return '<div style="display:flex;justify-content:flex-end;margin-bottom:8px;">'+pdfBtnHtml+'</div>'
       + '<p class="list-meta" id="riscoListMeta"></p>'
       + '<div class="list-filters">'
       +   '<div class="list-month-filter"><label class="list-month-filter-label">Profissional (última consulta)</label>'
       +     '<div class="ms-wrap" id="riscoProfMs"></div></div>'
-      +   '<div class="list-month-filter"><label class="list-month-filter-label">Profissional</label>'
-      +     '<div class="ms-wrap" id="riscoProfAnyMs"></div></div>'
-      +   colFilterHtml
       + '</div>'
       + '<input class="list-search" type="text" placeholder="Filtrar nesta lista…" id="riscoSearchInput">'
       + '<div class="table-wrap"><table class="data-table"><thead><tr>'
-      + theadHtml
+      + '<th>Paciente</th><th>Profissional</th><th>Equipe</th><th>Consultas</th><th>Última consulta</th><th>Dias sem voltar</th>'
       + '</tr></thead><tbody id="riscoTbody"></tbody></table></div>'
-      + '<div class="risco-pager" id="riscoPager"></div>'
       + '<p class="footnote" id="riscoFootnote"></p>';
   }
 
@@ -2903,47 +2253,22 @@
   // riscoFiltrado, abaixo), pra que o quantitativo na tela, o rodapé
   // ("Mostrando X de Y") e o PDF gerado batam sempre com o filtro atual
   // (profissional da última consulta + busca), em vez do total geral.
-  function wireRiscoFiltros(risco, kpiRegistros, temMediana, registrosTabela){
+  function wireRiscoFiltros(risco){
     var profMsEl = document.getElementById('riscoProfMs');
     var searchEl = document.getElementById('riscoSearchInput');
     var metaEl = document.getElementById('riscoListMeta');
     var footnoteEl = document.getElementById('riscoFootnote');
     var tbody = document.getElementById('riscoTbody');
     var btnPdf = document.getElementById('btnRiscoPdf');
-    var btnXlsx = document.getElementById('btnRiscoXlsx');
-    var resumoEl = document.getElementById('analisesRiscoResumo');
-    var pagerEl = document.getElementById('riscoPager');
-    var RISCO_POR_PAGINA = 100, paginaRisco = 1;
-    if(!document.getElementById('riscoPagerStyles')){
-      var stPg = document.createElement('style');
-      stPg.id = 'riscoPagerStyles';
-      stPg.textContent = '.risco-pager{display:flex;align-items:center;justify-content:center;gap:14px;margin:10px 0 4px;font-size:13px;color:var(--ink-soft)}'
-        + '.risco-pager button{border:1px solid var(--line);background:var(--paper,#fff);border-radius:999px;padding:6px 14px;font:inherit;font-weight:600;color:var(--ink);cursor:pointer}'
-        + '.risco-pager button:disabled{opacity:.4;cursor:default}';
-      document.head.appendChild(stPg);
-    }
     if(!tbody) return;
 
-    var todos = registrosTabela || risco || [];
-    // Base pros cards de estatística (Total no histórico / Com 2+
-    // consultas / Em dia / Em risco / Abandono consumado): cobre TODOS os
-    // pacientes (não só os em risco), filtrada com o MESMO predicado da
-    // tabela abaixo (ver filtroPredicado), pra esses números variarem
-    // junto com Profissional/Equipe/coluna/busca em vez de ficar fixos.
-    var kpiTodos = kpiRegistros || [];
+    var todos = risco || [];
     // Opções do filtro: qualquer profissional que apareça como responsável
     // pela ÚLTIMA consulta de PELO MENOS UM paciente em risco (lista
     // completa, não só os 40 exibidos na tela).
     var profsSet = {};
     todos.forEach(function(r){ (r.ultimoProfissionais||[]).forEach(function(nome){ profsSet[nome] = true; }); });
     var profsOpts = Object.keys(profsSet).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); })
-      .map(function(nome){ return {value:nome, label:nome}; });
-    // Opções do filtro "Profissional" (independente de última consulta):
-    // qualquer profissional que já atendeu PELO MENOS UM paciente em risco
-    // em QUALQUER consulta do histórico dele, não só a mais recente.
-    var profsAnySet = {};
-    todos.forEach(function(r){ (r.todosProfissionais||[]).forEach(function(nome){ profsAnySet[nome] = true; }); });
-    var profsAnyOpts = Object.keys(profsAnySet).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); })
       .map(function(nome){ return {value:nome, label:nome}; });
 
     // Texto de busca de cada paciente, pré-montado (mesmas colunas
@@ -2956,256 +2281,46 @@
 
     var riscoFiltrado = todos.slice(); // resultado do filtro atual (lista completa, sem cap de 40) — é o que o PDF usa
 
-    // O clique no botão "+N" da coluna Profissional é tratado por um
-    // listener global único no document — ver logo depois de
-    // abrirProfPopover, mais abaixo no arquivo.
-
     var profMs = profMsEl ? createMultiSelect(profMsEl, {
       placeholder: 'Todos', multi:true, search: profsOpts.length>8, showTags:true,
       onChange: function(){ renderTabelaRisco(); }
     }) : null;
     if(profMs) profMs.setOptions(profsOpts);
 
-    var profAnyMsEl = document.getElementById('riscoProfAnyMs');
-    var profAnyMs = profAnyMsEl ? createMultiSelect(profAnyMsEl, {
-      placeholder: 'Todos', multi:true, search: profsAnyOpts.length>8, showTags:true,
-      onChange: function(){ renderTabelaRisco(); }
-    }) : null;
-    if(profAnyMs) profAnyMs.setOptions(profsAnyOpts);
-
     if(searchEl) searchEl.addEventListener('input', renderTabelaRisco);
-
-    // Filtro por coluna (Paciente/Equipe/Consultas/Última consulta/Dias sem
-    // voltar): select da coluna + multisseleção de valores, mesmo padrão da
-    // aba Listas — a multisseleção de valores fica desabilitada até uma
-    // coluna ser escolhida (ver RISCO_COLUNAS_FILTRAVEIS/valoresDistintosRisco).
-    var colSelectEl = document.getElementById('riscoFilterCol');
-    var colValWrapEl = document.getElementById('riscoFilterValMs');
-    var colValMs = colValWrapEl ? createMultiSelect(colValWrapEl, {
-      placeholder: 'Todos os valores', multi:true, search:true, showTags:true,
-      onChange: function(){ renderTabelaRisco(); }
-    }) : null;
-    if(colSelectEl){
-      colSelectEl.addEventListener('change', function(){
-        var valorFiltro = colSelectEl.value || '';
-        var idx = valorFiltro.indexOf('col:') === 0 ? parseInt(valorFiltro.slice(4), 10) : null;
-        if(idx === null || !colValMs){
-          if(colValMs){ colValMs.setOptions([]); colValMs.setSelected([]); }
-          if(colValWrapEl) colValWrapEl.classList.add('ms-disabled');
-        } else {
-          var valores = valoresDistintosRisco(RISCO_COLUNAS_FILTRAVEIS[idx], todos);
-          colValMs.setOptions(valores.map(function(v){ return {value:v, label:v}; }));
-          colValMs.setSelected([]);
-          colValWrapEl.classList.remove('ms-disabled');
-        }
-        renderTabelaRisco();
-      });
-    }
-
-    // Ordenação alfanumérica ao clicar no cabeçalho — ordena a lista
-    // FILTRADA inteira (não só as linhas já visíveis), antes do corte dos
-    // 40 exibidos na tela, pra bater com o que o rodapé/PDF mostram (ver
-    // compareRiscoPorColuna). Clicar de novo no mesmo cabeçalho inverte a
-    // direção; clicar em outro reinicia em ordem crescente.
-    var sortColIdx = null, sortDir = 'asc';
-    var theadThs = Array.prototype.slice.call(document.querySelectorAll('[data-risco-col-idx]'));
-    theadThs.forEach(function(th){
-      th.addEventListener('click', function(){
-        var idx = parseInt(th.getAttribute('data-risco-col-idx'), 10);
-        sortDir = (sortColIdx === idx && sortDir === 'asc') ? 'desc' : 'asc';
-        sortColIdx = idx;
-        theadThs.forEach(function(h){ h.classList.remove('sort-asc','sort-desc'); });
-        th.classList.add(sortDir === 'asc' ? 'sort-asc' : 'sort-desc');
-        renderTabelaRisco();
-      });
-    });
-
-    // Predicado de filtro único, usado tanto pra lista "risco" exibida na
-    // tabela quanto (com os mesmos critérios) pros cards de estatística
-    // acima dela — kpiTodos cobre todos os pacientes, e como os campos
-    // (nome/profissional/equipe/totalConsultas/ultima/diasDesde/
-    // ultimoProfissionais/todosProfissionais) têm o mesmo formato nos dois
-    // casos, o mesmo predicado serve pra ambos.
-    function filtroPredicado(r, paraTabela){
-      var selecionados = profMs ? profMs.getSelected() : [];
-      var selecionadosAny = profAnyMs ? profAnyMs.getSelected() : [];
-      var termo = searchEl ? searchEl.value.trim().toLowerCase() : '';
-      var valorFiltro = colSelectEl ? (colSelectEl.value || '') : '';
-      var colIdxFiltro = valorFiltro.indexOf('col:') === 0 ? parseInt(valorFiltro.slice(4), 10) : null;
-      var statusFiltro = valorFiltro.indexOf('status:') === 0 ? valorFiltro.slice(7) : '';
-      var valoresColSelecionados = colValMs ? colValMs.getSelected() : [];
-      var profsLinha = r.ultimoProfissionais || [];
-      var matchesProf = !selecionados.length || selecionados.some(function(v){ return profsLinha.indexOf(v) >= 0; });
-      // "Profissional" (independente de ser a última consulta ou não):
-      // olha pra r.todosProfissionais (qualquer profissional que já
-      // atendeu o paciente em algum momento do histórico) — diferente do
-      // filtro "Profissional (última consulta)" acima, que só olha
-      // r.ultimoProfissionais.
-      var profsLinhaAny = r.todosProfissionais || [];
-      var matchesProfAny = !selecionadosAny.length || selecionadosAny.some(function(v){ return profsLinhaAny.indexOf(v) >= 0; });
-      var matchesTexto = !termo || textoBusca(r).indexOf(termo) !== -1;
-      var matchesColuna = (colIdxFiltro === null || !valoresColSelecionados.length)
-        || valoresColSelecionados.indexOf(RISCO_COLUNAS_FILTRAVEIS[colIdxFiltro].getValor(r)) >= 0;
-      var matchesSituacao = true;
-      if(statusFiltro === '2mais') matchesSituacao = r.totalConsultas >= 2;
-      else if(statusFiltro === 'emDia') matchesSituacao = r.status === 'emDia';
-      else if(statusFiltro === 'risco') matchesSituacao = r.status === 'risco';
-      else if(statusFiltro === 'abandono') matchesSituacao = r.status === 'abandono';
-      // Sem situação escolhida, mantém o comportamento original: a tabela
-      // começa mostrando apenas os pacientes em risco.
-      else if(paraTabela) matchesSituacao = r.status === 'risco';
-      return matchesProf && matchesProfAny && matchesTexto && matchesColuna && matchesSituacao;
-    }
-
-    // Recalcula e redesenha os cards de estatística acima da tabela a
-    // partir da lista COMPLETA de pacientes (kpiTodos), já filtrada pelos
-    // mesmos critérios da tabela — assim os números variam junto com o
-    // filtro, em vez de refletirem sempre o total geral sem filtro.
-    function renderKpis(kpiFiltrados){
-      if(!resumoEl || !temMediana) return;
-      var comRetornoF = 0, emDiaF = 0, riscoF = 0, abandonoF = 0;
-      kpiFiltrados.forEach(function(r){
-        if(r.status === 'unica' || r.status === 'semMediana') return;
-        comRetornoF++;
-        if(r.status === 'emDia') emDiaF++;
-        else if(r.status === 'risco') riscoF++;
-        else if(r.status === 'abandono') abandonoF++;
-      });
-      // "Em dia"/"Em risco"/"Abandono consumado" continuam comparados só
-      // com quem TEM 2+ consultas dentro do filtro atual (comRetornoF) —
-      // não com o total geral filtrado, que inclui "Consulta única".
-      function pctRetorno(n){ return comRetornoF ? Math.round(n/comRetornoF*100) : 0; }
-      resumoEl.innerHTML = ''
-        + '<div class="kpi-container">'
-        +   '<div class="kpi-item"><label>Total no histórico</label><span>'+fmtInt(kpiFiltrados.length)+'</span></div>'
-        +   '<div class="kpi-item"><label>Com 2+ consultas</label><span>'+fmtInt(comRetornoF)+'</span></div>'
-        +   '<div class="kpi-item"><label>Em dia</label><span>'+fmtInt(emDiaF)+' ('+pctRetorno(emDiaF)+'%)</span></div>'
-        +   '<div class="kpi-item"><label>Em risco</label><span>'+fmtInt(riscoF)+' ('+pctRetorno(riscoF)+'%)</span></div>'
-        +   '<div class="kpi-item"><label>Abandono consumado</label><span>'+fmtInt(abandonoF)+' ('+pctRetorno(abandonoF)+'%)</span></div>'
-        + '</div>';
-    }
 
     function renderTabelaRisco(){
       var selecionados = profMs ? profMs.getSelected() : [];
-      riscoFiltrado = todos.filter(function(r){ return filtroPredicado(r, true); });
-      renderKpis(kpiTodos.filter(function(r){ return filtroPredicado(r, false); }));
-      if(sortColIdx !== null){
-        riscoFiltrado.sort(function(a,b){
-          var cmp = compareRiscoPorColuna(a, b, sortColIdx);
-          return sortDir === 'asc' ? cmp : -cmp;
-        });
-      }
+      var termo = searchEl ? searchEl.value.trim().toLowerCase() : '';
+      riscoFiltrado = todos.filter(function(r){
+        var profsLinha = r.ultimoProfissionais || [];
+        var matchesProf = !selecionados.length || selecionados.some(function(v){ return profsLinha.indexOf(v) >= 0; });
+        var matchesTexto = !termo || textoBusca(r).indexOf(termo) !== -1;
+        return matchesProf && matchesTexto;
+      });
 
-      // Nova filtragem/ordenação sempre volta pra página 1.
-      paginaRisco = 1;
-      renderPaginaRisco(selecionados);
-
-      // Quantitativo mostrado acima da tabela: reflete o TOTAL filtrado
-      // (riscoFiltrado), não só as linhas da página atual.
-      if(metaEl) metaEl.textContent = fmtInt(riscoFiltrado.length) + (riscoFiltrado.length===1 ? ' paciente' : ' pacientes');
-      if(footnoteEl) footnoteEl.textContent = '';
-    }
-
-    // Paginação: 100 pacientes por página (todos os filtrados ficam
-    // acessíveis pelas páginas, em vez do corte fixo em 40).
-    function renderPaginaRisco(selecionadosParam){
-      var selecionados = selecionadosParam || (profMs ? profMs.getSelected() : []);
-      var total = riscoFiltrado.length;
-      var totalPaginas = Math.max(1, Math.ceil(total / RISCO_POR_PAGINA));
-      if(paginaRisco > totalPaginas) paginaRisco = totalPaginas;
-      if(paginaRisco < 1) paginaRisco = 1;
-      var ini = (paginaRisco - 1) * RISCO_POR_PAGINA;
-      var visiveis = riscoFiltrado.slice(ini, ini + RISCO_POR_PAGINA);
+      var visiveis = riscoFiltrado.slice(0,40);
       tbody.innerHTML = visiveis.length
         ? visiveis.map(function(r){ return linhaRiscoHtml(r, selecionados); }).join('')
-        : '<tr><td colspan="8" class="footnote" style="padding:14px 12px;">Nenhum paciente encontrado com esse filtro.</td></tr>';
+        : '<tr><td colspan="6" class="footnote" style="padding:14px 12px;">Nenhum paciente encontrado com esse filtro.</td></tr>';
 
-      if(pagerEl){
-        if(total <= RISCO_POR_PAGINA){
-          pagerEl.innerHTML = '';
-        } else {
-          pagerEl.innerHTML = ''
-            + '<button type="button" data-pg="prev"'+(paginaRisco<=1?' disabled':'')+'>‹ Anterior</button>'
-            + '<span>Página '+fmtInt(paginaRisco)+' de '+fmtInt(totalPaginas)
-            +   ' · mostrando '+fmtInt(ini+1)+'–'+fmtInt(Math.min(ini+RISCO_POR_PAGINA,total))+' de '+fmtInt(total)+'</span>'
-            + '<button type="button" data-pg="next"'+(paginaRisco>=totalPaginas?' disabled':'')+'>Próxima ›</button>';
-        }
+      if(metaEl) metaEl.textContent = fmtInt(visiveis.length) + (visiveis.length===1 ? ' paciente' : ' pacientes');
+      if(footnoteEl){
+        footnoteEl.textContent = riscoFiltrado.length > 40
+          ? 'Mostrando os 40 pacientes há mais tempo sem voltar na tela (de '+fmtInt(riscoFiltrado.length)+' no total com o filtro atual) — o PDF traz a lista completa do filtro.'
+          : '';
       }
-      var wrap = tbody.parentNode && tbody.parentNode.parentNode;
-      if(wrap) wrap.scrollTop = 0;
-    }
-    if(pagerEl){
-      pagerEl.addEventListener('click', function(ev){
-        var b = ev.target.closest ? ev.target.closest('button[data-pg]') : null;
-        if(!b || b.disabled) return;
-        paginaRisco += (b.getAttribute('data-pg') === 'next') ? 1 : -1;
-        renderPaginaRisco();
-      });
     }
     renderTabelaRisco();
 
-    if(btnPdf) btnPdf.addEventListener('click', function(){ gerarPdfRisco(riscoFiltrado, todos.length, {
-      ultima: profMs ? profMs.getSelected() : [],
-      qualquer: profAnyMs ? profAnyMs.getSelected() : []
-    }); });
-    if(btnXlsx) btnXlsx.addEventListener('click', function(){ gerarExcelRisco(riscoFiltrado, todos.length); });
-  }
-
-  // ---------- Exportar "Pacientes em risco de abandono" em Excel ----------
-  // Exporta a lista COMPLETA filtrada (mesmo riscoFiltrado do PDF, na
-  // ordem atual — não só a página visível). "Motivo" é objetivo (dias sem
-  // retorno x mediana/limite); "Próxima ação sugerida" segue só a situação;
-  // "Ação realizada" e "Responsável" ficam em branco pra equipe preencher.
-  function gerarExcelRisco(lista, totalGeral){
-    if(typeof XLSX === 'undefined' || !XLSX.utils){
-      alert('Não foi possível carregar a biblioteca de Excel (verifique a conexão com a internet) — tente novamente.');
-      return;
-    }
-    if(!lista.length){
-      alert('Não há pacientes pra exportar com o filtro atual.');
-      return;
-    }
-    var mediana = analisesDataAtual && analisesDataAtual.medianaBase;
-    var limite = mediana ? Math.floor(mediana*3) : null;
-    var SITUACAO = {emDia:'Em dia', risco:'Em risco', abandono:'Abandono consumado', unica:'Consulta única', semMediana:'Sem mediana'};
-    var ACAO = {
-      risco:'Contato ativo (telefone/visita) para reagendar',
-      abandono:'Busca ativa / visita domiciliar',
-      emDia:'Manter acompanhamento',
-      unica:'Verificar necessidade de retorno',
-      semMediana:'—'
-    };
-    function motivo(r){
-      if(!mediana || r.status==='unica' || r.status==='semMediana') return '—';
-      var base = fmtInt(r.diasDesde)+' dias sem voltar; mediana de retorno '+fmtDec(mediana,0)+' dias';
-      if(r.status==='emDia') return base+' (dentro da mediana)';
-      if(r.status==='risco') return base+'; limite de abandono consumado '+fmtInt(limite)+' dias';
-      return base+'; passou do limite de '+fmtInt(limite)+' dias';
-    }
-    var head = ['Paciente','Profissional (última consulta)','Todos os profissionais','Equipe','Consultas','Última consulta','Dias sem voltar','Situação','Dias restantes (estimativa)','Última participação coletiva','Motivo','Próxima ação sugerida','Ação realizada','Responsável'];
-    var rows = lista.map(function(r){
-      return [
-        r.nome, r.profissionalUltimo || r.profissional, r.profissional, r.equipe, r.totalConsultas,
-        fmtBRDate(r.ultima), r.diasDesde, SITUACAO[r.status] || r.status,
-        r.diasRestantes == null ? '' : r.diasRestantes,
-        r.ultimaColetiva ? fmtBRDate(r.ultimaColetiva) : '',
-        motivo(r), ACAO[r.status] || '', '', ''
-      ];
-    });
-    var ws = XLSX.utils.aoa_to_sheet([head].concat(rows));
-    ws['!cols'] = [{wch:34},{wch:28},{wch:34},{wch:20},{wch:10},{wch:14},{wch:14},{wch:20},{wch:16},{wch:18},{wch:58},{wch:44},{wch:26},{wch:22}];
-    ws['!autofilter'] = {ref: XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:rows.length, c:head.length-1}})};
-    var wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Risco de abandono');
-    var equipeLabel = analisesEquipes.map(function(e){ return e.label; }).join(' + ');
-    XLSX.writeFile(wb, slugifyFileName('Pacientes_risco_abandono')+'__'+slugifyFileName(equipeLabel)+'__'+slugifyFileName(new Date().toLocaleDateString('pt-BR'))+'.xlsx');
+    if(btnPdf) btnPdf.addEventListener('click', function(){ gerarPdfRisco(riscoFiltrado, todos.length); });
   }
 
   // ---------- Exportar "Pacientes em risco de abandono" em PDF ----------
   // Mesma linha visual dos outros PDFs do painel (faixa de cabeçalho +
   // tabela), mas usa a lista COMPLETA de risco (não só os 40 primeiros
   // mostrados na tela).
-  function gerarPdfRisco(risco, totalGeral, profSel){
+  function gerarPdfRisco(risco, totalGeral){
     var jspdfNs = window.jspdf;
     if(!jspdfNs || !jspdfNs.jsPDF){
       alert('Não foi possível carregar a biblioteca de geração de PDF (verifique a conexão com a internet) — tente novamente.');
@@ -3241,29 +2356,24 @@
     doc.setFontSize(13);
     doc.text('Pacientes em risco de abandono', margin, y);
     y += 16;
-    y = pdfLinhaProfissional(doc, 'Profissional (última consulta)', profSel && profSel.ultima, margin, y, pageWidth-margin*2);
-    y = pdfLinhaProfissional(doc, 'Profissional (qualquer consulta)', profSel && profSel.qualquer, margin, y, pageWidth-margin*2);
     doc.setFont('helvetica','normal');
     doc.setFontSize(9);
     doc.setTextColor(81,96,90);
-    doc.text('Pacientes com 2+ consultas cujo último atendimento já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível.', margin, y, {maxWidth: pageWidth-margin*2});
+    doc.text('Pacientes com 2+ consultas cuja última visita já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível.', margin, y, {maxWidth: pageWidth-margin*2});
     y += 22;
     doc.text(fmtInt(risco.length)+(risco.length===1?' paciente no total':' pacientes no total')+(filtroAtivo ? ' (filtro de profissional/busca aplicado — total geral sem filtro: '+fmtInt(totalGeral)+')' : '')+'.', margin, y, {maxWidth: pageWidth-margin*2});
     y += 10;
 
-    var linhasRisco = risco.map(function(r){
-      return [r.nome, r.profissional, r.equipe, fmtInt(r.totalConsultas), fmtBRDate(r.ultima), fmtInt(r.diasDesde)+' dias'];
-    });
-    var tabelaRisco = pdfComNumeracao(['Paciente','Profissional','Equipe','Consultas','Última consulta','Dias sem voltar'], linhasRisco, linhasRisco.length > 999 ? 36 : 30);
     doc.autoTable({
       startY: y+6,
-      head: [tabelaRisco.head],
-      body: tabelaRisco.body,
+      head: [['Paciente','Profissional','Equipe','Consultas','Última consulta','Dias sem voltar']],
+      body: risco.map(function(r){
+        return [r.nome, r.profissional, r.equipe, fmtInt(r.totalConsultas), fmtBRDate(r.ultima), fmtInt(r.diasDesde)+' dias'];
+      }),
       theme: 'grid',
-      columnStyles: tabelaRisco.columnStyles,
       margin: {left:margin, right:margin, bottom:34},
       styles: {font:'helvetica', fontSize:8.6, cellPadding:4, overflow:'linebreak', textColor:[19,36,31], lineColor:[220,228,214], lineWidth:0.5},
-      headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold', halign:'center', valign:'middle'},
+      headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold'},
       alternateRowStyles: {fillColor:[241,244,238]},
       didDrawPage: function(){
         doc.setFontSize(8);
@@ -3303,15 +2413,26 @@
     if(elRiscoResumo){
       if(!data.medianaBase){
         elRiscoResumo.innerHTML = '<p class="footnote" style="margin:0;">Ainda não há mediana histórica suficiente (1ª→2ª consulta) pra classificar quem está em dia, em risco ou em abandono consumado.</p>';
+      } else {
+        var comRetorno = data.comRetorno || 0;
+        function pctRetorno(n){ return comRetorno ? Math.round(n/comRetorno*100) : 0; }
+        // Importante: "Em risco" só faz sentido comparado com quem TEM
+        // 2+ consultas (comRetorno) — não com o total geral de pacientes,
+        // que inclui quem nunca voltou nem uma vez (Consulta única, no
+        // Perfil de frequência) e por isso nem entra nessa conta.
+        elRiscoResumo.innerHTML = ''
+          + '<div class="kpi-container">'
+          +   '<div class="kpi-item"><label>Total no histórico</label><span>'+fmtInt(data.totalPacientes)+'</span></div>'
+          +   '<div class="kpi-item"><label>Com 2+ consultas</label><span>'+fmtInt(comRetorno)+'</span></div>'
+          +   '<div class="kpi-item"><label>Em dia</label><span>'+fmtInt(data.emDiaCount)+' ('+pctRetorno(data.emDiaCount)+'%)</span></div>'
+          +   '<div class="kpi-item"><label>Em risco</label><span>'+fmtInt(data.risco.length)+' ('+pctRetorno(data.risco.length)+'%)</span></div>'
+          +   '<div class="kpi-item"><label>Abandono consumado</label><span>'+fmtInt(data.abandonoConsumadoCount)+' ('+pctRetorno(data.abandonoConsumadoCount)+'%)</span></div>'
+          + '</div>';
       }
-      // Quando há mediana, o conteúdo (cards Total/Com 2+/Em dia/Em
-      // risco/Abandono) é montado dentro de wireRiscoFiltros — ele já
-      // recalcula esses números toda vez que um filtro da tabela abaixo
-      // muda, em vez de deixá-los fixos no total geral sem filtro.
     }
     if(elRisco){
       elRisco.innerHTML = riscoTableHtml(data.risco);
-      wireRiscoFiltros(data.risco, data.kpiRegistros, !!data.medianaBase, data.registrosTabela);
+      wireRiscoFiltros(data.risco);
     }
 
     var freqEl = document.getElementById('analisesFreqLegenda');
@@ -3517,15 +2638,6 @@
   // aproveita as mesmas classes .tab/.tab-panel/.card já usadas nas
   // outras abas, então herda o mesmo visual sem precisar de CSS extra).
   function injetarAbaAnalises(){
-    // A aba e o painel "Frequência e Retorno" agora ficam direto no
-    // index.html (botão data-tab="analises" + <div id="tabAnalises">), assim
-    // a ordem e os nomes das abas se ajustam só por lá. Se já existem, aqui
-    // só ligamos os filtros. O código abaixo continua como reserva, caso
-    // algum index.html antigo (sem essa aba) seja usado com este app.js.
-    if(document.getElementById('tabAnalises')){
-      wireAnalisesFiltrosTopo();
-      return;
-    }
     var tabRef = document.querySelector('.tab');
     var panelRef = document.querySelector('.tab-panel');
     if(!tabRef || !panelRef || document.getElementById('tabAnalises')) return;
@@ -3534,23 +2646,8 @@
     btn.type = 'button';
     btn.className = 'tab';
     btn.setAttribute('data-tab', 'analises');
-    btn.textContent = 'Frequência e Retorno';
-    var tabBar = tabRef.parentElement;
-    var notasTab = tabBar.querySelector('.tab[data-tab="notas"]');
-    if (notasTab) {
-      tabBar.insertBefore(btn, notasTab);
-    } else {
-      tabBar.appendChild(btn);
-    }
-    // Reordena a aba "Tendência" (já existente no HTML) pra logo depois
-    // de "Frequência e Retorno" — só move o BOTÃO na barra de abas; a
-    // troca de aba é controlada pela classe "active" em cada botão (ver
-    // wiring dos .tab logo abaixo, no fim do arquivo), não pela ordem dos
-    // painéis no DOM, então não precisa mexer no painel #tabTendencia.
-    var tendenciaTab = tabBar.querySelector('.tab[data-tab="tendencia"]');
-    if (tendenciaTab && notasTab) {
-      tabBar.insertBefore(tendenciaTab, notasTab);
-    }
+    btn.textContent = 'Análises';
+    tabRef.parentElement.appendChild(btn);
 
     var panel = document.createElement('div');
     panel.className = 'tab-panel';
@@ -3602,12 +2699,12 @@
       +   '</div>'
       + '</div>'
       + '<div class="card" style="margin-bottom:16px;">'
-      +   '<h4 style="margin-top:0;">Tempo até a 2ª e da 2ª até a 3ª consulta de acordo com o Profissional</h4>'
+      +   '<h4 style="margin-top:0;">Comparativo por profissional — tempo até a 2ª e da 2ª até a 3ª consulta</h4>'
       +   '<div class="chart-box-full" style="height:260px;"><canvas id="analisesCompProf"></canvas></div>'
       + '</div>'
       + '<div class="card">'
       +   '<h4 style="margin-top:0;">Pacientes em risco de abandono</h4>'
-      +   '<p class="footnote" style="margin-top:0;line-height:1.5;">Pacientes com 2+ consultas cujo último atendimento já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível. Quando o paciente tem 2 ou mais profissionais no histórico, o nome <b>que aparece visível</b> na coluna "Profissional" é de quem realizou a última consulta. <b>Dias restantes</b> é uma estimativa: quanto falta pra passar de 3x a mediana histórica de retorno (limite de abandono consumado); depois disso aparece "Ultrapassou há X dias". <b>Última participação coletiva</b> é só informativa — não entra no cálculo de risco.</p>'
+      +   '<p class="footnote" style="margin-top:0;line-height:1.5;">Pacientes com 2+ consultas cuja última visita já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível. Quando o paciente tem 2 ou mais profissionais no histórico, o nome em <b>negrito</b> na coluna "Profissional" é de quem realizou a última consulta.</p>'
       +   '<div id="analisesRiscoResumo" style="margin-bottom:14px;"></div>'
       +   '<div id="analisesRisco"></div>'
       + '</div>';
@@ -3676,125 +2773,11 @@
   // nenhum link/aba externa. monthValues vazio = todos os meses
   // disponíveis (sem filtro); com meses marcados, só entram atendimentos/
   // participações daqueles meses.
-  // Rótulo do tipo de evento, usado tanto pra decidir o "responsável" do
-  // último evento quanto pro texto exibido no popover "Também atendido por"
-  // (ver abrirProfPopover).
-  var TIPO_EVENTO_ATENDIMENTO = 'Atendimento';
-  var TIPO_EVENTO_PARTICIPACAO = 'Participação em Atividade Coletiva';
-  // Classificação de Fluxo ("Entrada"/"Saída") da tabela "Pessoas
-  // Atendidas": SEMPRE calculada sobre o HISTÓRICO COMPLETO da pessoa
-  // (Atendimentos + Participantes Ativ. Coletiva — TODAS as datas, sem o
-  // filtro de Mês próprio dessa tabela) e sobre a janela móvel de
-  // JANELA_MESES (4) meses terminando no ÚLTIMO DIA do mês ATUAL real
-  // (hoje), não no mês filtrado no topo da página — mesmo critério de
-  // referência temporal já usado pela Busca-Ativa (ver
-  // buscaAtivaCompute/calcularJanelaPeriodo).
-  // - "Entrada": o PRIMEIRO atendimento/participação de TODO o histórico
-  //   da pessoa caiu dentro dessa janela (pessoa nova no indicador).
-  // - "Saída": a pessoa NÃO tem nenhum atendimento/participação dentro
-  //   dessa janela (mesmo tendo histórico anterior a ela).
-  // - Qualquer outro caso (já vinha de antes da janela E também tem
-  //   evento dentro dela — segue ativa/estável) fica sem rótulo (célula
-  //   vazia) — assim a lista de valores do filtro "Fluxo" mostra só as
-  //   duas opções pedidas (Entrada/Saída), sem um 3º valor "no meio".
-  function calcularFluxoPorPessoa(){
-    var hoje = new Date();
-    var mesAtual = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-    var janela = calcularJanelaPeriodo(mesAtual);
-    var mapa = {}; // nome maiúsculo -> {primeira:Date|null, temNaJanela:bool}
-    function registrar(nome, d){
-      if(!nome || !d) return;
-      var chave = nome.toUpperCase();
-      if(!mapa[chave]) mapa[chave] = {primeira:null, temNaJanela:false};
-      var info = mapa[chave];
-      if(!info.primeira || d < info.primeira) info.primeira = d;
-      if(withinPeriod(d, janela.inicio, janela.fim)) info.temNaJanela = true;
-    }
-    var atCachedFluxo = latestSheets[suffixedName("Atendimentos")];
-    if(atCachedFluxo){
-      var iDataFluxo = colIndex(atCachedFluxo.headers, "data_hora");
-      var iNomeFluxo = colIndex(atCachedFluxo.headers, "nome");
-      if(iDataFluxo >= 0 && iNomeFluxo >= 0){
-        atCachedFluxo.rows.forEach(function(r){
-          registrar(String(r[iNomeFluxo]||"").trim(), parseBRDate(r[iDataFluxo]));
-        });
-      }
-    }
-    var partCachedFluxo = latestSheets[suffixedName("Participantes Ativ. Coletiva")];
-    if(partCachedFluxo){
-      var iPDataFluxo = colIndex(partCachedFluxo.headers, "data");
-      var iPNomeFluxo = colIndex(partCachedFluxo.headers, "participante");
-      if(iPDataFluxo >= 0 && iPNomeFluxo >= 0){
-        partCachedFluxo.rows.forEach(function(r){
-          var nome = String(r[iPNomeFluxo]||"").trim();
-          if(!nome || nome.indexOf("(sem lista nominal") === 0) return;
-          registrar(nome, parseBRDate(r[iPDataFluxo]));
-        });
-      }
-    }
-    return {mapa: mapa, janela: janela};
-  }
-  function fluxoLabelPara(fluxoInfo, nome){
-    var info = fluxoInfo.mapa[String(nome||"").toUpperCase()];
-    if(!info) return "";
-    if(info.primeira && withinPeriod(info.primeira, fluxoInfo.janela.inicio, fluxoInfo.janela.fim)) return "Entrada";
-    if(!info.temNaJanela) return "Saída";
-    return "";
-  }
   function pessoasAtendidasParaMeses(monthValues){
-    // nome em maiúsculas -> {nome, at, part, datas:[Date,...],
-    // profissionais:{nome:true} (todo mundo que já atendeu, histórico
-    // completo — usado só em profissionalCol/busca/PDF),
-    // infoPorProf:{nome:{data:Date,tipo:string}} (última ocorrência DE
-    // CADA profissional, com o tipo do evento — alimenta o popover),
-    // ultimaData:Date|null (data do evento mais recente da pessoa, De
-    // QUALQUER tipo), ultimoTipo:string|null, ultimoProfissionalPrincipal:
-    // string|null (o ÚNICO nome que aparece na coluna "Profissional")}
-    var pessoasSet = {};
+    var pessoasSet = {}; // nome em maiúsculas -> {nome, at, part, datas:[Date,...], profissionais:{nome:true}}
     function dentroDoFiltro(d){
       if(!monthValues || !monthValues.length) return true;
       return !!d && monthValues.indexOf(monthOptionValue(d)) >= 0;
-    }
-    // Critério de desempate/priorização de nome: profissional da eMulti
-    // primeiro, depois ordem alfabética — mesmo padrão já usado em
-    // listaProf/ultimoArr antes desta função existir.
-    function prioridadeMenor(a, b){
-      var eA = nomeEhDaEmulti(a) ? 0 : 1, eB = nomeEhDaEmulti(b) ? 0 : 1;
-      if(eA !== eB) return eA - eB;
-      return a.localeCompare(b, 'pt-BR');
-    }
-    // Decide QUEM é o profissional responsável pelo evento mais recente da
-    // pessoa (Atendimento ou Participação em Atividade Coletiva) — é esse
-    // único nome (nunca uma lista) que a coluna "Profissional" mostra sem
-    // badge. "principal" já vem escolhido por quem chamou (o profissional
-    // do atendimento, ou o Responsável da atividade coletiva — ver
-    // chamadas abaixo); em caso de empate exato de data entre dois
-    // eventos diferentes, desempata pela mesma prioridade usada no resto
-    // da tela, em vez de juntar os dois nomes.
-    function atualizarUltimoGeral(p, d, tipo, principal){
-      if(!d || !principal) return;
-      if(!p.ultimaData || d.getTime() > p.ultimaData.getTime()){
-        p.ultimaData = d;
-        p.ultimoTipo = tipo;
-        p.ultimoProfissionalPrincipal = principal;
-      } else if(d.getTime() === p.ultimaData.getTime()
-          && prioridadeMenor(principal, p.ultimoProfissionalPrincipal) < 0){
-        p.ultimoTipo = tipo;
-        p.ultimoProfissionalPrincipal = principal;
-      }
-    }
-    // Guarda, POR PROFISSIONAL, a data e o tipo (Atendimento/Participação)
-    // da ocorrência mais recente dele com esta pessoa — alimenta só o
-    // popover "Também atendido por" (histórico completo, além do
-    // responsável do último evento).
-    function registrarProf(p, prof, d, tipo){
-      p.profissionais[prof] = true;
-      if(d && (!p.infoPorProf[prof] || d.getTime() > p.infoPorProf[prof].data.getTime())){
-        p.infoPorProf[prof] = {data:d, tipo:tipo};
-      }
-    }
-    function novaPessoa(nome){
-      return {nome:nome, at:0, part:0, datas:[], profissionais:{}, infoPorProf:{}, ultimaData:null, ultimoTipo:null, ultimoProfissionalPrincipal:null};
     }
     var atCached = latestSheets[suffixedName("Atendimentos")];
     if(atCached){
@@ -3807,15 +2790,11 @@
           var d = parseBRDate(r[iData]);
           if(!nome || !dentroDoFiltro(d)) return;
           var chave = nome.toUpperCase();
-          if(!pessoasSet[chave]) pessoasSet[chave] = novaPessoa(nome);
-          var p = pessoasSet[chave];
-          p.at++;
-          if(d) p.datas.push(d);
+          if(!pessoasSet[chave]) pessoasSet[chave] = {nome:nome, at:0, part:0, datas:[], profissionais:{}};
+          pessoasSet[chave].at++;
+          if(d) pessoasSet[chave].datas.push(d);
           var prof = iProfAt >= 0 ? String(r[iProfAt]||"").trim() : '';
-          if(prof){
-            registrarProf(p, prof, d, TIPO_EVENTO_ATENDIMENTO);
-            atualizarUltimoGeral(p, d, TIPO_EVENTO_ATENDIMENTO, prof);
-          }
+          if(prof) pessoasSet[chave].profissionais[prof] = true;
         });
       }
     }
@@ -3823,11 +2802,6 @@
     if(partCached){
       var iPData = colIndex(partCached.headers, "data");
       var iPNome = colIndex(partCached.headers, "participante");
-      // colsProfissionaisParticipantes traz o Responsável primeiro (quando
-      // preenchido), seguido de profissional 1..5 — profsDoEvento[0] abaixo
-      // é sempre o primeiro NOME NÃO VAZIO nessa ordem, então já é o
-      // Responsável da atividade sempre que a coluna dele estiver
-      // preenchida (mesma prioridade usada em nomesEnvolvidosParticipacao).
       var iProfPartCols = colsProfissionaisParticipantes(partCached.headers);
       if(iPData >= 0 && iPNome >= 0){
         partCached.rows.forEach(function(r){
@@ -3835,16 +2809,13 @@
           var d = parseBRDate(r[iPData]);
           if(!nome || nome.indexOf("(sem lista nominal") === 0 || !dentroDoFiltro(d)) return;
           var chave = nome.toUpperCase();
-          if(!pessoasSet[chave]) pessoasSet[chave] = novaPessoa(nome);
-          var p = pessoasSet[chave];
-          p.part++;
-          if(d) p.datas.push(d);
-          var profsDoEvento = [];
+          if(!pessoasSet[chave]) pessoasSet[chave] = {nome:nome, at:0, part:0, datas:[], profissionais:{}};
+          pessoasSet[chave].part++;
+          if(d) pessoasSet[chave].datas.push(d);
           iProfPartCols.forEach(function(idx){
             var prof = String(r[idx]||"").trim();
-            if(prof){ registrarProf(p, prof, d, TIPO_EVENTO_PARTICIPACAO); profsDoEvento.push(prof); }
+            if(prof) pessoasSet[chave].profissionais[prof] = true;
           });
-          if(profsDoEvento.length) atualizarUltimoGeral(p, d, TIPO_EVENTO_PARTICIPACAO, profsDoEvento[0]);
         });
       }
     }
@@ -3864,44 +2835,27 @@
     maxDatas = Math.min(maxDatas, MAX_DATAS_PESSOA_ATENDIDA);
     var dataHeaders = [];
     for(var i=1;i<=maxDatas;i++){ dataHeaders.push("Data "+i); }
-    // Fluxo: calculado sobre o histórico COMPLETO (não limitado por
-    // monthValues) — ver calcularFluxoPorPessoa acima.
-    var fluxoInfo = calcularFluxoPorPessoa();
     return {
-      headers: ["Nome","Atendimentos","Participantes Ativ. Coletiva","Total","Fluxo","Profissional"].concat(dataHeaders),
+      headers: ["Nome","Atendimentos","Participantes Ativ. Coletiva","Total","Profissional"].concat(dataHeaders),
       rows: pessoasLista.map(function(p){
-        // profissionalCol: lista completa (todo mundo que já atendeu essa
-        // pessoa, histórico inteiro) — continua igual a antes, usada só
-        // por busca/filtro/PDF (ver data-cell-text em
-        // renderListCard/cellFullText), NÃO é o que aparece na tela.
-        // Profissional(is) da eMulti aparece(m) primeiro, resto em ordem
-        // alfabética.
-        var listaProf = Object.keys(p.profissionais).sort(prioridadeMenor);
+        // Uma pessoa com só 1 atendimento (e nenhuma coletiva) tem
+        // exatamente 1 profissional aqui — é esse que aparece nesta
+        // coluna, e ela fica filtrável junto com "Atendimentos" = 1
+        // pelo filtro de coluna já existente na lista. Com mais de um
+        // profissional envolvido, mostra todos separados por vírgula.
+        // Profissional(is) da eMulti (cadastrado na aba PROFISSIONAIS)
+        // aparece(m) primeiro — o resto continua em ordem alfabética.
+        var listaProf = Object.keys(p.profissionais).sort(function(a,b){
+          var eA = nomeEhDaEmulti(a) ? 0 : 1;
+          var eB = nomeEhDaEmulti(b) ? 0 : 1;
+          if(eA !== eB) return eA - eB;
+          return a.localeCompare(b,'pt-BR');
+        });
         var profissionalCol = listaProf.length ? listaProf.join(', ') : '—';
-        var row = [p.nome, p.at, p.part, p.at+p.part, fluxoLabelPara(fluxoInfo, p.nome), profissionalCol];
+        var row = [p.nome, p.at, p.part, p.at+p.part, profissionalCol];
         for(var i=0;i<maxDatas;i++){
           row.push(p.datas[i] ? fmtBRDate(p.datas[i]) : "—");
         }
-        // Célula "Profissional" exibida na tela: SEMPRE um único nome — o
-        // profissional responsável pelo evento mais recente da pessoa
-        // (Atendimento ou Participação em Atividade Coletiva; ver
-        // atualizarUltimoGeral) — mais um badge "+N" (só quando há outros
-        // profissionais no histórico) cujo popover mostra cada um deles
-        // com nome, data e o tipo (Atendimento / Participação em
-        // Atividade Coletiva) da última vez em que atendeu essa pessoa
-        // (ver profissionalBadgeHtml/abrirProfPopover).
-        var nomePrincipal = p.ultimoProfissionalPrincipal || listaProf[0] || '—';
-        var extras = listaProf
-          .filter(function(nome){ return nome !== nomePrincipal; })
-          .map(function(nome){
-            var info = p.infoPorProf[nome];
-            return {nome:nome, data: info ? info.data : null, tipo: info ? info.tipo : null};
-          })
-          .sort(function(a,b){
-            var ta = a.data ? a.data.getTime() : 0, tb = b.data ? b.data.getTime() : 0;
-            return tb - ta;
-          });
-        row.profissionalHtml = profissionalBadgeHtml(nomePrincipal, extras);
         return row;
       })
     };
@@ -3962,11 +2916,8 @@
   // parava na primeira batida ("profissional 1"), então ignorava o
   // Responsável e as colunas 2 a 5.
   function colsProfissionaisParticipantes(headerRow){
-    var idxs = [colRespParticipantes(headerRow)].concat(
-        ["profissional 1","profissional 2","profissional 3","profissional 4","profissional 5"]
-          .map(function(n){ return colIndex(headerRow, n); })
-      )
-      .filter(function(i){ return i>=0; });
+    var nomes = ["Responsavel Atividade","profissional 1","profissional 2","profissional 3","profissional 4","profissional 5"];
+    var idxs = nomes.map(function(n){ return colIndex(headerRow, n); }).filter(function(i){ return i>=0; });
     if(idxs.length) return idxs;
     var single = profissionalColIndex(headerRow);
     return single >= 0 ? [single] : [];
@@ -3982,416 +2933,6 @@
     var nomes = ["profissional 1","profissional 2","profissional 3","profissional 4","profissional 5"];
     return nomes.map(function(n){ return colIndex(headerRow, n); }).filter(function(i){ return i>=0; });
   }
-  // ---------- "Participantes Ativ. Coletiva": selo AÇÃO M2 + modal Detalhes ----------
-  // Em vez de mostrar "Responsavel Atividade" + "profissional 1" a
-  // "profissional 5" como 5 colunas soltas, a lista resume tudo num selo
-  // "AÇÃO M2" (Compartilhada quando 2+ profissionais estão envolvidos na
-  // mesma participação, Específica quando só 1) e um botão "Detalhes" que
-  // abre a ficha completa da linha. As colunas originais continuam no DOM
-  // (só ficam ocultas via CSS — classe .part-col-oculta), então os filtros
-  // já existentes ("Profissional da eMulti", busca, exportar PDF) seguem
-  // funcionando sem duplicar lógica (ver ajuste em gerarPdfLista).
-  function nomesEnvolvidosParticipacao(headers, row){
-    var envolvidos = [];
-    var iResp = colRespParticipantes(headers);
-    if(iResp >= 0){
-      var vResp = String(row[iResp]||"").trim();
-      if(vResp){
-        var respEhEmulti = nomeEhDaEmulti(vResp);
-        envolvidos.push({rotulo: respEhEmulti ? "Responsável (eMulti)" : "Responsável", nome:vResp});
-      }
-    }
-    var secundarios = [];
-    colsProfissionaisNumerados(headers).forEach(function(ci){
-      var v = String(row[ci]||"").trim();
-      if(v) secundarios.push(v);
-    });
-    secundarios.forEach(function(nome, i){
-      envolvidos.push({
-        rotulo: "Profissional envolvido (secundário)" + (secundarios.length > 1 ? " "+(i+1) : ""),
-        nome: nome
-      });
-    });
-    return envolvidos;
-  }
-  function classificarAcaoM2Participacao(headers, row){
-    var qtd = nomesEnvolvidosParticipacao(headers, row).length;
-    if(qtd >= 2) return {classe:"compartilhada", label:"Compartilhada", qtd:qtd};
-    if(qtd === 1) return {classe:"especifica", label:"Específica", qtd:qtd};
-    return {classe:"semregistro", label:"Sem registro", qtd:qtd};
-  }
-  // ---------- "Resumo Atividade Coletiva": AÇÃO M2 + Detalhes ----------
-  // Cada linha desta lista é UMA atividade coletiva. O enquadramento segue
-  // a mesma regra que alimenta o numerador do M2 (ver "atividadesCompartilhadasListas"):
-  // Compartilhada = pelo menos 1 profissional da eMulti (coluna "Total de
-  // Profissionais da EMulti", ligada a Participantes Ativ. Coletiva) E 2 ou
-  // mais profissionais no total ("Qtd total de profissionais"). Sem a coluna
-  // da eMulti para aquela linha, vale só a regra de 2+ profissionais.
-  function ehListaResumoAtividadeColetiva(name){
-    return displayListName(name) === "Resumo Atividade Coletiva";
-  }
-  function textoCelulaLista(row, idx){
-    if(idx < 0) return '';
-    var v = row[idx];
-    return (v===undefined||v===null) ? '' : String(v).trim();
-  }
-  function classificarAcaoM2Atividade(headers, row){
-    var iTot = colIndex(headers, "qtd_total_profissionais");
-    var iEnv = colIndex(headers, "qtd_profissionais_envolvidos");
-    var iEm = colTotalProfEmulti(headers);
-    if(iTot < 0 && iEnv < 0) return {classe:"semregistro", label:"Sem registro", qtd:0, totalEmulti:null, motivo:"semcolunas"};
-    var vTot = textoCelulaLista(row, iTot);
-    var totalGeral = (vTot !== '') ? toInt(vTot) : 1 + toInt(textoCelulaLista(row, iEnv));
-    var vEm = textoCelulaLista(row, iEm);
-    var totalEmulti = (vEm !== '') ? toInt(vEm) : null;
-    var temEmulti = (totalEmulti === null) ? true : totalEmulti >= 1;
-    if(totalGeral >= 2 && temEmulti) return {classe:"compartilhada", label:"Compartilhada", qtd:totalGeral, totalEmulti:totalEmulti, motivo:"ok"};
-    return {classe:"especifica", label:"Específica", qtd:totalGeral, totalEmulti:totalEmulti,
-            motivo: (totalGeral >= 2 && !temEmulti) ? "sememulti" : "umprofissional"};
-  }
-  // Escolhe o classificador certo conforme a lista (Participantes x Resumo).
-  function classificarAcaoM2Lista(name, headers, row){
-    return ehListaResumoAtividadeColetiva(name)
-      ? classificarAcaoM2Atividade(headers, row)
-      : classificarAcaoM2Participacao(headers, row);
-  }
-  function montarDetalhesAtividadeHTML(headers, row){
-    var classificacao = classificarAcaoM2Atividade(headers, row);
-    var iData = colIndex(headers, "data");
-    var iTipo = colIndex(headers, "tipo_atividade");
-    var iEquipe = colIndex(headers, "equipe_unidade");
-    if(iEquipe < 0 && typeof equipeColIndex === 'function') iEquipe = equipeColIndex(headers);
-    var iTot = colIndex(headers, "qtd_total_profissionais");
-    var iEm = colTotalProfEmulti(headers);
-    var data = textoCelulaLista(row, iData);
-    var tipo = textoCelulaLista(row, iTipo);
-    var equipe = textoCelulaLista(row, iEquipe);
-    var totalGeralTxt = textoCelulaLista(row, iTot);
-    var totalEmultiTxt = textoCelulaLista(row, iEm);
-
-    var camposGrid = [
-      equipe ? {label:'Equipe / Unidade', valor:equipe} : null,
-      tipo ? {label:'Tipo de Atividade', valor:tipo} : null,
-      totalGeralTxt ? {label:'Total de profissionais', valor:totalGeralTxt} : null,
-      totalEmultiTxt ? {label:'Profissionais da eMulti', valor:totalEmultiTxt} : null
-    ].filter(Boolean);
-    var infoBoxes = camposGrid.length
-      ? '<div class="part-modal-grid">' + camposGrid.map(function(c){
-          return '<div><div class="part-modal-label">'+escapeHtml(c.label)+'</div><div class="part-modal-value">'+escapeHtml(c.valor)+'</div></div>';
-        }).join('') + '</div>'
-      : '';
-
-    // Demais colunas da linha (as que ainda não apareceram acima), para a
-    // ficha mostrar a atividade completa sem depender do nome de cada coluna.
-    var jaMostradas = {};
-    [iData, iTipo, iEquipe, iTot, iEm].forEach(function(i){ if(i >= 0) jaMostradas[i] = true; });
-    var outros = [];
-    headers.forEach(function(h, i){
-      if(jaMostradas[i]) return;
-      var v = textoCelulaLista(row, i);
-      if(v !== '') outros.push({label:String(h), valor:v});
-    });
-    var outrosHtml = outros.length
-      ? '<div class="part-modal-section"><div class="part-modal-section-title">Demais informações</div>'
-        + '<div class="part-modal-grid">' + outros.map(function(c){
-            return '<div><div class="part-modal-label">'+escapeHtml(c.label)+'</div><div class="part-modal-value">'+escapeHtml(c.valor)+'</div></div>';
-          }).join('') + '</div></div>'
-      : '';
-
-    var notaClassificacao;
-    if(classificacao.classe === 'compartilhada'){
-      notaClassificacao = classificacao.qtd+' profissionais na atividade, com participação da eMulti — conta como Ação Compartilhada (M2).';
-    } else if(classificacao.motivo === 'sememulti'){
-      notaClassificacao = classificacao.qtd+' profissionais na atividade, mas nenhum da eMulti — não conta como Ação Compartilhada (M2).';
-    } else if(classificacao.classe === 'especifica'){
-      notaClassificacao = 'Apenas 1 profissional na atividade — conta como Ação Específica (individual).';
-    } else {
-      notaClassificacao = 'Não há coluna de quantidade de profissionais nesta lista para classificar a ação.';
-    }
-
-    return '<div class="part-modal-head"><span class="part-modal-eyebrow">Detalhes da Atividade Coletiva</span></div>'
-      + '<h3 class="part-modal-title">'+escapeHtml(tipo || 'Atividade coletiva')+'</h3>'
-      + (data ? '<div class="part-modal-sub">Data: '+escapeHtml(data)+'</div>' : '')
-      + infoBoxes
-      + outrosHtml
-      + '<div class="part-modal-section part-modal-enquadramento">'
-        + '<div class="part-modal-section-title">Enquadramento (AÇÃO M2)</div>'
-        + acaoM2BadgeHTML(classificacao)
-        + '<div class="part-modal-nota">'+escapeHtml(notaClassificacao)+'</div>'
-      + '</div>';
-  }
-  function acaoM2BadgeHTML(classificacao){
-    var icone = classificacao.classe === "compartilhada"
-      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="12" r="2.5"/><circle cx="17" cy="6" r="2.5"/><circle cx="17" cy="18" r="2.5"/><path d="M8.2 10.8l6.6-3.6M8.2 13.2l6.6 3.6"/></svg>'
-      : classificacao.classe === "especifica"
-        ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/></svg>'
-        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>';
-    return '<span class="acao-m2-badge acao-m2-'+classificacao.classe+'">'+icone+'<span>'+escapeHtml(classificacao.label)+'</span></span>';
-  }
-  function detalhesBtnHTML(listName, rowIdx){
-    return '<button type="button" class="detalhes-part-btn" data-detalhes-part-list="'+escapeHtml(listName)+'" data-detalhes-part-idx="'+rowIdx+'">'
-      + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>'
-      + '<span>Detalhes</span></button>';
-  }
-  function valorColunaParticipacao(headers, row, nomeCol){
-    var idx = colIndex(headers, nomeCol);
-    if(idx < 0) return '';
-    var v = row[idx];
-    return String(v===undefined||v===null?'':v).trim();
-  }
-  function montarDetalhesParticipacaoHTML(headers, row){
-    var participante = valorColunaParticipacao(headers, row, 'participante') || valorColunaParticipacao(headers, row, 'nome');
-    var data = valorColunaParticipacao(headers, row, 'data_hora') || valorColunaParticipacao(headers, row, 'data');
-    var equipe = valorColunaParticipacao(headers, row, 'equipe_unidade');
-    var tipoAtividade = valorColunaParticipacao(headers, row, 'tipo_atividade');
-    var totalProfEmulti = colTotalProfEmulti(headers) >= 0 ? valorColunaParticipacao(headers, row, TOTAL_PROF_EMULTI_HEADER) : '';
-    var classificacao = classificarAcaoM2Participacao(headers, row);
-    var envolvidos = nomesEnvolvidosParticipacao(headers, row);
-
-    var envolvidosHtml = envolvidos.length
-      ? envolvidos.map(function(p){
-          return '<div class="part-modal-prof"><b>'+escapeHtml(p.rotulo)+':</b> '+escapeHtml(p.nome)+'</div>';
-        }).join('')
-      : '<div class="part-modal-prof part-modal-prof-vazio">Nenhum profissional registrado nesta linha.</div>';
-
-    var camposGrid = [
-      equipe ? {label:'Equipe / Unidade', valor:equipe} : null,
-      tipoAtividade ? {label:'Tipo de Atividade', valor:tipoAtividade} : null
-    ].filter(Boolean);
-    var infoBoxes = camposGrid.length
-      ? '<div class="part-modal-grid">' + camposGrid.map(function(c){
-          return '<div><div class="part-modal-label">'+escapeHtml(c.label)+'</div><div class="part-modal-value">'+escapeHtml(c.valor)+'</div></div>';
-        }).join('') + '</div>'
-      : '';
-
-    var notaClassificacao = classificacao.classe === 'compartilhada'
-      ? classificacao.qtd+' profissionais envolvidos — conta como Ação Compartilhada (M2).'
-      : classificacao.classe === 'especifica'
-        ? 'Apenas 1 profissional envolvido — conta como Ação Específica (individual).'
-        : 'Nenhum profissional identificado nesta linha para classificar a ação.';
-
-    return '<div class="part-modal-head"><span class="part-modal-eyebrow">Detalhes da Participação</span></div>'
-      + '<h3 class="part-modal-title">'+escapeHtml(participante || 'Participação em atividade coletiva')+'</h3>'
-      + (data ? '<div class="part-modal-sub">Data: '+escapeHtml(data)+'</div>' : '')
-      + infoBoxes
-      + '<div class="part-modal-section"><div class="part-modal-section-title">Profissionais Envolvidos</div>'+envolvidosHtml+'</div>'
-      + '<div class="part-modal-section part-modal-enquadramento">'
-        + '<div class="part-modal-section-title">Enquadramento (AÇÃO M2)</div>'
-        + acaoM2BadgeHTML(classificacao)
-        + '<div class="part-modal-nota">'+escapeHtml(notaClassificacao)+'</div>'
-        + (totalProfEmulti ? '<div class="part-modal-nota">Total de profissionais da eMulti nesta atividade: '+escapeHtml(totalProfEmulti)+'</div>' : '')
-      + '</div>';
-  }
-  var partModalEl = null;
-  function partModalGarantirEl(){
-    if(partModalEl) return partModalEl;
-    var el = document.createElement('div');
-    el.className = 'part-modal-overlay';
-    el.id = 'partDetalhesOverlay';
-    el.innerHTML = '<div class="part-modal-card"><button type="button" class="part-modal-close" aria-label="Fechar">&times;</button><div class="part-modal-body"></div></div>';
-    document.body.appendChild(el);
-    el.addEventListener('click', function(ev){ if(ev.target === el) fecharDetalhesParticipacao(); });
-    el.querySelector('.part-modal-close').addEventListener('click', fecharDetalhesParticipacao);
-    partModalEl = el;
-    return el;
-  }
-  function fecharDetalhesParticipacao(){
-    if(partModalEl) partModalEl.classList.remove('is-open');
-  }
-  function abrirDetalhesParticipacao(headers, row, listName){
-    var el = partModalGarantirEl();
-    el.querySelector('.part-modal-body').innerHTML = (listName && ehListaResumoAtividadeColetiva(listName))
-      ? montarDetalhesAtividadeHTML(headers, row)
-      : montarDetalhesParticipacaoHTML(headers, row);
-    el.classList.add('is-open');
-  }
-  function injectPartModalStyles(){
-    if(document.getElementById('partModalStyles')) return;
-    var css = ''
-      + '.part-col-oculta{display:none}'
-      + '.list-card:not(.pa-datas-expandidas) .pa-data-extra{display:none}'
-      + '.pa-datas-bar{display:flex;justify-content:flex-end;margin:0 0 8px}'
-      + '.pa-toggle-datas{font:inherit;font-size:12.5px;font-weight:600;color:#1C6D53;background:#EAF3EE;border:1px solid #CFE3D8;border-radius:999px;padding:5px 12px;cursor:pointer}'
-      + '.pa-toggle-datas:hover{background:#DCEBE3}'
-      + '.list-card .data-table td.cell-trunc{max-width:var(--cell-max,220px);overflow:hidden;text-overflow:ellipsis}'
-      + '.sortable-th{cursor:pointer;user-select:none;white-space:nowrap}'
-      + '.sortable-th:hover{background:#EEF3EA}'
-      + '.sort-ind{display:inline-block;width:10px;margin-left:3px;opacity:.35;font-size:10px}'
-      + '.sortable-th.sort-asc .sort-ind,.sortable-th.sort-desc .sort-ind{opacity:1}'
-      + '.sortable-th.sort-asc .sort-ind::after{content:"▲"}'
-      + '.sortable-th.sort-desc .sort-ind::after{content:"▼"}'
-      + '.acao-m2-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:12.5px;font-weight:700;white-space:nowrap}'
-      + '.acao-m2-badge svg{width:14px;height:14px;flex:none}'
-      + '.acao-m2-compartilhada{background:#E7EEFB;color:#2F5FCB}'
-      + '.acao-m2-especifica{background:#E3F3E8;color:#1F7A45}'
-      + '.acao-m2-semregistro{background:#F1F1EF;color:#7A7A72}'
-      + '.detalhes-part-btn{display:inline-flex;align-items:center;gap:5px;border:none;background:none;color:#1F8A57;font-weight:700;font-size:12.5px;cursor:pointer;padding:4px 2px;white-space:nowrap}'
-      + '.detalhes-part-btn svg{width:15px;height:15px;flex:none}'
-      + '.detalhes-part-btn:hover{text-decoration:underline}'
-      + '.part-modal-overlay{position:fixed;inset:0;background:rgba(15,25,20,.55);display:flex;align-items:center;justify-content:center;padding:16px;z-index:9999;opacity:0;pointer-events:none;transition:opacity .15s}'
-      + '.part-modal-overlay.is-open{opacity:1;pointer-events:auto}'
-      + '.part-modal-card{position:relative;background:#fff;border-radius:16px;max-width:480px;width:100%;max-height:88vh;overflow:auto;padding:20px 20px 22px;box-shadow:0 20px 60px rgba(0,0,0,.25)}'
-      + '.part-modal-close{position:absolute;top:10px;right:12px;border:none;background:none;font-size:24px;line-height:1;color:#8B978F;cursor:pointer}'
-      + '.part-modal-eyebrow{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#153F35;background:#EEF3EA;padding:4px 9px;border-radius:8px}'
-      + '.part-modal-title{margin:10px 0 2px;font-size:18px;font-weight:800;color:#1B2E27}'
-      + '.part-modal-sub{font-size:13px;color:#8B978F;margin-bottom:12px}'
-      + '.part-modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;background:#F7F9F6;border-radius:12px;padding:12px;margin:10px 0}'
-      + '.part-modal-label{font-size:11px;font-weight:700;text-transform:uppercase;color:#8B978F;margin-bottom:2px}'
-      + '.part-modal-value{font-size:13.5px;font-weight:700;color:#1B2E27}'
-      + '.part-modal-section{margin-top:14px}'
-      + '.part-modal-section-title{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:#153F35;margin-bottom:6px}'
-      + '.part-modal-prof{font-size:13.5px;color:#1B2E27;padding:4px 0;border-bottom:1px dashed #E3E8E1}'
-      + '.part-modal-prof:last-child{border-bottom:none}'
-      + '.part-modal-prof-vazio{color:#8B978F;font-style:italic}'
-      + '.part-modal-enquadramento{background:#F2F7F3;border-radius:12px;padding:12px}'
-      + '.part-modal-nota{font-size:12.5px;color:#4B5850;margin-top:6px;font-style:italic}'
-      + '.prof-mais-btn{display:inline-flex;align-items:center;justify-content:center;margin-left:6px;padding:1px 7px;border-radius:999px;border:1px solid #CFE0D6;background:#EEF3EA;color:#1F7A45;font-size:11px;font-weight:800;cursor:pointer;line-height:1.6;vertical-align:middle}'
-      + '.prof-mais-btn:hover{background:#E3F0E7}'
-      + '.prof-pop{position:fixed;z-index:10000;background:#fff;border:1px solid #E3E8E1;border-radius:10px;box-shadow:0 12px 30px rgba(0,0,0,.18);padding:10px 12px;min-width:220px;max-width:300px;display:none}'
-      + '.prof-pop.is-open{display:block}'
-      + '.prof-pop-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:#8B978F;margin-bottom:6px}'
-      + '.prof-pop-item{font-size:13px;color:#1B2E27;padding:3px 0;border-bottom:1px dashed #E3E8E1}'
-      + '.prof-pop-item:last-child{border-bottom:none}'
-      + '.prof-pop-item-row{display:flex;justify-content:space-between;gap:10px}'
-      + '.prof-pop-item-row span:last-child{color:#5B6B62;white-space:nowrap;font-weight:600}'
-      + '.prof-pop-tipo{margin-top:2px;font-size:11px;color:#5B6B62;font-style:italic}'
-      + '.legend-info-btn{display:inline-flex;align-items:center;justify-content:center;margin-left:5px;width:15px;height:15px;border-radius:999px;border:1px solid #CFE0D6;background:#EEF3EA;color:#1F7A45;font-size:10px;font-weight:800;font-style:normal;cursor:pointer;line-height:1;vertical-align:middle;flex:none;padding:0}'
-      + '.legend-info-btn:hover{background:#E3F0E7}'
-      + '.legend-info-pop{max-width:280px;font-size:12.5px;line-height:1.4;color:#3C4A42}';
-    var el = document.createElement('style');
-    el.id = 'partModalStyles';
-    el.textContent = css;
-    document.head.appendChild(el);
-  }
-  injectPartModalStyles();
-
-  // ---------- Popover "Também atendido por…" (coluna Profissional, lista
-  // de risco de abandono) ----------
-  // Um único elemento reaproveitado pra todos os botões "+N" (criado sob
-  // demanda no primeiro clique), posicionado perto do botão clicado via
-  // getBoundingClientRect. Fecha ao clicar fora, rolar a página ou
-  // redimensionar a janela.
-  var profPopEl = null;
-  function profPopGarantirEl(){
-    if(profPopEl) return profPopEl;
-    var el = document.createElement('div');
-    el.className = 'prof-pop';
-    document.body.appendChild(el);
-    profPopEl = el;
-    document.addEventListener('click', function(ev){
-      if(!profPopEl || !profPopEl.classList.contains('is-open')) return;
-      if(profPopEl.contains(ev.target)) return;
-      if(ev.target.closest && ev.target.closest('.prof-mais-btn')) return;
-      fecharProfPopover();
-    });
-    window.addEventListener('scroll', fecharProfPopover, true);
-    window.addEventListener('resize', fecharProfPopover);
-    document.addEventListener('keydown', function(ev){ if(ev.key === 'Escape') fecharProfPopover(); });
-    return el;
-  }
-  function fecharProfPopover(){
-    if(profPopEl) profPopEl.classList.remove('is-open');
-  }
-  // itens: [{nome, data}] já com "data" como TEXTO formatado (fmtBRDate já
-  // aplicado por quem chamou) — ver profissionalCelulaHtml.
-  function abrirProfPopover(btnEl, itens){
-    var el = profPopGarantirEl();
-    el.innerHTML = '<div class="prof-pop-title">Também atendido por</div>'
-      + (itens.length
-          ? itens.map(function(it){
-              var tipoHtml = it.tipo ? '<div class="prof-pop-tipo">'+escapeHtml(it.tipo)+'</div>' : '';
-              return '<div class="prof-pop-item"><div class="prof-pop-item-row"><span>'+escapeHtml(it.nome)+'</span><span>'+escapeHtml(it.data||'—')+'</span></div>'+tipoHtml+'</div>';
-            }).join('')
-          : '<div class="prof-pop-item"><span>—</span></div>');
-    el.classList.add('is-open');
-    // Reseta a posição antes de medir (garante que a largura/altura
-    // calculadas sejam as do conteúdo novo, não de um popover anterior
-    // maior/menor ainda no DOM).
-    el.style.left = '0px';
-    el.style.top = '0px';
-    var r = btnEl.getBoundingClientRect();
-    var rect = el.getBoundingClientRect();
-    var left = Math.min(r.left, window.innerWidth - rect.width - 10);
-    left = Math.max(8, left);
-    var top = r.bottom + 6;
-    if(top + rect.height > window.innerHeight - 8){ top = r.top - rect.height - 6; }
-    if(top < 8) top = 8;
-    el.style.left = left + 'px';
-    el.style.top = top + 'px';
-  }
-  // Listener delegado ÚNICO (no document, sobrevive a qualquer re-render)
-  // pro botão "+N" da coluna Profissional — usado tanto pela tabela
-  // "Pacientes em risco de abandono" quanto por "Pessoas Atendidas" (e
-  // qualquer outra lista futura que use profissionalBadgeHtml).
-  document.addEventListener('click', function(ev){
-    var btn = ev.target.closest ? ev.target.closest('.prof-mais-btn') : null;
-    if(!btn) return;
-    ev.stopPropagation();
-    var raw = btn.getAttribute('data-prof-extra') || '';
-    var itens = [];
-    try{
-      itens = (JSON.parse(decodeURIComponent(raw)) || []).map(function(it){
-        return {nome: it.n, data: it.d, tipo: it.t};
-      });
-    }catch(e){}
-    abrirProfPopover(btn, itens);
-  });
-  // ---------- Popover de informação (ícone "i" nas legendas dos cards de
-  // Composição — Numerador/Denominador M1 e M2) ----------
-  // Mesmo padrão do popover de profissionais acima (elemento único
-  // reaproveitado, fecha ao clicar fora/rolar/redimensionar/Esc), só que
-  // com texto simples em vez de lista — usado pra mostrar a definição
-  // oficial (Nota Metodológica M1/M2) de cada parcela ao TOCAR/CLICAR no
-  // ícone "i" (funciona no celular, diferente de tooltip por hover).
-  var legendInfoPopEl = null;
-  function legendInfoPopGarantirEl(){
-    if(legendInfoPopEl) return legendInfoPopEl;
-    var el = document.createElement('div');
-    el.className = 'prof-pop legend-info-pop';
-    document.body.appendChild(el);
-    legendInfoPopEl = el;
-    document.addEventListener('click', function(ev){
-      if(!legendInfoPopEl || !legendInfoPopEl.classList.contains('is-open')) return;
-      if(legendInfoPopEl.contains(ev.target)) return;
-      if(ev.target.closest && ev.target.closest('.legend-info-btn')) return;
-      fecharLegendInfoPopover();
-    });
-    window.addEventListener('scroll', fecharLegendInfoPopover, true);
-    window.addEventListener('resize', fecharLegendInfoPopover);
-    document.addEventListener('keydown', function(ev){ if(ev.key === 'Escape') fecharLegendInfoPopover(); });
-    return el;
-  }
-  function fecharLegendInfoPopover(){
-    if(legendInfoPopEl) legendInfoPopEl.classList.remove('is-open');
-  }
-  function abrirLegendInfoPopover(btnEl, texto){
-    var el = legendInfoPopGarantirEl();
-    el.innerHTML = escapeHtml(texto);
-    el.classList.add('is-open');
-    // Reseta a posição antes de medir (garante que a largura/altura
-    // calculadas sejam as do conteúdo novo, não de um popover anterior
-    // maior/menor ainda no DOM).
-    el.style.left = '0px';
-    el.style.top = '0px';
-    var r = btnEl.getBoundingClientRect();
-    var rect = el.getBoundingClientRect();
-    var left = Math.min(r.left, window.innerWidth - rect.width - 10);
-    left = Math.max(8, left);
-    var top = r.bottom + 6;
-    if(top + rect.height > window.innerHeight - 8){ top = r.top - rect.height - 6; }
-    if(top < 8) top = 8;
-    el.style.left = left + 'px';
-    el.style.top = top + 'px';
-  }
-  document.addEventListener('click', function(ev){
-    var btn = ev.target.closest ? ev.target.closest('.legend-info-btn') : null;
-    if(!btn) return;
-    ev.stopPropagation();
-    var raw = btn.getAttribute('data-info-text') || '';
-    var texto = '';
-    try{ texto = decodeURIComponent(raw); }catch(e){}
-    abrirLegendInfoPopover(btn, texto);
-  });
   // Valor sentinela (não é um índice numérico de coluna) usado no <select>
   // "Filtrar por coluna…" pra representar o filtro virtual "Profissional
   // da eMulti", que substitui as 5 colunas "profissional 1".."profissional
@@ -4399,12 +2940,6 @@
   // bate se QUALQUER uma delas tiver um profissional da eMulti marcado),
   // em vez do filtro normal de 1 coluna só.
   var PROF_EMULTI_FILTER_VALUE = 'prof_emulti';
-  // Valor sentinela do filtro virtual "AÇÃO M2" (Compartilhada/Específica),
-  // da lista "Participantes Ativ. Coletiva" — não é índice de coluna, é
-  // calculado na hora a partir da classificação de cada linha (ver
-  // classificarAcaoM2Participacao) e comparado com o texto já renderizado
-  // no selo da célula (ver applyFilters).
-  var ACAO_M2_FILTER_VALUE = 'acao_m2';
   // Nome exato da coluna calculada de dias sem atendimento (Busca-Ativa) —
   // usado tanto pro filtro de coluna (que agrupa em faixas, não valor a
   // valor) quanto pro cálculo em applyFilters.
@@ -4493,15 +3028,6 @@
   }
   function populateSheetsCache(wb){
     latestSheets = {};
-    // Mapa ID da atividade -> total de profissionais da eMulti (calculado a
-    // partir de Participantes Ativ. Coletiva) pra exibir a coluna "Total de
-    // Profissionais da EMulti" nas duas listas.
-    var nomePartAba = suffixedName("Participantes Ativ. Coletiva");
-    var wsPart = wb.Sheets[nomePartAba];
-    var partRowsBrutas = wsPart ? sheetToRows(wsPart).filter(function(r){
-      return r.some(function(c){ return String(c).trim() !== ""; });
-    }) : [];
-    var totalEmultiCalc = partRowsBrutas.length ? criarCalculadoraTotalProfEmulti(partRowsBrutas[0]) : null;
     wb.SheetNames.forEach(function(name){
       var rows = sheetToRows(wb.Sheets[name]).filter(function(r){
         return r.some(function(c){ return String(c).trim() !== ""; });
@@ -4524,232 +3050,60 @@
           });
         }
       }
-      // Se a planilha trouxer MAIS DE UMA coluna "Total de Profissionais da
-      // EMulti" (inclusive com grafias diferentes, ex. "Profissionails" e
-      // "Profissionais"), mantém só a PRIMEIRA e remove as demais da
-      // EXIBIÇÃO — evita coluna duplicada com valores conflitantes.
-      (function(){
-        var idxs = [];
-        headers.forEach(function(h, i){
-          var t = normalizeText(h);
-          if(t.indexOf("TOTAL") !== -1 && t.indexOf("PROFISSION") !== -1 && t.indexOf("EMULTI") !== -1) idxs.push(i);
-        });
-        if(idxs.length > 1){
-          var remover = idxs.slice(1);
-          headers = headers.filter(function(h, i){ return remover.indexOf(i) === -1; });
+      // Coluna calculada "Conta como atividade compartilhada (M2)?" na
+      // tabela "Resumo Atividade Coletiva". A nota oficial (NT
+      // 44/2026-CGIAD/DEAPS/SAPS/MS) não pede uma CONTAGEM de quantos
+      // profissionais da atividade são da eMulti — ela só exige saber se a
+      // atividade entra como "compartilhada" (tipo_atividade nos códigos
+      // 04-07 + 2 ou mais profissionais com CNS diferentes, sendo que pelo
+      // menos 1 deles precisa ser de eMulti). Como esta aba só tem
+      // QUANTIDADES (qtd_total_profissionais / qtd_profissionais_envolvidos),
+      // sem nome/CNS/CBO de cada um, não dá pra confirmar individualmente
+      // quem é da eMulti — por isso a coluna é um Sim/Não (mesma regra que o
+      // motor de cálculo já usa pra compor o numerador do M2, ver
+      // TIPOS_ATIV_COLETIVA_COMPARTILHADA e atividadesCompartilhadasListas
+      // em calcularIndicadoresDoPeriodo), em vez de uma quantidade que os
+      // dados não sustentam com confiança (ver conversa com o usuário: a
+      // coluna numérica anterior superestimava, contando responsável +
+      // envolvidos inteiros como se todos fossem da eMulti).
+      if(displayListName(name) === "Resumo Atividade Coletiva"){
+        var iRacTipoDisplay = colIndex(headers, "tipo_atividade");
+        var iRacTotalProfDisplay = colIndex(headers, "qtd_total_profissionais");
+        var iRacProfEnvDisplay = colIndex(headers, "qtd_profissionais_envolvidos");
+        if(iRacTotalProfDisplay >= 0 || iRacProfEnvDisplay >= 0){
+          headers.push("Conta como atividade compartilhada (M2)?");
           dataRows = dataRows.map(function(r){
-            return r.filter(function(c, i){ return remover.indexOf(i) === -1; });
+            var totalProf = (iRacTotalProfDisplay >= 0 && r[iRacTotalProfDisplay] !== "")
+              ? toInt(r[iRacTotalProfDisplay])
+              : 1 + toInt(r[iRacProfEnvDisplay]);
+            var tipoOk = iRacTipoDisplay < 0
+              || TIPOS_ATIV_COLETIVA_COMPARTILHADA.indexOf(normalizarTexto(r[iRacTipoDisplay])) >= 0;
+            var compartilhada = totalProf >= 2 && tipoOk;
+            var novaLinha = r.slice();
+            novaLinha.push(compartilhada ? "Sim" : "Não");
+            return novaLinha;
           });
-        }
-      })();
-      // Coluna virtual "Total de Profissionais da EMulti" (só na EXIBIÇÃO):
-      // - Participantes Ativ. Coletiva: calculada linha a linha (Responsável
-      //   + Profissional 1..5 que são da eMulti); se a planilha já trouxer
-      //   uma coluna com esse nome, ela é mantida.
-      // - Resumo Atividade Coletiva: a coluna de total de profissionais é
-      //   SUBSTITUÍDA pelo valor de Participantes (ligação pelo ID da
-      //   atividade); se não existir, é acrescentada no fim.
-      var nomeExib = displayListName(name);
-      if(nomeExib === "Participantes Ativ. Coletiva" && totalEmultiCalc && totalEmultiCalc.disponivel
-         && colTotalProfEmulti(headers) < 0){
-        var calcLinha = totalEmultiCalc.calcular;
-        headers = headers.concat([TOTAL_PROF_EMULTI_HEADER]);
-        dataRows = dataRows.map(function(r){ return r.concat([calcLinha(r)]); });
-      } else if(nomeExib === "Resumo Atividade Coletiva" && partRowsBrutas.length){
-        var ligacao = criarLigacaoAtividades(partRowsBrutas, headers);
-        if(ligacao){
-          var iTot = colTotalProfEmulti(headers);
-          var acrescentar = iTot < 0;
-          if(acrescentar){ headers = headers.concat([TOTAL_PROF_EMULTI_HEADER]); iTot = headers.length-1; }
-          dataRows = dataRows.map(function(r){
-            var nova = r.slice();
-            var v = ligacao.total(r);
-            if(v !== undefined) nova[iTot] = v;
-            else if(acrescentar) nova[iTot] = "";
-            return nova;
-          });
-        } else {
-          console.warn('[Resumo Atividade Coletiva] não foi possível ligar às linhas de Participantes Ativ. Coletiva (sem ID em comum e sem data/equipe/responsável nas duas abas). cabeçalho Resumo:', headers, '| cabeçalho Participantes:', partRowsBrutas[0]);
         }
       }
       latestSheets[name] = {headers: headers, rows: dataRows};
     });
   }
 
-  // Agrupa por paciente e dia e mantém apenas os grupos com dois ou mais
-  // profissionais distintos, para identificar atendimentos interprofissionais.
-  function atendimentosInterprofissionaisParaLista(){
-    var source = latestSheets[suffixedName("Atendimentos")];
-    var outHeaders = ["Data","Paciente","Idade","Profissionais no dia","Qtd. de atendimentos"];
-    if(!source || !source.headers || !source.rows) return {headers:outHeaders, rows:[]};
-    var headers = source.headers;
-    var iData = colIndex(headers, "data_hora");
-    var iNome = colIndex(headers, "nome");
-    var iProf = colIndex(headers, "profissional");
-    var iId = -1;
-    headers.forEach(function(h, i){
-      var key = normalizeText(h).replace(/[^A-Z0-9]/g, '');
-      if(iId < 0 && (key === 'CNS' || key === 'CPF' || key.indexOf('CARTAONACIONALDESAUDE') >= 0 || key.indexOf('CPF') >= 0)) iId = i;
-    });
-    if(iData < 0 || iNome < 0 || iProf < 0){
-      console.warn('[Atendimentos interprofissionais] faltam colunas de data, nome ou profissional. Cabeçalho:', headers);
-      return {headers:outHeaders, rows:[]};
-    }
-    // Idade do paciente: vem da data de nascimento (calculada na data do
-    // atendimento) ou, se a aba não tiver nascimento, da coluna de idade.
-    var iNasc = -1, iIdade = -1;
-    headers.forEach(function(h, i){
-      var key = normalizeText(h).replace(/[^A-Z0-9]/g, '');
-      if(iNasc < 0 && key.indexOf('NASC') >= 0) iNasc = i;
-      if(iIdade < 0 && key.indexOf('IDADE') === 0 && key.indexOf('GESTAC') < 0) iIdade = i;
-    });
-    if(iNasc < 0 && iIdade < 0){
-      console.warn('[Atendimentos interprofissionais] nenhuma coluna de idade ou data de nascimento encontrada na aba Atendimentos — a coluna Idade fica com "—". Cabeçalho:', headers);
-    }
-    function formatarIdade(anos, meses){
-      if(anos >= 1) return anos + (anos === 1 ? ' ano' : ' anos');
-      return '<1 ano';
-    }
-    function idadeDaLinha(r, dataAtendimento){
-      if(iNasc >= 0){
-        var nasc = parseBRDate(r[iNasc]);
-        if(nasc && nasc <= dataAtendimento){
-          var anos = dataAtendimento.getFullYear() - nasc.getFullYear();
-          var jaFezAniversario = (dataAtendimento.getMonth() > nasc.getMonth())
-            || (dataAtendimento.getMonth() === nasc.getMonth() && dataAtendimento.getDate() >= nasc.getDate());
-          if(!jaFezAniversario) anos--;
-          return formatarIdade(anos);
-        }
-      }
-      if(iIdade >= 0){
-        var bruto = String(r[iIdade] === undefined || r[iIdade] === null ? '' : r[iIdade]).trim();
-        if(/^\d+$/.test(bruto)) return formatarIdade(parseInt(bruto, 10));
-        if(bruto) return bruto;
-      }
-      return '';
-    }
-    var grupos = {};
-    source.rows.forEach(function(r){
-      var nome = String(r[iNome] || '').trim();
-      var data = parseBRDate(r[iData]);
-      var profissional = String(r[iProf] || '').trim();
-      if(!nome || !data || !profissional) return;
-      var id = iId >= 0 ? String(r[iId] || '').trim() : '';
-      var paciente = id ? 'ID:' + normalizeText(id).replace(/[^A-Z0-9]/g, '') : 'NOME:' + normalizeText(nome).trim();
-      var dia = data.getFullYear() + '-' + String(data.getMonth()+1).padStart(2,'0') + '-' + String(data.getDate()).padStart(2,'0');
-      var key = paciente + '|' + dia;
-      if(!grupos[key]) grupos[key] = {data:data, nome:nome, idade:'', profissionais:{}, quantidade:0};
-      if(!grupos[key].idade) grupos[key].idade = idadeDaLinha(r, data);
-      var profKey = normalizeText(profissional).trim();
-      if(!grupos[key].profissionais[profKey]) grupos[key].profissionais[profKey] = profissional;
-      grupos[key].quantidade++;
-    });
-    var rows = Object.keys(grupos).map(function(key){
-      var g = grupos[key];
-      var profissionais = Object.keys(g.profissionais).map(function(k){ return g.profissionais[k]; })
-        .sort(function(a,b){ return a.localeCompare(b, 'pt-BR'); });
-      return profissionais.length >= 2 ? [fmtBRDate(g.data), g.nome, g.idade || '—', profissionais.join('; '), g.quantidade] : null;
-    }).filter(Boolean).sort(function(a,b){
-      return (parseBRDate(b[0]) - parseBRDate(a[0])) || a[1].localeCompare(b[1], 'pt-BR');
-    });
-    return {headers:outHeaders, rows:rows};
-  }
-
-  // Monta o modelo de dados de uma lista: pra cada linha guarda o HTML de
-  // cada <td> (c) e o texto "completo" de cada célula (t) usado por
-  // busca/filtro por coluna/ordenação/PDF (o mesmo que cellFullText lia do
-  // DOM). Índices de c/t = índices das colunas (colunas extras de
-  // "Participantes Ativ. Coletiva" — AÇÃO M2 e Ações — vêm depois).
-  // "Pessoas atendidas": mostra só Data 1 a Data 3; Data 4 em diante ficam
-  // recolhidas e se expandem ao clicar no botão acima da tabela.
-  var PA_DATAS_VISIVEIS = 3;
-  function idxsDatasExtraPessoasAtendidas(headers){
-    var idxs = [];
-    headers.forEach(function(h, i){
-      var m = /^Data (\d+)$/.exec(String(h));
-      if(m && parseInt(m[1], 10) > PA_DATAS_VISIVEIS) idxs.push(i);
-    });
-    return idxs;
-  }
-  function construirModeloLista(name, cached, anterior, stateKey){
-    var idxsDataExtra = (name === suffixedName("Pessoas atendidas")) ? idxsDatasExtraPessoasAtendidas(cached.headers) : [];
-    var idxsProfNumerados = colsProfissionaisNumerados(cached.headers);
-    var idxProfissionalPessoas = (name === suffixedName("Pessoas atendidas")) ? cached.headers.indexOf('Profissional') : -1;
-    var isParticipantesColetiva = (displayListName(name) === "Participantes Ativ. Coletiva") && idxsProfNumerados.length > 0;
-    // AÇÃO M2 + Ações (Detalhes): Participantes Ativ. Coletiva e Resumo Atividade Coletiva.
-    var temAcaoM2 = isParticipantesColetiva || ehListaResumoAtividadeColetiva(name);
-    var rows = cached.rows.map(function(r, rowIdx){
-      var c = [], t = [];
-      cached.headers.forEach(function(h, i){
-        var v = r[i];
-        var str = (v===undefined||v===null) ? '' : String(v);
-        var oculta = isParticipantesColetiva && idxsProfNumerados.indexOf(i) !== -1;
-        if(i === idxProfissionalPessoas){
-          c.push('<td data-cell-text="'+encodeURIComponent(str)+'">'+(r.profissionalHtml || escapeHtml(str))+'</td>');
-          t.push(str);
-        } else {
-          // Texto longo (responsáveis, participantes, tipo de atividade...) é
-          // abreviado com "…" para a linha caber na largura do container; o
-          // texto completo aparece ao passar o mouse (atributo title).
-          var strTrim = str.trim();
-          var tituloCel = strTrim.length > 14 ? ' title="'+escapeHtml(strTrim).replace(/"/g,'&quot;')+'"' : '';
-          var ehColData = /^Data \d+$/.test(String(h));
-          c.push('<td class="'+(ehColData ? 'cell-data' : 'cell-trunc')+(oculta ? ' part-col-oculta' : '')+(idxsDataExtra.indexOf(i) !== -1 ? ' pa-data-extra' : '')+'"'+tituloCel+'>'+escapeHtml(str)+'</td>');
-          t.push(strTrim);
-        }
-      });
-      if(temAcaoM2){
-        var classificacao = classificarAcaoM2Lista(name, cached.headers, r);
-        c.push('<td>'+acaoM2BadgeHTML(classificacao)+'</td>'); t.push(classificacao.label);
-        c.push('<td>'+detalhesBtnHTML(name, rowIdx)+'</td>'); t.push('Detalhes');
-      }
-      return {c:c, t:t, s:undefined};
-    });
-    var m = {rows:rows, view:rows.slice(), sortCol:-1, sortDir:''};
-    if(anterior && anterior.sortCol >= 0){ m.sortCol = anterior.sortCol; m.sortDir = anterior.sortDir; ordenarModeloLista(stateKey || name, m); }
-    return m;
-  }
-  function ordenarModeloLista(listName, m){
-    if(!m || m.sortCol < 0) return;
-    var colIdx = m.sortCol, dir = m.sortDir;
-    var isDateCol = (colIdx === listDateColIdx[listName]);
-    m.rows.sort(function(a, b){
-      var textoA = String(a.t[colIdx]===undefined ? '' : a.t[colIdx]).trim();
-      var textoB = String(b.t[colIdx]===undefined ? '' : b.t[colIdx]).trim();
-      var cmp;
-      if(isDateCol){
-        var dA = parseBRDate(textoA), dB = parseBRDate(textoB);
-        var tA = dA ? dA.getTime() : (textoA ? Infinity : -Infinity);
-        var tB = dB ? dB.getTime() : (textoB ? Infinity : -Infinity);
-        cmp = tA - tB;
-      } else {
-        cmp = textoA.localeCompare(textoB, 'pt-BR', {numeric:true, sensitivity:'base'});
-      }
-      return dir === 'asc' ? cmp : -cmp;
-    });
-  }
-  function renderListCard(name, containerId){
-    // Como M1 e M2 agora têm as mesmas listas, o estado de cada uma
-    // (modelo/linhas filtradas, filtro de mês, coluna de data) é guardado
-    // por container + nome, para que mexer em uma aba não afete a outra.
-    var sk = (containerId || '') + '::' + name;
+  function renderListCard(name){
     // "Pessoas atendidas" é uma lista calculada aqui mesmo no navegador
     // (dedup de Atendimentos + Participantes Ativ. Coletiva) — ver
     // pessoasAtendidasParaMeses. Tem filtro de mês PRÓPRIO, independente
     // do filtro de Mês do topo da página.
-    var isInterprofissional = (name === suffixedName("Atendimentos interprofissionais"));
     var isPessoasAtendidas = (name === suffixedName("Pessoas atendidas"));
     // "Busca-Ativa" (só na aba M1): outra lista calculada aqui mesmo — ver
     // buscaAtivaCompute — sem filtro de mês próprio, pois a janela (31 a
     // 120 dias sem atendimento, contados do fim do mês atual) já é fixa.
     var isBuscaAtiva = (name === suffixedName("Busca-Ativa"));
-    var cached = isInterprofissional
-      ? latestSheets[name]
-      : isPessoasAtendidas
-        ? pessoasAtendidasParaMeses(listMonthFilters[sk] || [])
-        : isBuscaAtiva
-          ? buscaAtivaCompute()
-          : latestSheets[name];
+    var cached = isPessoasAtendidas
+      ? pessoasAtendidasParaMeses(listMonthFilters[name] || [])
+      : isBuscaAtiva
+        ? buscaAtivaCompute()
+        : latestSheets[name];
     if(isPessoasAtendidas || isBuscaAtiva) latestSheets[name] = cached;
     var body;
     var hasTable = false;
@@ -4762,35 +3116,15 @@
     } else {
       hasTable = true;
       var dateColIdx = dateColIndexForList(cached.headers);
-      listDateColIdx[sk] = dateColIdx;
+      listDateColIdx[name] = dateColIdx;
+      var theadHtml = '<tr>'+cached.headers.map(function(h){ return '<th>'+escapeHtml(h)+'</th>'; }).join('')+'</tr>';
+      var bodyHtml = cached.rows.map(function(r){
+        return '<tr>'+cached.headers.map(function(h,i){
+          var v = r[i];
+          return '<td>'+escapeHtml(v===undefined||v===null?'':v)+'</td>';
+        }).join('')+'</tr>';
+      }).join('');
       var idxsProfNumerados = colsProfissionaisNumerados(cached.headers);
-      // Coluna "Profissional" de "Pessoas Atendidas" (isPessoasAtendidas):
-      // a célula mostra só o profissional responsável (evento mais
-      // recente) + badge "+N" com popover pros demais (ver
-      // pessoasAtendidasParaMeses/profissionalBadgeHtml), mas o VALOR de
-      // busca/filtro/PDF continua sendo a lista completa de nomes
-      // (cached.rows[i][idxProfissionalPessoas], igual sempre foi) — ela
-      // vai guardada em data-cell-text (URI-encoded) pra buscas/filtros/
-      // PDF lerem em vez do texto realmente renderizado na tela (ver
-      // cellFullText, applyFilters e gerarPdfLista).
-      var idxProfissionalPessoas = isPessoasAtendidas ? cached.headers.indexOf('Profissional') : -1;
-      // Só a lista "Participantes Ativ. Coletiva" ganha o resumo em selo —
-      // as 5 colunas "profissional 1".."profissional 5" ficam ocultas
-      // (classe .part-col-oculta) e no lugar delas entram "AÇÃO M2" e
-      // "Ações" (botão "Detalhes"). Os índices das colunas não mudam —
-      // só a exibição — pra não quebrar filtros/PDF que dependem deles.
-      var isParticipantesColetiva = (displayListName(name) === "Participantes Ativ. Coletiva") && idxsProfNumerados.length > 0;
-      var idxsDataExtra = isPessoasAtendidas ? idxsDatasExtraPessoasAtendidas(cached.headers) : [];
-      var theadHtml = '<tr>'+cached.headers.map(function(h,i){
-          var oculta = isParticipantesColetiva && idxsProfNumerados.indexOf(i) !== -1;
-          if(oculta) return '<th class="part-col-oculta">'+escapeHtml(h)+'</th>';
-          return '<th class="sortable-th'+(idxsDataExtra.indexOf(i) !== -1 ? ' pa-data-extra' : '')+'" data-col-idx="'+i+'">'+escapeHtml(h)+'<span class="sort-ind"></span></th>';
-        }).join('')
-        + ((isParticipantesColetiva || ehListaResumoAtividadeColetiva(name))
-            ? '<th class="sortable-th" data-col-idx="'+cached.headers.length+'">AÇÃO M2<span class="sort-ind"></span></th><th>Ações</th>'
-            : '')
-        + '</tr>';
-      listModel[sk] = construirModeloLista(name, cached, null, sk);
       // Nas colunas normais (índice numérico), pula "profissional 1" a
       // "profissional 5" — elas viram UMA opção só ("Profissional da
       // eMulti"), inserida na posição da primeira delas.
@@ -4802,8 +3136,7 @@
               : '';
           }
           return '<option value="'+i+'">'+escapeHtml(h)+'</option>';
-        }).join('')
-        + ((isParticipantesColetiva || ehListaResumoAtividadeColetiva(name)) ? '<option value="'+ACAO_M2_FILTER_VALUE+'">AÇÃO M2</option>' : '');
+        }).join('');
       var filterPairsHtml = [0,1,2].map(function(idx){
         return '<div class="filter-pair">'
           + '<select class="filter-col">'+colOptionsHtml+'</select>'
@@ -4817,25 +3150,19 @@
       // como o primeiro item da fileira.
       var monthFilterHtml = (dateColIdx >= 0 || isPessoasAtendidas)
         ? '<div class="list-month-filter"><label class="list-month-filter-label">Mês</label>'
-          + '<div class="ms-wrap" data-month-filter="'+escapeHtml(name)+'" data-state-key="'+escapeHtml(sk)+'"'+(isPessoasAtendidas ? ' data-computed-months="1"' : '')+'></div></div>'
+          + '<div class="ms-wrap" data-month-filter="'+escapeHtml(name)+'"'+(isPessoasAtendidas ? ' data-computed-months="1"' : '')+'></div></div>'
         : '';
       body = '<p class="list-meta">'+fmtInt(cached.rows.length)+(cached.rows.length===1?' linha':' linhas')+'</p>'
         + '<div class="list-filters" data-list-filters="'+escapeHtml(name)+'">'+monthFilterHtml+filterPairsHtml+'</div>'
         + '<input class="list-search" type="text" placeholder="Filtrar nesta lista…" data-filter-key="'+escapeHtml(name)+'">'
-        + (idxsDataExtra.length
-            ? '<div class="pa-datas-bar"><button type="button" class="pa-toggle-datas" data-pa-toggle-datas="'+idxsDataExtra.length+'" aria-expanded="'+(listDatasExpandidas[sk] ? 'true' : 'false')+'">'
-              + (listDatasExpandidas[sk] ? 'Recolher datas ▴' : 'Mostrar mais datas (+'+idxsDataExtra.length+') ▾')
-              + '</button></div>'
-            : '')
-        + '<div class="table-wrap"><table class="data-table"><thead>'+theadHtml+'</thead><tbody></tbody></table></div>'
-        + '<div class="risco-pager" data-list-pager="'+escapeHtml(name)+'"></div>';
+        + '<div class="table-wrap"><table class="data-table"><thead>'+theadHtml+'</thead><tbody>'+bodyHtml+'</tbody></table></div>';
     }
     var pdfBtnHtml = hasTable
       ? '<button type="button" class="pdf-btn" data-pdf-btn="'+escapeHtml(name)+'">'
         + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h1a1.5 1.5 0 0 0 0-3H9v5"/><path d="M13 12v5h1a2 2 0 0 0 0-5z"/><path d="M18.5 12H17v5"/><path d="M17 14.5h1.3"/></svg>'
         + '<span>Gerar PDF</span></button>'
       : '';
-    return '<div class="card list-card'+(listDatasExpandidas[sk] ? ' pa-datas-expandidas' : '')+'" data-list-card="'+escapeHtml(name)+'" data-state-key="'+escapeHtml(sk)+'">'
+    return '<div class="card list-card" data-list-card="'+escapeHtml(name)+'">'
       + '<div class="list-card-head"><h4>'+escapeHtml(displayListName(name))+'</h4>'+pdfBtnHtml+'</div>'
       + body + '</div>';
   }
@@ -4856,14 +3183,14 @@
       var nameColor = isActive ? '#EEF3EA' : '#1B2E27';
       var countColor = isActive ? '#9FC0AE' : '#8B978F';
       return '<button type="button" class="related-list-pill" data-list-pill="'+escapeHtml(name)+'" data-container="'+escapeHtml(containerId)+'"'
-        + ' style="display:inline-flex;align-items:center;gap:5px;padding:7px 11px;border-radius:999px;border:1px solid '+border+';background:'+bg+';cursor:pointer;font-family:inherit;white-space:nowrap;flex:0 0 auto;">'
-        + '<span style="font-size:12.5px;font-weight:600;color:'+nameColor+';">'+escapeHtml(displayListName(name))+'</span>'
-        + (count ? '<span style="font-size:12px;color:'+countColor+';">'+count+'</span>' : '')
+        + ' style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:999px;border:1px solid '+border+';background:'+bg+';cursor:pointer;font-family:inherit;white-space:nowrap;">'
+        + '<span style="font-size:13px;font-weight:600;color:'+nameColor+';">'+escapeHtml(displayListName(name))+'</span>'
+        + (count ? '<span style="font-size:12.5px;color:'+countColor+';">'+count+'</span>' : '')
         + '</button>';
     }).join('');
     return '<div class="related-lists-bar" style="margin-bottom:14px;">'
       + '<div style="font-size:11px;font-weight:700;letter-spacing:0.06em;color:#5C6B62;text-transform:uppercase;margin-bottom:8px;">Listas relacionadas</div>'
-      + '<div class="related-lists-pills" style="position:relative;display:flex;flex-wrap:nowrap;gap:6px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin;-webkit-overflow-scrolling:touch;">'+pills+'</div>'
+      + '<div style="display:flex;flex-wrap:wrap;gap:8px;">'+pills+'</div>'
       + '</div>';
   }
   // wb (latestWb) já usado pra montar cada container de listas relacionadas
@@ -4887,28 +3214,7 @@
       return;
     }
     listsRenderedForWb[containerId] = latestWb;
-    var interprofissionalName = suffixedName("Atendimentos interprofissionais");
-    if(names.indexOf(interprofissionalName) >= 0){
-      latestSheets[interprofissionalName] = atendimentosInterprofissionaisParaLista();
-    }
-    // "Pessoas atendidas" e "Busca-Ativa" são calculadas no navegador (não
-    // vêm prontas da planilha) e só ficavam em latestSheets depois que
-    // renderListCard rodava pra cada uma — como isso só acontece DEPOIS
-    // de relatedListsPillsHtml montar os pills (linha abaixo), o
-    // quantitativo dessas duas ficava faltando no pill na PRIMEIRA aba
-    // renderizada (M1) e só aparecia certo na aba seguinte (M2, que já
-    // reaproveitava o cache deixado pela passada de M1). Calculando aqui
-    // antes dos pills, as duas abas saem iguais.
-    var pessoasAtendidasName = suffixedName("Pessoas atendidas");
-    if(names.indexOf(pessoasAtendidasName) >= 0){
-      var skPessoas = containerId + '::' + pessoasAtendidasName;
-      latestSheets[pessoasAtendidasName] = pessoasAtendidasParaMeses(listMonthFilters[skPessoas] || []);
-    }
-    var buscaAtivaName = suffixedName("Busca-Ativa");
-    if(names.indexOf(buscaAtivaName) >= 0){
-      latestSheets[buscaAtivaName] = buscaAtivaCompute();
-    }
-    el.innerHTML = relatedListsPillsHtml(containerId, names) + names.map(function(n){ return renderListCard(n, containerId); }).join('');
+    el.innerHTML = relatedListsPillsHtml(containerId, names) + names.map(renderListCard).join('');
 
     // Só o card da lista ativa (pill selecionada) fica visível — os
     // outros continuam no DOM (com seus próprios filtros já montados),
@@ -4933,115 +3239,14 @@
       btn.addEventListener('click', function(){
         listActiveTab[containerId] = btn.getAttribute('data-list-pill');
         aplicarAbaAtiva();
-        var faixa = btn.parentNode;
-        if(faixa && faixa.scrollWidth > faixa.clientWidth){
-          var alvo = btn.offsetLeft - (faixa.clientWidth - btn.offsetWidth) / 2;
-          faixa.scrollTo({left: Math.max(0, alvo), behavior: 'smooth'});
-        }
-      });
-    });
-
-    // ---- Paginação das listas (100 por página) ----
-    // As linhas fora da página recebem a classe .pg-hidden (display:none
-    // !important) — NÃO mexem em tr.style.display, que continua sendo só o
-    // resultado dos filtros (usado pela recontagem por pessoa e pelo PDF,
-    // que por isso seguem enxergando TODAS as linhas filtradas).
-    var LISTA_POR_PAGINA = 100;
-    var listaPagina = {};
-    if(!document.getElementById('listPagerStyles')){
-      var stLp = document.createElement('style');
-      stLp.id = 'listPagerStyles';
-      stLp.textContent = '.risco-pager{display:flex;align-items:center;justify-content:center;gap:14px;margin:10px 0 4px;font-size:13px;color:var(--ink-soft)}'
-        + '.risco-pager button{border:1px solid var(--line);background:var(--paper,#fff);border-radius:999px;padding:6px 14px;font:inherit;font-weight:600;color:var(--ink);cursor:pointer}'
-        + '.risco-pager button:disabled{opacity:.4;cursor:default}';
-      document.head.appendChild(stLp);
-    }
-    // Abrevia (com "…") as células de texto longo até a linha caber na
-    // largura do container: tenta limites de 220px, 180px, ... 64px por
-    // célula e para no primeiro em que a tabela não estoura a largura.
-    // Não faz nada enquanto a lista está escondida (largura 0).
-    var TRUNC_PASSOS = [220, 180, 150, 120, 100, 80, 64];
-    function ajustarTruncamentoLista(card){
-      var wrap = card.querySelector('.table-wrap');
-      var tbl = card.querySelector('table.data-table');
-      if(!wrap || !tbl) return;
-      // Datas expandidas (Pessoas atendidas): a linha aparece inteira, sem
-      // "…" em nenhuma célula; se passar da largura, a tabela rola na horizontal.
-      if(card.classList.contains('pa-datas-expandidas')){
-        tbl.style.setProperty('--cell-max', 'none');
-        return;
-      }
-      if(!wrap.clientWidth) return;
-      for(var i = 0; i < TRUNC_PASSOS.length; i++){
-        tbl.style.setProperty('--cell-max', TRUNC_PASSOS[i] + 'px');
-        if(tbl.offsetWidth <= wrap.clientWidth + 1) break;
-      }
-    }
-    function observarTruncamentoLista(card){
-      var wrap = card.querySelector('.table-wrap');
-      if(!wrap || wrap._truncObs) return;
-      var ultima = -1;
-      var refazer = function(){
-        var w = wrap.clientWidth;
-        if(w === ultima) return;
-        ultima = w;
-        ajustarTruncamentoLista(card);
-      };
-      if(typeof ResizeObserver === 'function'){
-        wrap._truncObs = new ResizeObserver(refazer);
-        wrap._truncObs.observe(wrap);
-      } else {
-        wrap._truncObs = true;
-        window.addEventListener('resize', refazer);
-      }
-    }
-    function paginarLista(card){
-      var listName = card.getAttribute('data-list-card');
-      var pagerEl = card.querySelector('[data-list-pager]');
-      var tbody = card.querySelector('tbody');
-      var m = listModel[card.getAttribute('data-state-key')];
-      if(!tbody || !m) return;
-      var total = m.view.length;
-      var totalPaginas = Math.max(1, Math.ceil(total / LISTA_POR_PAGINA));
-      var pg = listaPagina[listName] || 1;
-      if(pg > totalPaginas) pg = totalPaginas;
-      if(pg < 1) pg = 1;
-      listaPagina[listName] = pg;
-      var ini = (pg - 1) * LISTA_POR_PAGINA, fim = ini + LISTA_POR_PAGINA;
-      var visiveis = m.view.slice(ini, fim);
-      var nCols = card.querySelectorAll('thead th').length || 1;
-      tbody.innerHTML = visiveis.length
-        ? visiveis.map(function(row){ return '<tr>'+row.c.join('')+'</tr>'; }).join('')
-        : '<tr><td colspan="'+nCols+'" class="footnote" style="padding:14px 12px;">Nenhuma linha encontrada com esse filtro.</td></tr>';
-      if(pagerEl){
-        pagerEl.innerHTML = total <= LISTA_POR_PAGINA ? '' : ''
-          + '<button type="button" data-pg="prev"'+(pg<=1?' disabled':'')+'>‹ Anterior</button>'
-          + '<span>Página '+fmtInt(pg)+' de '+fmtInt(totalPaginas)
-          +   ' · mostrando '+fmtInt(ini+1)+'–'+fmtInt(Math.min(fim,total))+' de '+fmtInt(total)+'</span>'
-          + '<button type="button" data-pg="next"'+(pg>=totalPaginas?' disabled':'')+'>Próxima ›</button>';
-      }
-      ajustarTruncamentoLista(card);
-      observarTruncamentoLista(card);
-    }
-    el.querySelectorAll('[data-list-pager]').forEach(function(pagerEl){
-      pagerEl.addEventListener('click', function(ev){
-        var b = ev.target.closest ? ev.target.closest('button[data-pg]') : null;
-        if(!b || b.disabled) return;
-        var card = pagerEl.closest('.list-card');
-        var nome = card.getAttribute('data-list-card');
-        listaPagina[nome] = (listaPagina[nome] || 1) + (b.getAttribute('data-pg') === 'next' ? 1 : -1);
-        paginarLista(card);
-        var wrap = card.querySelector('.table-wrap');
-        if(wrap) wrap.scrollTop = 0;
       });
     });
 
     function applyFilters(card){
       var listName = card.getAttribute('data-list-card');
-      var listKey = card.getAttribute('data-state-key');
       var cached = latestSheets[listName];
-      var dateColIdx = listDateColIdx[listKey];
-      var selectedMonths = listMonthFilters[listKey] || [];
+      var dateColIdx = listDateColIdx[listName];
+      var selectedMonths = listMonthFilters[listName] || [];
       var textInput = card.querySelector('.list-search');
       var term = textInput ? textInput.value.trim().toLowerCase() : '';
       var activeFilters = [];
@@ -5050,55 +3255,44 @@
         var colSelect = pair.querySelector('.filter-col');
         var valWrap = pair.querySelector('.filter-val-ms');
         var isProfEmulti = colSelect && colSelect.value === PROF_EMULTI_FILTER_VALUE;
-        var isAcaoM2 = colSelect && colSelect.value === ACAO_M2_FILTER_VALUE;
-        var colIdx = (colSelect && !isProfEmulti && !isAcaoM2 && colSelect.value !== '') ? parseInt(colSelect.value, 10) : null;
+        var colIdx = (colSelect && !isProfEmulti && colSelect.value !== '') ? parseInt(colSelect.value, 10) : null;
         var vals = (valWrap && valWrap._msInstance) ? valWrap._msInstance.getSelected() : [];
         if(!vals.length) return;
         if(isProfEmulti){ activeFilters.push({profEmulti:true, colIdxs:idxsProfNumeradosFiltro, vals:vals}); }
-        // A célula do selo "AÇÃO M2" é sempre a primeira coluna acrescentada
-        // depois das colunas originais da planilha (ver renderListCard) —
-        // por isso a posição é sempre cached.headers.length, sem precisar
-        // de um índice fixo guardado em outro lugar.
-        else if(isAcaoM2){ activeFilters.push({colIdx: cached ? cached.headers.length : -1, vals:vals}); }
         else if(colIdx !== null){ activeFilters.push({colIdx:colIdx, vals:vals}); }
       });
-      var m = listModel[listKey];
-      if(!m) return;
-      var view = [];
-      m.rows.forEach(function(row){
-        var matchesText = true;
-        if(term){
-          if(row.s === undefined) row.s = row.t.join(' ').toLowerCase();
-          matchesText = row.s.indexOf(term) !== -1;
-        }
+      var visibleCount = 0;
+      card.querySelectorAll('tbody tr').forEach(function(tr, rowIdx){
+        var matchesText = !term || tr.textContent.toLowerCase().indexOf(term) !== -1;
         var matchesCols = activeFilters.every(function(f){
           if(f.profEmulti){
             // Bate se QUALQUER uma das 5 colunas "profissional N" desta
             // linha tiver um dos nomes marcados no filtro.
             return f.colIdxs.some(function(ci){
-              return row.t[ci] !== undefined && f.vals.indexOf(row.t[ci]) >= 0;
+              var cell = tr.children[ci];
+              return cell && f.vals.indexOf(cell.textContent.trim()) >= 0;
             });
           }
-          var texto = row.t[f.colIdx];
-          if(texto === undefined) return false;
+          var cell = tr.children[f.colIdx];
+          if(!cell) return false;
           var headerName = (cached && cached.headers) ? cached.headers[f.colIdx] : '';
           if(headerName === DIAS_SEM_ATENDIMENTO_HEADER){
-            var bucket = diasBucketLabel(texto);
+            var bucket = diasBucketLabel(cell.textContent.trim());
             return !!bucket && f.vals.indexOf(bucket) >= 0;
           }
-          return f.vals.indexOf(texto) >= 0;
+          return f.vals.indexOf(cell.textContent.trim()) >= 0;
         });
         var matchesMonth = true;
         if(selectedMonths.length && dateColIdx != null && dateColIdx >= 0){
-          var raw = row.t[dateColIdx];
-          var d = parseBRDate(raw===undefined ? null : String(raw).trim());
+          var raw = cached && cached.rows[rowIdx] ? cached.rows[rowIdx][dateColIdx] : null;
+          var d = parseBRDate(raw);
           var mv = d ? monthOptionValue(d) : null;
           matchesMonth = !!mv && selectedMonths.indexOf(mv) >= 0;
         }
-        if(matchesText && matchesCols && matchesMonth) view.push(row);
+        var visible = matchesText && matchesCols && matchesMonth;
+        tr.style.display = visible ? '' : 'none';
+        if(visible) visibleCount++;
       });
-      m.view = view;
-      var visibleCount = view.length;
       // Contagem de linhas mostrada acima da lista: reflete o resultado
       // depois de aplicar TODOS os filtros ativos (mês, colunas e busca),
       // não o total bruto da lista.
@@ -5138,74 +3332,80 @@
       });
       if(nomeIdxQtd >= 0 && qtdColIdxs.length){
         var countsPorNomeQtd = {};
-        view.forEach(function(row){
-          var nomeVal = String(row.t[nomeIdxQtd]===undefined ? '' : row.t[nomeIdxQtd]).trim().toUpperCase();
+        card.querySelectorAll('tbody tr').forEach(function(tr){
+          if(tr.style.display === 'none') return;
+          var nomeCell = tr.children[nomeIdxQtd];
+          var nomeVal = nomeCell ? nomeCell.textContent.trim().toUpperCase() : '';
           if(!nomeVal) return;
           countsPorNomeQtd[nomeVal] = (countsPorNomeQtd[nomeVal] || 0) + 1;
         });
-        view.forEach(function(row){
-          var nomeVal = String(row.t[nomeIdxQtd]===undefined ? '' : row.t[nomeIdxQtd]).trim().toUpperCase();
-          var txt = fmtInt(nomeVal ? (countsPorNomeQtd[nomeVal] || 0) : 0);
+        card.querySelectorAll('tbody tr').forEach(function(tr){
+          if(tr.style.display === 'none') return;
+          var nomeCell = tr.children[nomeIdxQtd];
+          var nomeVal = nomeCell ? nomeCell.textContent.trim().toUpperCase() : '';
+          var count = nomeVal ? (countsPorNomeQtd[nomeVal] || 0) : 0;
           qtdColIdxs.forEach(function(ci){
-            if(ci >= row.c.length || row.t[ci] === txt) return;
-            row.t[ci] = txt;
-            row.c[ci] = '<td>'+txt+'</td>';
-            row.s = undefined;
+            var cell = tr.children[ci];
+            if(cell) cell.textContent = fmtInt(count);
           });
         });
       }
-      // Filtro/busca/ordenação novos sempre voltam pra página 1.
-      listaPagina[listName] = 1;
-      paginarLista(card);
     }
 
     el.querySelectorAll('[data-month-filter]').forEach(function(container){
       var name = container.getAttribute('data-month-filter');
-      var key = container.getAttribute('data-state-key');
       if(container.getAttribute('data-computed-months') === '1'){
         // "Pessoas atendidas": filtro de mês próprio — recalcula a
         // dedup (Atendimentos + Participantes Ativ. Coletiva) na hora,
         // em vez de só esconder/mostrar linhas de uma tabela fixa.
         var optsCalc = monthOptionsParaPessoasAtendidas();
         var validCalc = optsCalc.map(function(o){ return o.value; });
-        listMonthFilters[key] = (listMonthFilters[key] || []).filter(function(v){
+        listMonthFilters[name] = (listMonthFilters[name] || []).filter(function(v){
           return validCalc.indexOf(v) >= 0;
         });
         var calcMs = createMultiSelect(container, {
           placeholder: 'Todos os meses', multi: true, search: optsCalc.length > 8, showTags: true,
           onChange: function(keys){
-            listMonthFilters[key] = keys;
+            listMonthFilters[name] = keys;
             var card = container.closest('.list-card');
             var novoCached = pessoasAtendidasParaMeses(keys);
             latestSheets[name] = novoCached;
-            listModel[key] = construirModeloLista(name, novoCached, listModel[key], key);
+            var tbody = card.querySelector('tbody');
+            if(tbody){
+              tbody.innerHTML = novoCached.rows.map(function(r){
+                return '<tr>'+novoCached.headers.map(function(h,i){
+                  var v = r[i];
+                  return '<td>'+escapeHtml(v===undefined||v===null?'':v)+'</td>';
+                }).join('')+'</tr>';
+              }).join('');
+            }
             applyFilters(card);
           }
         });
         calcMs.setOptions(optsCalc);
-        calcMs.setSelected(listMonthFilters[key]);
+        calcMs.setSelected(listMonthFilters[name]);
         applyFilters(container.closest('.list-card'));
         return;
       }
       var cached = latestSheets[name];
-      var dateColIdx = listDateColIdx[key];
+      var dateColIdx = listDateColIdx[name];
       if(!cached || dateColIdx == null || dateColIdx < 0) return;
       var opts = monthOptionsForList(cached, dateColIdx);
       var validValues = opts.map(function(o){ return o.value; });
       // Mantém só a seleção anterior que ainda faz sentido (evita "mês
       // fantasma" depois que os dados são atualizados).
-      listMonthFilters[key] = (listMonthFilters[key] || []).filter(function(v){
+      listMonthFilters[name] = (listMonthFilters[name] || []).filter(function(v){
         return validValues.indexOf(v) >= 0;
       });
       var monthMs = createMultiSelect(container, {
         placeholder: 'Todos os meses', multi: true, search: opts.length > 8, showTags: true,
         onChange: function(keys){
-          listMonthFilters[key] = keys;
+          listMonthFilters[name] = keys;
           applyFilters(container.closest('.list-card'));
         }
       });
       monthMs.setOptions(opts);
-      monthMs.setSelected(listMonthFilters[key]);
+      monthMs.setSelected(listMonthFilters[name]);
       applyFilters(container.closest('.list-card'));
     });
 
@@ -5233,25 +3433,11 @@
         var listName = card.querySelector('[data-list-filters]').getAttribute('data-list-filters');
         var cached = latestSheets[listName];
         var isProfEmulti = colSelect.value === PROF_EMULTI_FILTER_VALUE;
-        var isAcaoM2 = colSelect.value === ACAO_M2_FILTER_VALUE;
-        var colIdx = (!isProfEmulti && !isAcaoM2 && colSelect.value !== '') ? parseInt(colSelect.value, 10) : null;
-        if(colIdx === null && !isProfEmulti && !isAcaoM2){
+        var colIdx = (!isProfEmulti && colSelect.value !== '') ? parseInt(colSelect.value, 10) : null;
+        if(colIdx === null && !isProfEmulti){
           msInst.setOptions([]);
           msInst.setSelected([]);
           valWrap.classList.add('ms-disabled');
-        } else if(isAcaoM2){
-          // Valores fixos do selo (não vêm de uma coluna da planilha, são
-          // calculados linha a linha — ver classificarAcaoM2Participacao).
-          var seenAcao = {};
-          var valuesAcao = [];
-          (cached ? cached.rows : []).forEach(function(r){
-            var label = classificarAcaoM2Lista(listName, cached.headers, r).label;
-            if(!seenAcao[label]){ seenAcao[label] = true; valuesAcao.push(label); }
-          });
-          valuesAcao.sort(function(a,b){ return a.localeCompare(b, 'pt-BR'); });
-          msInst.setOptions(valuesAcao.map(function(v){ return {value:v, label:v}; }));
-          msInst.setSelected([]);
-          valWrap.classList.remove('ms-disabled');
         } else if(isProfEmulti){
           // Junta os valores distintos das 5 colunas "profissional N",
           // mas só os nomes cadastrados na aba PROFISSIONAIS (roster da
@@ -5313,70 +3499,6 @@
         gerarPdfLista(btn.getAttribute('data-pdf-btn'), btn.closest('.list-card'), btn);
       });
     });
-
-    // Delegado no card: os botões "Detalhes" são recriados a cada página.
-    el.querySelectorAll('.list-card').forEach(function(card){
-      card.addEventListener('click', function(ev){
-        var btn = ev.target.closest ? ev.target.closest('[data-detalhes-part-idx]') : null;
-        if(!btn) return;
-        var listName = btn.getAttribute('data-detalhes-part-list');
-        var idx = parseInt(btn.getAttribute('data-detalhes-part-idx'), 10);
-        var cachedLista = latestSheets[listName];
-        if(!cachedLista || !cachedLista.rows[idx]) return;
-        abrirDetalhesParticipacao(cachedLista.headers, cachedLista.rows[idx], listName);
-      });
-    });
-
-    // "Pessoas atendidas": botão que expande/recolhe as colunas Data 4 em diante.
-    el.querySelectorAll('.list-card').forEach(function(card){
-      var btnDatas = card.querySelector('[data-pa-toggle-datas]');
-      if(!btnDatas) return;
-      btnDatas.addEventListener('click', function(){
-        var sk = card.getAttribute('data-state-key');
-        var expandir = !card.classList.contains('pa-datas-expandidas');
-        listDatasExpandidas[sk] = expandir;
-        card.classList.toggle('pa-datas-expandidas', expandir);
-        btnDatas.setAttribute('aria-expanded', expandir ? 'true' : 'false');
-        btnDatas.textContent = expandir
-          ? 'Recolher datas ▴'
-          : 'Mostrar mais datas (+' + btnDatas.getAttribute('data-pa-toggle-datas') + ') ▾';
-        ajustarTruncamentoLista(card);
-      });
-    });
-
-    // Ordenação alfanumérica ao clicar no cabeçalho — vale pra QUALQUER
-    // coluna visível de QUALQUER lista (inclusive o selo "AÇÃO M2"), sem
-    // duplicar dado nenhum: só reordena os <tr> já existentes no <tbody> e
-    // reaplica os filtros/busca já ativos (applyFilters lê tudo direto do
-    // DOM, então continua batendo certinho depois da reordenação).
-    function ordenarTabelaPorColuna(th){
-      var card = th.closest('.list-card');
-      var table = th.closest('table');
-      var tbody = table ? table.querySelector('tbody') : null;
-      if(!card || !tbody) return;
-      var listName = card.getAttribute('data-list-card');
-      var colIdx = parseInt(th.getAttribute('data-col-idx'), 10);
-      var novaDir = th.getAttribute('data-sort-dir') === 'asc' ? 'desc' : 'asc';
-      table.querySelectorAll('.sortable-th').forEach(function(h){
-        if(h !== th){ h.removeAttribute('data-sort-dir'); h.classList.remove('sort-asc','sort-desc'); }
-      });
-      th.setAttribute('data-sort-dir', novaDir);
-      th.classList.remove('sort-asc','sort-desc');
-      th.classList.add(novaDir === 'asc' ? 'sort-asc' : 'sort-desc');
-      var listKey = card.getAttribute('data-state-key');
-      var m = listModel[listKey];
-      if(!m) return;
-      m.sortCol = colIdx;
-      m.sortDir = novaDir;
-      ordenarModeloLista(listKey, m);
-      applyFilters(card);
-    }
-    el.querySelectorAll('.sortable-th').forEach(function(th){
-      th.addEventListener('click', function(){ ordenarTabelaPorColuna(th); });
-    });
-    el.querySelectorAll('.list-card').forEach(function(card){
-      if(card.querySelector('tbody')) paginarLista(card);
-    });
   }
 
   // ---------- Exportar lista em PDF ----------
@@ -5392,55 +3514,6 @@
   function slugifyFileName(s){
     return normalizeText(s).replace(/[^A-Z0-9]+/g,'_').replace(/^_+|_+$/g,'');
   }
-  // ---------- Helpers de PDF: alinhamento das colunas ----------
-  // Uma coluna é "numérica" quando TODOS os valores preenchidos têm
-  // dígitos e nenhuma letra (depois de tirar sufixos como "dias" e "%" e
-  // o "R$"): cobre inteiros, decimais com vírgula, percentuais, datas
-  // (12/03/2026), horas e códigos como CPF/CNS. Traços de "vazio" ("-",
-  // "—") são ignorados. Colunas de texto (nomes etc.) ficam à esquerda.
-  function pdfValorEhNumerico(v){
-    var s = String(v == null ? '' : v).trim();
-    if(!s || /^[-–—]+$/.test(s)) return null; // vazio: não decide nada
-    var t = s.replace(/R\$/g,'').replace(/\s*(dias?|%)\s*$/i,'');
-    return /\d/.test(t) && !/[A-Za-zÀ-ÿ]/.test(t);
-  }
-  // Devolve o columnStyles do autoTable ({indice:{halign:'center'}}) só
-  // pras colunas numéricas.
-  function pdfColunasNumericasCentralizadas(nCols, linhas){
-    var estilos = {};
-    for(var c = 0; c < nCols; c++){
-      var temNumero = false, soNumeros = true;
-      for(var r = 0; r < linhas.length; r++){
-        var ehNum = pdfValorEhNumerico(linhas[r][c]);
-        if(ehNum === null) continue;
-        if(!ehNum){ soNumeros = false; break; }
-        temNumero = true;
-      }
-      if(soNumeros && temNumero) estilos[c] = {halign:'center'};
-    }
-    return estilos;
-  }
-  // Acrescenta a coluna "Nº" (1, 2, 3...) na frente do cabeçalho e de cada
-  // linha, seguindo a ordem em que as linhas aparecem no PDF (a numeração
-  // continua entre as páginas). Devolve {head, body, columnStyles}, onde a
-  // coluna do número já sai estreita e centralizada.
-  function pdfComNumeracao(head, linhas, larguraNum){
-    var body = linhas.map(function(l, i){ return [String(i+1)].concat(l); });
-    var estilos = pdfColunasNumericasCentralizadas(head.length+1, body);
-    estilos[0] = {halign:'center', cellWidth: larguraNum || 30};
-    return {head:['Nº'].concat(head), body:body, columnStyles:estilos};
-  }
-  // Escreve uma linha em destaque com o(s) profissional(is) selecionado(s),
-  // quebrando em várias linhas se a lista for longa. Devolve o novo y.
-  function pdfLinhaProfissional(doc, rotulo, nomes, x, y, larguraMax){
-    if(!nomes || !nomes.length) return y;
-    doc.setFont('helvetica','bold');
-    doc.setFontSize(10.5);
-    doc.setTextColor(21,63,53);
-    var linhas = doc.splitTextToSize(rotulo+': '+nomes.join(', '), larguraMax);
-    doc.text(linhas, x, y);
-    return y + 13*linhas.length;
-  }
   function gerarPdfLista(listName, card, btn){
     if(!card) return;
     var jspdfNs = window.jspdf;
@@ -5448,26 +3521,10 @@
       alert('Não foi possível carregar a biblioteca de geração de PDF (verifique a conexão com a internet) — tente novamente.');
       return;
     }
-    // Colunas ocultas na tela (ex.: "profissional 1".."5" da lista
-    // "Participantes Ativ. Coletiva", resumidas no selo "AÇÃO M2" — ver
-    // renderListCard) também ficam fora do PDF. headersOriginal preserva a
-    // posição/nome de TODAS as colunas (mesmos índices usados pelos
-    // seletores de filtro, ver filtrosAtivos abaixo); headers/linhasVisiveis
-    // (usados na tabela do PDF) já saem sem essas colunas.
-    var thEls = Array.prototype.slice.call(card.querySelectorAll('thead th'));
-    var headersOriginal = thEls.map(function(th){ return th.textContent.trim(); });
-    var idxsPdfOcultos = [];
-    thEls.forEach(function(th, i){ if(th.classList.contains('part-col-oculta')) idxsPdfOcultos.push(i); });
-    var headers = idxsPdfOcultos.length
-      ? headersOriginal.filter(function(h,i){ return idxsPdfOcultos.indexOf(i) === -1; })
-      : headersOriginal;
-    var listKeyPdf = card.getAttribute('data-state-key') || listName;
-    var mPdf = listModel[listKeyPdf];
-    var todasLinhas = mPdf ? mPdf.rows : [];
-    var linhasVisiveis = (mPdf ? mPdf.view : []).map(function(row){
-        var celulas = row.t.slice();
-        return idxsPdfOcultos.length ? celulas.filter(function(c,i){ return idxsPdfOcultos.indexOf(i) === -1; }) : celulas;
-      });
+    var headers = Array.prototype.map.call(card.querySelectorAll('thead th'), function(th){ return th.textContent.trim(); });
+    var todasLinhas = card.querySelectorAll('tbody tr');
+    var linhasVisiveis = Array.prototype.filter.call(todasLinhas, function(tr){ return tr.style.display !== 'none'; })
+      .map(function(tr){ return Array.prototype.map.call(tr.children, function(td){ return td.textContent.trim(); }); });
     if(!linhasVisiveis.length){
       alert('Nenhuma linha visível com os filtros atuais dessa lista — ajuste os filtros antes de gerar o PDF.');
       return;
@@ -5476,29 +3533,19 @@
     // Monta o resumo dos filtros ativos nesta lista, pra registrar no
     // cabeçalho do PDF exatamente o que foi aplicado.
     var filtrosAtivos = [];
-    var profissionaisSel = [];
     var searchInput = card.querySelector('.list-search');
     if(searchInput && searchInput.value.trim()) filtrosAtivos.push('Busca: "'+searchInput.value.trim()+'"');
-    var mesesSelecionados = listMonthFilters[listKeyPdf] || [];
+    var mesesSelecionados = listMonthFilters[listName] || [];
     if(mesesSelecionados.length){
       filtrosAtivos.push('Mês: '+mesesSelecionados.map(monthValueToLabel).join(', '));
     }
     card.querySelectorAll('.filter-pair').forEach(function(pair){
       var colSelect = pair.querySelector('.filter-col');
       var valWrap = pair.querySelector('.filter-val-ms');
+      var colIdx = colSelect && colSelect.value !== '' ? parseInt(colSelect.value, 10) : null;
       var vals = (valWrap && valWrap._msInstance) ? valWrap._msInstance.getSelected() : [];
-      if(colSelect && colSelect.value !== '' && vals.length){
-        var rotuloColuna = colSelect.options[colSelect.selectedIndex]
-          ? colSelect.options[colSelect.selectedIndex].text
-          : colSelect.value;
-        // Filtro em coluna de profissional ("Profissional", "Profissional da
-        // eMulti", "Profissional 1"...) vira uma linha em destaque logo
-        // abaixo do título, em vez de só mais um item da lista de filtros.
-        if(/PROFISSIONAL/.test(normalizeText(rotuloColuna))){
-          vals.forEach(function(v){ if(profissionaisSel.indexOf(v) === -1) profissionaisSel.push(v); });
-        } else {
-          filtrosAtivos.push(rotuloColuna+': '+vals.join(', '));
-        }
+      if(colIdx !== null && vals.length){
+        filtrosAtivos.push(headers[colIdx]+': '+vals.join(', '));
       }
     });
 
@@ -5532,7 +3579,6 @@
     doc.setFontSize(13);
     doc.text(nomeExibicao, margin, y);
     y += 16;
-    y = pdfLinhaProfissional(doc, profissionaisSel.length > 1 ? 'Profissionais' : 'Profissional', profissionaisSel, margin, y, pageWidth-margin*2);
     doc.setFont('helvetica','normal');
     doc.setFontSize(9);
     doc.setTextColor(81,96,90);
@@ -5549,16 +3595,14 @@
     doc.text(fmtInt(linhasVisiveis.length)+' de '+fmtInt(totalLinhas)+(totalLinhas===1?' linha no total.':' linhas no total.'), margin, y);
     y += 10;
 
-    var tabelaPdf = pdfComNumeracao(headers, linhasVisiveis, linhasVisiveis.length > 999 ? 36 : 30);
     doc.autoTable({
       startY: y+6,
-      head: [tabelaPdf.head],
-      body: tabelaPdf.body,
+      head: [headers],
+      body: linhasVisiveis,
       theme: 'grid',
-      columnStyles: tabelaPdf.columnStyles,
       margin: {left:margin, right:margin, bottom:34},
       styles: {font:'helvetica', fontSize: headers.length > 9 ? 7 : (headers.length > 6 ? 7.8 : 8.6), cellPadding:4, overflow:'linebreak', textColor:[19,36,31], lineColor:[220,228,214], lineWidth:0.5},
-      headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold', halign:'center', valign:'middle'},
+      headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold'},
       alternateRowStyles: {fillColor:[241,244,238]},
       didDrawPage: function(){
         doc.setFontSize(8);
@@ -5609,32 +3653,23 @@
     // Mais recente primeiro, mesma ordem da tabela de Série histórica.
     serieTendencia.slice().reverse().forEach(function(p){
       var mesLabel = monthShortLabel(p.mes);
-      // Diferença de numerador/denominador (oficial - calculado): mostra
-      // ONDE está a divergência de valor (M1/M2), não só o tamanho dela.
-      function fmtDif(v){ return v!=null ? (v>=0?'+':'')+fmtInt(v) : '—'; }
       if(p.m1Oficial){
         var difM1 = (p.m1!=null && p.m1Calculado!=null) ? (p.m1 - p.m1Calculado) : null;
         registrarDivergencia(statM1, difM1, mesLabel);
-        var difNumM1 = (p.numeradorM1!=null && p.numeradorM1Calculado!=null) ? (p.numeradorM1 - p.numeradorM1Calculado) : null;
-        var difDenM1 = (p.denominadorM1!=null && p.denominadorM1Calculado!=null) ? (p.denominadorM1 - p.denominadorM1Calculado) : null;
         linhas.push([
           mesLabel, 'M1',
           fmtInt(p.numeradorM1Calculado)+' / '+fmtInt(p.denominadorM1Calculado), p.m1Calculado!=null ? fmtDec(p.m1Calculado,2) : '—',
           fmtInt(p.numeradorM1)+' / '+fmtInt(p.denominadorM1), p.m1!=null ? fmtDec(p.m1,2) : '—',
-          fmtDif(difNumM1), fmtDif(difDenM1),
           difM1!=null ? (difM1>=0?'+':'')+fmtDec(difM1,2) : '—'
         ]);
       }
       if(p.m2Oficial){
         var difM2 = (p.m2!=null && p.m2Calculado!=null) ? (p.m2 - p.m2Calculado) : null;
         registrarDivergencia(statM2, difM2, mesLabel);
-        var difNumM2 = (p.numeradorM2!=null && p.numeradorM2Calculado!=null) ? (p.numeradorM2 - p.numeradorM2Calculado) : null;
-        var difDenM2 = (p.denominadorM2!=null && p.denominadorM2Calculado!=null) ? (p.denominadorM2 - p.denominadorM2Calculado) : null;
         linhas.push([
           mesLabel, 'M2',
           fmtInt(p.numeradorM2Calculado)+' / '+fmtInt(p.denominadorM2Calculado), p.m2Calculado!=null ? fmtDec(p.m2Calculado,2)+'%' : '—',
           fmtInt(p.numeradorM2)+' / '+fmtInt(p.denominadorM2), p.m2!=null ? fmtDec(p.m2,2)+'%' : '—',
-          fmtDif(difNumM2), fmtDif(difDenM2),
           difM2!=null ? (difM2>=0?'+':'')+fmtDec(difM2,2)+'%' : '—'
         ]);
       }
@@ -5672,12 +3707,12 @@
     doc.setFont('helvetica','normal');
     doc.setFontSize(9);
     doc.setTextColor(81,96,90);
-    doc.text('M1 = atendimentos por pessoa (numerador ÷ denominador). M2 = % de ações compartilhadas (numerador ÷ denominador × 100). Todas as diferenças = oficial - calculado.', margin, y);
+    doc.text('M1 = atendimentos por pessoa (numerador ÷ denominador). M2 = % de ações compartilhadas (numerador ÷ denominador × 100). Diferença = oficial - calculado.', margin, y);
     y += 14;
 
     doc.autoTable({
       startY: y,
-      head: [['Mês','Indicador','Numerador/Denominador (calculado)','Valor (calculado)','Numerador/Denominador (oficial)','Valor (oficial)','Dif. numerador','Dif. denominador','Diferença']],
+      head: [['Mês','Indicador','Numerador/Denominador (calculado)','Valor (calculado)','Numerador/Denominador (oficial)','Valor (oficial)','Diferença']],
       body: linhas,
       theme: 'grid',
       margin: {left:margin, right:margin, bottom:34},
@@ -5985,106 +4020,11 @@
   var OV_ICONS = {
     pulse: '<path d="M3 12h4l2-7 4 14 2-7h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
     users: '<circle cx="8.5" cy="8" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M2.5 19c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="17" cy="9" r="2.4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.3 13.6c2.6.3 4.7 2.3 4.7 5.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
-    share: '<path d="M8.2 11l7.6-4.2M8.2 13l7.6 4.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="6" cy="12" r="3" fill="currentColor"/><circle cx="18" cy="5.5" r="3" fill="currentColor"/><circle cx="18" cy="18.5" r="3" fill="currentColor"/>',
-    trophy: '<path d="M7.5 4h9v5.2a4.5 4.5 0 0 1-9 0V4z" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7.5 6H4.5v1.6A3 3 0 0 0 7.6 10.6M16.5 6h3v1.6a3 3 0 0 1-3.1 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 13.8V17M8.5 20h7M9.5 17h5v3h-5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
     speed: '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 12l4.5-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/>'
   };
   function ovIconHTML(kind, st){
     return '<div class="ov-icon" style="background:'+st.badgeBg+';color:'+st.accent+';">'
       + '<svg viewBox="0 0 24 24">'+OV_ICONS[kind]+'</svg></div>';
-  }
-  // ---------- Painel "número grande" (substitui os gauges/anéis) ----------
-  // Cada indicador agora mostra o resultado como um número grande dentro de
-  // um painel suave na cor do status (Ótimo/Bom/Suficiente/Regular), com o
-  // ícone em círculo ao lado e a legenda "X ÷ Y" logo abaixo. As cores vêm
-  // de ovStatus() — as mesmas do badge e da borda do cartão.
-  function injectKpiStyles(){
-    if(document.getElementById('kpiPanelStyles')) return;
-    var css = ''
-      + '.kpi-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}'
-      + '.kpi-head-title{margin:0;font-size:15px;font-weight:700;line-height:1.25}'
-      + '.kpi-panel{border-radius:18px;padding:16px 14px 14px;margin:12px 0 14px;text-align:center;'
-      +   'background:var(--kpi-bg);background:color-mix(in srgb,var(--kpi-bg) 45%,#fff)}'
-      + '.kpi-main{display:flex;align-items:center;justify-content:center;gap:clamp(10px,2vw,18px)}'
-      + '.kpi-icon{flex:none;width:clamp(38px,4vw,48px);height:clamp(38px,4vw,48px);border-radius:50%;'
-      +   'display:grid;place-items:center;color:var(--kpi-accent);'
-      +   'background:var(--kpi-bg);background:color-mix(in srgb,var(--kpi-accent) 14%,transparent)}'
-      + '.kpi-icon svg{width:50%;height:50%}'
-      + '.kpi-value{font-weight:800;font-size:clamp(30px,3.6vw,44px);line-height:1;letter-spacing:-.02em;'
-      +   'color:var(--kpi-accent);font-variant-numeric:tabular-nums}'
-      + '.kpi-value .unit{font-size:.45em;font-weight:700;letter-spacing:0;margin-left:.08em}'
-      + '.kpi-donut{flex:none;display:flex;flex-direction:column;align-items:center;gap:2px}'
-      + '.kpi-donut svg{width:clamp(70px,6.8vw,86px);height:auto;display:block}'
-      + '.kpi-donut-label{font-size:10.5px;line-height:1.1;font-weight:600;color:var(--kpi-accent);opacity:.85}'
-      + '.kpi-caption{margin:12px 0 0;font-size:14px;line-height:1.35;color:var(--ink,#2b3a35);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}';
-    var el = document.createElement('style');
-    el.id = 'kpiPanelStyles';
-    el.textContent = css;
-    document.head.appendChild(el);
-  }
-  injectKpiStyles();
-  // Legenda do painel sempre em UMA linha: se o texto não cabe na largura
-  // do card, a fonte encolhe (de 14px até no mínimo 9px) até caber. Roda
-  // sempre que o DOM muda (cards re-renderizados) e quando o painel muda
-  // de tamanho (resize da janela, troca de aba que estava oculta).
-  var kpiFitRO = window.ResizeObserver ? new ResizeObserver(debounce(function(){ fitKpiCaptions(true); }, 60)) : null;
-  function fitKpiCaptions(fromRO){
-    var caps = document.querySelectorAll('.kpi-caption');
-    Array.prototype.forEach.call(caps, function(cap){
-      if(kpiFitRO && !fromRO && cap.parentNode) kpiFitRO.observe(cap.parentNode);
-      if(!cap.clientWidth) return; // aba oculta: reajusta quando ficar visível
-      cap.style.fontSize = '';
-      var size = parseFloat(getComputedStyle(cap).fontSize) || 14;
-      while(cap.scrollWidth > cap.clientWidth + 0.5 && size > 9){
-        size -= 0.5;
-        cap.style.fontSize = size + 'px';
-      }
-    });
-  }
-  var kpiFitDebounced = debounce(function(){ fitKpiCaptions(false); }, 30);
-  if(window.MutationObserver){
-    new MutationObserver(kpiFitDebounced).observe(document.body, {childList:true, subtree:true});
-  }
-  window.addEventListener('resize', kpiFitDebounced);
-  kpiFitDebounced();
-  // Meta "Ótimo" de cada escala (o valor a partir do qual o indicador vira
-  // Ótimo — ver OV_LEGEND_*): M1 > 3 (escala 0–4), M2 > 5% (escala 0–8),
-  // Desempenho = nota 10 (máxima da escala 0–10). 100% do donut = esse valor atingido.
-  var KPI_META_OTIMA = {4:3, 8:5, 10:10};
-  function kpiDonutHTML(value, domainMax, st){
-    var meta = KPI_META_OTIMA[domainMax];
-    if(value==null || isNaN(value) || !meta) return '';
-    var pct = (value/meta)*100;
-    var frac = Math.max(0, Math.min(1, value/meta));
-    var r = 26, c = 2*Math.PI*r;
-    // Anel também na cor da borda (st.accent), igual ao número grande —
-    // st.badgeText ficou só pro texto do selo "→ Suficiente" etc.
-    return '<div class="kpi-donut" title="'+fmtDec(pct,0)+'% '+(domainMax===10?'da nota máxima':'da meta Ótimo')+' (100% = '+fmtDec(meta,meta%1?1:0)+')">'
-      + '<svg viewBox="0 0 64 64">'
-      +   '<circle cx="32" cy="32" r="'+r+'" fill="none" stroke="'+st.accent+'" stroke-opacity=".16" stroke-width="8"/>'
-      +   '<circle cx="32" cy="32" r="'+r+'" fill="none" stroke="'+st.accent+'" stroke-width="8" stroke-linecap="round"'
-      +     ' stroke-dasharray="'+(frac*c).toFixed(2)+' '+c.toFixed(2)+'" transform="rotate(-90 32 32)"/>'
-      +   '<text x="32" y="36.5" text-anchor="middle" font-size="13" font-weight="800" fill="'+st.accent+'">'+fmtDec(pct,0)+'%</text>'
-      + '</svg>'
-      + '<span class="kpi-donut-label">'+(domainMax===10?'da nota máxima':'da meta Ótimo')+'</span>'
-      + '</div>';
-  }
-  // Ícone do painel por indicador: M1 (pulse) → pessoas, M2 (users) → compartilhamento, Desempenho → troféu.
-  function kpiPanelIcon(kind){ return kind==='pulse' ? 'users' : (kind==='users' ? 'share' : 'trophy'); }
-  function kpiPanelHTML(st, iconKind, valueHtml, caption, value, domainMax){
-    // Número grande, ícone e "% da meta" usam a MESMA cor da borda do
-    // cartão (st.accent) — antes usavam st.badgeText, que é uma cor à
-    // parte (pensada pro contraste do badge "→ Suficiente" etc.) e por
-    // isso destoava da borda em alguns status (ex.: Suficiente ficava
-    // avermelhado enquanto a borda é laranja).
-    return '<div class="kpi-panel" style="--kpi-accent:'+st.accent+';--kpi-bg:'+st.badgeBg+';">'
-      +   '<div class="kpi-main">'
-      +     '<div class="kpi-icon"><svg viewBox="0 0 24 24">'+OV_ICONS[iconKind]+'</svg></div>'
-      +     '<div class="kpi-value">'+valueHtml+'</div>'
-      +     kpiDonutHTML(value, domainMax, st)
-      +   '</div>'
-      +   (caption ? '<p class="kpi-caption">'+caption+'</p>' : '')
-      + '</div>';
   }
   // Anel de progresso (valor ÷ domainMax) — usado no lugar do arco meia-lua
   // nos cartões da Visão geral.
@@ -6174,7 +4114,7 @@
   // disponíveis (aí o cartão mostra "Sem histórico" pra aquele indicador).
   function calcularQuadrimestreAnterior(){
     if(!latestWb) return {m1:null, m2:null, notaFinal:null};
-    var anchorAtual = ultimoMesDosQuadsSelecionados();
+    var anchorAtual = new Date(quadSelecionado.ano, quadSelecionado.qIndex*4+3, 1);
     var anchorAnterior = addMonths(anchorAtual, -4);
     var pontos = calcularSerieTendencia(latestWb, anchorAnterior, 4);
     function media(campo){
@@ -6205,35 +4145,13 @@
     });
     return 'linear-gradient(90deg,' + stops.join(',') + ')';
   }
-  function evoTrackHTML(atual, anterior, domainMax, decimals, suffix, bands, classLabel){
+  function evoTrackHTML(atual, anterior, domainMax, decimals, suffix, bands){
     var delta = atual - anterior;
     var dir = delta > 0.0001 ? 'up' : (delta < -0.0001 ? 'down' : 'flat');
     var fracAtual = Math.max(0, Math.min(1, atual/domainMax));
     var fracAnterior = Math.max(0, Math.min(1, anterior/domainMax));
     var fillColor = dir==='down' ? '#A84747' : (dir==='up' ? '#15803d' : '#51605A');
     var bandStyle = bands ? ' style="background:'+evoTrackGradient(bands, domainMax)+';"' : '';
-    // Próxima meta: limiar (bands[].from) da faixa de classificação
-    // seguinte à atual (mesma lógica de nextTierInfo, usada também no
-    // bloco "Leitura do M1/M2") — marcada na trilha com um traço azul,
-    // igual ao traço cinza do "Anterior", mas com estilo/posição
-    // sempre via inline style (não depende de CSS externo já existir pra
-    // essa classe nova) pra garantir que apareça mesmo sem CSS
-    // específico. Quando já está na faixa máxima (Ótimo), não há
-    // "próxima" — mostra um aviso nesse sentido em vez do traço.
-    var next = (bands && classLabel) ? nextTierInfo(classLabel, bands) : null;
-    var metaMarkHTML = '';
-    var metaLineHTML = '';
-    if(next){
-      var fracMeta = Math.max(0, Math.min(1, next.threshold/domainMax));
-      metaMarkHTML = '<div class="ov-evo-mark ov-evo-mark-meta" style="position:absolute;top:0;bottom:0;left:'
-        +(fracMeta*100).toFixed(1)+'%;width:2px;background:#2563EB;z-index:2;" title="Próxima meta ('+escapeHtml(next.label)+'): '
-        +fmtDec(next.threshold,decimals)+suffix+'"></div>';
-      metaLineHTML = '<div class="ov-evo-meta-line" style="text-align:center;font-size:11px;color:var(--ink-soft,#6b7a72);margin-top:6px;">'
-        + '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#2563EB;margin-right:5px;vertical-align:middle;"></span>'
-        + 'Próxima meta ('+escapeHtml(next.label)+'): <b>'+fmtDec(next.threshold,decimals)+suffix+'</b></div>';
-    } else if(classLabel==='Ótimo'){
-      metaLineHTML = '<div class="ov-evo-meta-line" style="text-align:center;font-size:11px;color:var(--ink-soft,#6b7a72);margin-top:6px;">Já na faixa máxima (Ótimo) — sem próxima meta.</div>';
-    }
     // Percentual em relação ao quadrimestre anterior (delta/anterior),
     // mostrado centralizado abaixo da barra, entre ela e a linha
     // Anterior/Atual — só quando dá pra calcular (anterior != 0).
@@ -6246,24 +4164,22 @@
         +   '<span class="ov-evo-percent" style="color:'+pctColor+';">'+pctSign+fmtDec(Math.abs(pct),1)+'%</span>'
         + '</div>';
     }
-    return '<div class="ov-evo-track" style="position:relative;">'
+    return '<div class="ov-evo-track">'
       +   '<div class="ov-evo-band"'+bandStyle+'></div>'
       +   '<div class="ov-evo-fill" style="width:'+(fracAtual*100).toFixed(1)+'%;background:'+fillColor+';"></div>'
       +   '<div class="ov-evo-mark" style="left:'+(fracAnterior*100).toFixed(1)+'%;"></div>'
-      +   metaMarkHTML
       + '</div>'
       + '<div class="ov-evo-row">'
       +   '<div class="ov-evo-labels"><span>Anterior<br><b>'+fmtDec(anterior,decimals)+suffix+'</b></span>'
       +     '<span style="text-align:right;">Atual<br><b>'+fmtDec(atual,decimals)+suffix+'</b></span></div>'
       +   pctHTML
-      + '</div>'
-      + metaLineHTML;
+      + '</div>';
   }
   // Bloco "Evolução - Quadrimestre": compara o valor atual com o do
   // quadrimestre anterior (calcularQuadrimestreAnterior). Sem dado
   // suficiente pra reconstruir o período anterior, mostra um aviso em vez
   // da barra de comparação.
-  function ovEvoHTML(atual, anterior, domainMax, decimals, suffix, bands, classLabel){
+  function ovEvoHTML(atual, anterior, domainMax, decimals, suffix, bands){
     suffix = suffix || '';
     if(anterior==null || atual==null){
       return '<div class="ov-evo">'
@@ -6281,7 +4197,7 @@
       +   '<p class="ov-evo-title">Evolução (quadrimestre)</p>'
       +   '<span class="ov-evo-delta" style="color:'+deltaColor+';">'+arrow+' '+deltaTxt+'</span>'
       + '</div>'
-      + evoTrackHTML(atual, anterior, domainMax, decimals, suffix, bands, classLabel)
+      + evoTrackHTML(atual, anterior, domainMax, decimals, suffix, bands)
       + '</div>';
   }
   // Cartão no modelo "ícone + anel + evolução" (só na Visão geral).
@@ -6297,8 +4213,12 @@
       +   '<div class="ov-head-left">'+ovIconHTML(opts.iconKind, st)+'<h3 class="ov-title" title="'+opts.title+'">'+opts.title+'</h3></div>'
       +   '<span class="ov-badge" style="background:'+st.badgeBg+';color:'+st.badgeText+';">'+st.icon+' '+(opts.classe||'—')+'</span>'
       + '</div>'
-      + kpiPanelHTML(st, kpiPanelIcon(opts.iconKind), opts.valueTxt, opts.valueCap, opts.value, opts.domainMax)
-      + ovEvoHTML(opts.value, opts.anterior, opts.domainMax, opts.decimals, opts.suffix||'', opts.bands, opts.classe)
+      + '<div class="ov-main">'
+      +   '<div class="ov-ring-wrap">'+ovRingSVG(opts.value, opts.domainMax, opts.bands, opts.classe, st, opts.gaugeId)+'</div>'
+      +   '<div class="ov-value" style="color:'+st.accent+';">'+opts.valueTxt+'</div>'
+      + '</div>'
+      + (opts.valueCap ? '<p class="ov-formula-divider">'+opts.valueCap+'</p>' : '')
+      + ovEvoHTML(opts.value, opts.anterior, opts.domainMax, opts.decimals, opts.suffix||'', opts.bands)
       + ovLegendHTML(opts.legend)
       + '</div>';
   }
@@ -6339,7 +4259,7 @@
           ) : '')
       +   '</div>'
       + '</div>'
-      + ovEvoHTML(value, anterior, domainMax, decimals!=null?decimals:2, suffix||'', bands, classLabel)
+      + ovEvoHTML(value, anterior, domainMax, decimals!=null?decimals:2, suffix||'')
       + (legend ? gaugeLegendHTML(legend) : '')
       + '</div>';
   }
@@ -6352,7 +4272,7 @@
   // Conteúdo interno de "Evolução (Quadrimestre)" — sem o wrapper de card
   // próprio, pra poder ser embutido dentro de outro cartão (o do gauge)
   // ou, se algum dia precisar de novo isolado, envolvido por fora.
-  function ipEvoContentHTML(value, anterior, domainMax, decimals, suffix, bands, classLabel){
+  function ipEvoContentHTML(value, anterior, domainMax, decimals, suffix, bands){
     suffix = suffix || '';
     if(anterior==null || value==null){
       return '<div class="ip-evo-head"><div class="ip-evo-head-left">'+IP_TREND_ICON_SVG+'<h4>Evolução (Quadrimestre)</h4></div></div>'
@@ -6367,26 +4287,33 @@
       +   '<div class="ip-evo-head-left">'+IP_TREND_ICON_SVG+'<h4>Evolução (Quadrimestre)</h4></div>'
       +   '<span class="ip-evo-delta" style="color:'+color+';">'+arrow+' '+deltaTxt+'</span>'
       + '</div>'
-      + evoTrackHTML(value, anterior, domainMax, decimals, suffix, bands, classLabel);
+      + evoTrackHTML(value, anterior, domainMax, decimals, suffix, bands);
   }
 
   // Cartão do gauge (coluna 1): arco + resultado no topo, legenda de
   // faixas logo abaixo do arco, e a Evolução do quadrimestre embutida no
   // final, dentro do mesmo cartão.
-  function ipGaugeCardHTML(value, domainMax, bands, gaugeId, valueHtml, classLabel, capText, anterior, decimals, suffix, legend, iconKind){
-    // Sem gauge: o resultado vira um número grande num painel na cor do
-    // status (ver kpiPanelHTML). gaugeId/bands seguem na assinatura só por
-    // compatibilidade — bands ainda é usado pela trilha de Evolução.
-    var st = ovStatus(classLabel);
-    iconKind = iconKind || 'pulse';
-    return '<div class="card ip-gauge-card" style="border-top:4px solid '+st.accent+';">'
-      + '<div class="kpi-head">'
-      +   '<div class="ov-head-left">'+ovIconHTML(iconKind, st)+'<h3 class="kpi-head-title">Resultado do indicador</h3></div>'
-      +   '<span class="ov-badge" style="background:'+st.badgeBg+';color:'+st.badgeText+';">'+st.icon+' '+(classLabel||'—')+'</span>'
+  function ipGaugeCardHTML(value, domainMax, bands, gaugeId, valueHtml, classLabel, capText, anterior, decimals, suffix, legend){
+    // O número (valueHtml) agora fica dentro do próprio gauge, logo abaixo
+    // do ponteiro (mesma técnica de margin-top negativo usada no ov-value
+    // da Visão geral — ver .ip-gauge-visual .ip-result-value no CSS), em
+    // vez de ficar solto no bloco lateral. O bloco lateral (ip-result-block)
+    // guarda só o rótulo + badge de classificação.
+    return '<div class="card ip-gauge-card" style="border-top:4px solid '+arcHex(classLabel)+';">'
+      + '<div class="ip-gauge-row">'
+      +   '<div class="ip-gauge-visual">'+buildGauge(value, domainMax, bands, gaugeId)
+      +     '<div class="ip-result-value">'+valueHtml+'</div>'
+      +   '</div>'
+      +   '<div class="ip-result-block">'
+      +     '<div class="ip-result-head">'
+      +       '<p class="ip-result-label">Resultado do indicador</p>'
+      +       '<span class="pill" style="background:'+pillHex(classLabel)+'">'+(classLabel||'—')+'</span>'
+      +     '</div>'
+      +   '</div>'
       + '</div>'
-      + kpiPanelHTML(st, kpiPanelIcon(iconKind), valueHtml, capText, value, domainMax)
       + (legend ? '<div class="ip-gauge-legend-row">'+gaugeLegendHTML(legend)+'</div>' : '')
-      + '<div class="ip-evo-embed">'+ipEvoContentHTML(value, anterior, domainMax, decimals, suffix, bands, classLabel)+'</div>'
+      + (capText ? '<p class="ip-formula-divider">'+capText+'</p>' : '')
+      + '<div class="ip-evo-embed">'+ipEvoContentHTML(value, anterior, domainMax, decimals, suffix, bands)+'</div>'
       + '</div>';
   }
 
@@ -6599,9 +4526,9 @@
   }
 
   function calcularMetasQuadrimestre(numerador, denominador, thresholds, unidade, unidadeFaltam){
-    var meses = mesesDosQuadsSelecionadosUniao();
+    var meses = mesesDoQuadrimestre(quadSelecionado.ano, quadSelecionado.qIndex);
     var inicioQuad = new Date(meses[0].getFullYear(), meses[0].getMonth(), 1, 0,0,0,0);
-    var fimQuad = new Date(meses[meses.length-1].getFullYear(), meses[meses.length-1].getMonth()+1, 0, 23,59,59,999);
+    var fimQuad = new Date(meses[3].getFullYear(), meses[3].getMonth()+1, 0, 23,59,59,999);
     var hoje = new Date();
     var diasQuad = Math.round((fimQuad-inicioQuad)/86400000)+1;
     var semanasQuad = diasQuad/7;
@@ -6613,7 +4540,7 @@
       return {
         label: t.label, color: t.color, unidade: unidade, unidadeFaltam: unidadeFaltam || unidade,
         alvo: alvo,
-        mediaMes: alvo/meses.length,
+        mediaMes: alvo/4,
         mediaSemana: alvo/semanasQuad,
         faltam: faltam,
         semanasRestantes: semanasRestantes,
@@ -6644,19 +4571,10 @@
     // usam CSS escopado (.mm-comp-col) pra virar linha cheia com a
     // contagem em negrito alinhada à direita — modelo das imagens de
     // referência — sem duplicar esta função.
-    // s.title (opcional): definição oficial do segmento (Nota Metodológica
-    // M1/M2, NT 43/44-2026-CGIAD/DEAPS/SAPS/MS) — mostrada num popover ao
-    // clicar/tocar no ícone "i" ao lado do rótulo (funciona igual no
-    // desktop e no celular; ver legend-info-btn/abrirLegendInfoPopover).
-    // Não altera o valor/percentual já exibidos, só esclarece o que cada
-    // parcela representa.
     var legend = segments.map(function(s){
       var pct = t>0 ? (s.value/t*100) : 0;
-      var infoBtnHtml = s.title
-        ? '<button type="button" class="legend-info-btn" data-info-text="'+encodeURIComponent(s.title)+'" aria-label="O que é '+escapeHtml(s.label)+'?">i</button>'
-        : '';
       return '<span class="legend-item"><i style="background:'+s.color+'"></i>'
-        + '<span class="legend-label">'+s.label+infoBtnHtml+'</span>'
+        + '<span class="legend-label">'+s.label+'</span>'
         + '<span class="legend-count">'+fmtInt(s.value)+'<span class="legend-pct">('+fmtDec(pct,1)+'%)</span></span></span>';
     }).join('');
     return '<div class="stackbar">'+bars+'</div><div class="legend">'+legend+'</div>';
@@ -6913,14 +4831,14 @@
     renderPerformanceProfissionais(performanceProfissionais || []);
     renderAnalises(analisesData || null);
     document.getElementById('statusState').style.display = 'none';
-    populateAnoQuadSelects();
+    populateQuadSelect();
     document.getElementById('topEquipe').textContent = record.equipe || '—';
     document.getElementById('topPeriodo').textContent = record.periodo
       ? 'Período: ' + record.periodo.inicio + ' a ' + record.periodo.fim
       : '';
     document.getElementById('topUpdated').textContent = record.error
       ? 'Falha na última leitura'
-      : '';
+      : 'Atualizado em ' + fmtDate(record.timestamp);
 
     if(record.error){
       document.getElementById('gaugeRow').innerHTML =
@@ -6954,54 +4872,29 @@
     var denM1CalcGauge = d.denominadorM1CalculadoJanela!=null ? d.denominadorM1CalculadoJanela
       : (d.denominadorM1Calculado!=null ? d.denominadorM1Calculado : d.denominadorM1);
     var atividadesCompGauge = d.atividadesCompartilhadasJanela!=null ? d.atividadesCompartilhadasJanela : d.atividadesCompartilhadas;
-    var atividadesTotaisGauge = d.atividadesTotaisJanela!=null ? d.atividadesTotaisJanela : d.atividadesTotais;
     // Usa a parcela que de fato entrou no numerador (0 nos meses em que a
     // fonte foi TOTAL RELATÓRIO AC) — não o total bruto de reuniões — pra
     // os segmentos do stackbar baterem com numM2Gauge (ver
     // reunioesCompartilhadasContrib em calcularIndicadoresDoPeriodo).
     var reunioesCompGauge = d.reunioesCompartilhadasContribJanela!=null ? d.reunioesCompartilhadasContribJanela
       : (d.reunioesCompartilhadasContrib!=null ? d.reunioesCompartilhadasContrib : d.reunioesCompartilhadas);
-    var reunioesTotaisGauge = d.reunioesTotaisJanela!=null ? d.reunioesTotaisJanela : d.reunioesTotais;
-
-    // Textos das definições oficiais (Nota Metodológica M1 = NT 43/2026 e
-    // M2 = NT 44/2026-CGIAD/DEAPS/SAPS/MS), mostrados como tooltip em cada
-    // parcela das composições abaixo — pedido explícito: deixar claro,
-    // tanto no Numerador do M1 quanto no Denominador do M2, que
-    // "Atendimentos individuais" é o mesmo número/definição nos dois
-    // lugares (é a mesma contagem entrando nas duas fórmulas).
-    var DEF_ATEND_IND = 'Atendimento individual (presencial, domiciliar ou remoto) registrado por profissional da eMulti com CNS/CPF identificado — Modelo de Informação de Atendimento Individual (MIAI). Mesma contagem usada no Numerador do M1 (NT 43/2026) e no Denominador do M2 (NT 44/2026), que soma TODOS os atendimentos e atividades da eMulti no período.';
-    var DEF_PARTIC_COLETIVA = 'Participações em atividade coletiva (códigos 04 a 07: Educação em saúde, Atendimento em grupo, Avaliação/Procedimento coletivo, Mobilização social), específica ou compartilhada — cada pessoa participante conta 1 vez por atividade (Modelo de Informação de Atividade Coletiva - MIAC). Entra no Numerador do M1 (NT 43/2026) junto com os atendimentos individuais.';
-    var DEF_AC_ESPECIFICA = 'Atividade coletiva (Resumo Atividade Coletiva) que NÃO teve 2+ profissionais com CNS diferentes (sendo ao menos 1 da eMulti) — entra no Denominador do M2 como ação específica, mas NÃO no Numerador (não é compartilhada).';
-    var DEF_AC_COMPARTILHADA = 'Atividade coletiva realizada de forma simultânea por 2 ou mais profissionais (CNS diferentes), com pelo menos 1 da eMulti — conta como ação compartilhada no Numerador do M2 (NT 44/2026).';
-    var DEF_REUNIAO_ESPECIFICA = 'Reunião (Resumo Reuniões) que não é dos tipos 01-03 (Reunião de equipe/outras equipes de saúde/intersetorial) com tema "Discussão de caso/Projeto terapêutico singular", ou não teve 2+ participantes — entra no Denominador do M2, mas NÃO no Numerador.';
-    var DEF_REUNIAO_COMPARTILHADA = 'Reunião de equipe, com outras equipes de saúde ou intersetorial (códigos 01-03), registrada com o tema "Discussão de caso/Projeto terapêutico singular" e 2 ou mais participantes — conta como ação compartilhada no Numerador do M2 (NT 44/2026).';
-
-    // Parcelas do numerador do M2 que esta extração não consegue medir
-    // (não há aba com esses dados), mas que devem aparecer SEMPRE na
-    // composição, mesmo zeradas — ver numM2Bar abaixo.
-    var DEF_ATEND_COMPARTILHADO = 'Atendimento individual realizado em conjunto por 2 ou mais profissionais — conta como ação compartilhada no Numerador do M2 (NT 44/2026). A Lista de Atendimentos do e-SUS não indica se o atendimento foi compartilhado, então esta extração não consegue contá-lo e o valor aparece zerado.';
-    var DEF_COMPART_CUIDADO = 'Solicitações respondidas de compartilhamento de cuidado no PEC — conta como ação compartilhada no Numerador do M2 (NT 44/2026). Não existe aba equivalente nesta extração, então o valor aparece zerado.';
 
     // ---- Composição (4 cartões: Numerador/Denominador de M1 e M2) ----
     var numM1Bar = stackbar([
-        {label:'Atendimentos individuais', value:atendIndGauge, color:'#153F35', title:DEF_ATEND_IND},
-        {label:'Participações coletivas', value:participColGauge, color:'#C68A3D', title:DEF_PARTIC_COLETIVA}
+        {label:'Atendimentos individuais', value:atendIndGauge, color:'#153F35'},
+        {label:'Participações coletivas', value:participColGauge, color:'#C68A3D'}
       ], numM1Gauge);
     var denM1Bar = stackbar([
         {label:'Pessoas atendidas', value:denM1CalcGauge, color:'#153F35'}
       ], denM1Gauge);
     var numM2Bar = stackbar([
-        {label:'Atendimentos compartilhados', value:0, color:'#3B7DDD', title:DEF_ATEND_COMPARTILHADO},
-        {label:'Atividades coletivas compartilhadas', value:atividadesCompGauge, color:'#153F35', title:DEF_AC_COMPARTILHADA},
-        {label:'Reuniões compartilhadas', value:reunioesCompGauge, color:'#C68A3D', title:DEF_REUNIAO_COMPARTILHADA},
-        {label:'Compartilhamento de cuidado', value:0, color:'#7C5CBF', title:DEF_COMPART_CUIDADO}
+        {label:'Atividades coletivas compartilhadas', value:atividadesCompGauge, color:'#153F35'},
+        {label:'Reuniões compartilhadas', value:reunioesCompGauge, color:'#C68A3D'}
       ], numM2Gauge);
     var denM2Bar = stackbar([
-        {label:'Atendimentos individuais', value:atendIndGauge||0, color:'#CBD3C4', title:DEF_ATEND_IND},
-        {label:'Atividades coletivas (específicas)', value:(atividadesTotaisGauge!=null && atividadesCompGauge!=null) ? Math.max(0, atividadesTotaisGauge-atividadesCompGauge) : 0, color:'#E7DFC9', title:DEF_AC_ESPECIFICA},
-        {label:'Atividades coletivas compartilhadas', value:atividadesCompGauge||0, color:'#153F35', title:DEF_AC_COMPARTILHADA},
-        {label:'Reuniões (específicas)', value:(reunioesTotaisGauge!=null && reunioesCompGauge!=null) ? Math.max(0, reunioesTotaisGauge-reunioesCompGauge) : 0, color:'#F1E6D2', title:DEF_REUNIAO_ESPECIFICA},
-        {label:'Reuniões compartilhadas', value:reunioesCompGauge||0, color:'#C68A3D', title:DEF_REUNIAO_COMPARTILHADA}
+        {label:'Atendimentos individuais (base)', value:(denM2Gauge!=null && numM2Gauge!=null) ? denM2Gauge-numM2Gauge : atendIndGauge, color:'#CBD3C4'},
+        {label:'Atividades coletivas compartilhadas', value:atividadesCompGauge, color:'#153F35'},
+        {label:'Reuniões compartilhadas', value:reunioesCompGauge, color:'#C68A3D'}
       ], denM2Gauge);
 
     document.getElementById('compRow').innerHTML =
@@ -7037,7 +4930,7 @@
 
     // ---- Meta do quadrimestre: alvo de atendimentos/ações compartilhadas
     // pra bater "Bom" e "Ótimo" em M1 e M2, com ritmo médio necessário. ----
-    var metaM1 = calcularMetasQuadrimestre(numM1Gauge, denM1Gauge, M1_META_THRESHOLDS, 'atendimentos',
+    var metaM1 = calcularMetasQuadrimestre(numM1Gauge, denM1Gauge, M1_META_THRESHOLDS, 'atend.',
       'atendimentos (retornos) de pessoas que foram atendidas nos últimos 4 meses');
     var metaM2 = calcularMetasQuadrimestre(numM2Gauge, denM2Gauge, M2_META_THRESHOLDS, 'ações');
     document.getElementById('metaQuadRow').innerHTML =
@@ -7049,7 +4942,7 @@
     document.getElementById('gaugeRowM1').innerHTML =
       ipGaugeCardHTML(d.m1, 4, CLASS_BANDS_M1, 'needle-m1tab-m1', fmtDec(d.m1,2), d.classificacaoM1,
         fmtInt(numM1Gauge)+' atendimentos ÷ '+fmtInt(denM1Gauge)+' pessoas',
-        quadAnterior.m1, 2, '', LEGEND_M1, 'pulse');
+        quadAnterior.m1, 2, '', LEGEND_M1);
     document.getElementById('compRowM1').innerHTML =
         '<div class="card comp-card">'+compCardHeaderHTML('Composição do numerador', numM1Gauge)+numM1Bar+'</div>'
       + '<div class="card comp-card">'+compCardHeaderHTML('Denominador do M1', denM1Gauge)+denM1Bar+'</div>';
@@ -7063,7 +4956,7 @@
     document.getElementById('gaugeRowM2').innerHTML =
       ipGaugeCardHTML(d.m2, 8, CLASS_BANDS_M2, 'needle-m2tab-m2', fmtDec(d.m2,2)+'<span class="unit">%</span>', d.classificacaoM2,
         fmtInt(numM2Gauge)+' compartilhadas ÷ '+fmtInt(denM2Gauge)+' ações',
-        quadAnterior.m2, 2, '%', LEGEND_M2, 'users');
+        quadAnterior.m2, 2, '%', LEGEND_M2);
     document.getElementById('compRowM2').innerHTML =
         '<div class="card comp-card">'+compCardHeaderHTML('Composição do numerador', numM2Gauge)+numM2Bar+'</div>'
       + '<div class="card comp-card">'+compCardHeaderHTML('Denominador do M2', denM2Gauge)+denM2Bar+'</div>';
@@ -7352,8 +5245,8 @@
       // entrar na média de M1/M2) e outra isolada, só o mês em si (pra
       // somar contagens de contexto e montar "Pessoas atendidas" sem
       // sobrepor dados de meses vizinhos).
-      var meses = mesesDosQuadsSelecionadosUniao();
-      var mesesUsados = mesesElapsedDosQuadsSelecionadosUniao();
+      var meses = mesesDoQuadrimestre(quadSelecionado.ano, quadSelecionado.qIndex);
+      var mesesUsados = mesesElapsedDoQuadrimestre(quadSelecionado.ano, quadSelecionado.qIndex);
       var mesesProjecaoLabel = mesesUsados.length < meses.length
         ? mesesUsados.map(monthShortLabel).join('+')
         : null;
@@ -7366,9 +5259,9 @@
       extracted = mediaDeMeses(resultadosMensais, resultadosJanela, mesesProjecaoLabel);
       periodo = {
         inicio: fmtBRDate(periodoMesUnico(meses[0]).inicio),
-        fim: fmtBRDate(periodoMesUnico(meses[meses.length-1]).fim)
+        fim: fmtBRDate(periodoMesUnico(meses[3]).fim)
       };
-      periodoDatas = {inicio: periodoMesUnico(meses[0]).inicio, fim: periodoMesUnico(meses[meses.length-1]).fim};
+      periodoDatas = {inicio: periodoMesUnico(meses[0]).inicio, fim: periodoMesUnico(meses[3]).fim};
     }
 
     var performanceProfissionais = calcularPerformanceProfissionais(latestWb, periodoDatas);
@@ -7382,14 +5275,13 @@
 
     var serie = calcularSerieTendencia(latestWb, anchorMonthDate(), TREND_MESES);
 
-    if(anoMs) anoMs.setSelected(valoresUnicosOrdenados(quadsSelecionados.map(function(c){ return String(c.ano); })));
-    if(quadMs) quadMs.setSelected(valoresUnicosOrdenados(quadsSelecionados.map(function(c){ return String(c.qIndex); })));
+    if(quadMs) quadMs.setSelected([quadSelecionado.ano+'-'+quadSelecionado.qIndex]);
     if(mesMs) mesMs.setSelected(refMonthDates.map(monthOptionValue));
     var winEl = document.getElementById('refWindowLabel');
     if(winEl){
       winEl.innerHTML = refMonthDates.length
         ? 'Resultado de <b>'+refMonthLabel()+'</b> — janela de '+JANELA_MESES+' meses cada ('+periodo.inicio+' a '+periodo.fim+')'
-        : 'Média de <b>'+labelQuadsSelecionados()+'</b> ('+periodo.inicio+' a '+periodo.fim+')';
+        : 'Média de <b>'+QUAD_LABELS[quadSelecionado.qIndex]+'/'+quadSelecionado.ano+'</b> ('+periodo.inicio+' a '+periodo.fim+')';
     }
 
     if(!saveHistory){
@@ -7459,8 +5351,8 @@
         fim: periodoMesUnico(refMonthDates[refMonthDates.length-1]).fim
       };
     }
-    var meses = mesesDosQuadsSelecionadosUniao();
-    return {inicio: periodoMesUnico(meses[0]).inicio, fim: periodoMesUnico(meses[meses.length-1]).fim};
+    var meses = mesesDoQuadrimestre(quadSelecionado.ano, quadSelecionado.qIndex);
+    return {inicio: periodoMesUnico(meses[0]).inicio, fim: periodoMesUnico(meses[3]).fim};
   }
   window.debugAtendimentosEmulti = function(){
     if(!latestWb){
@@ -7495,68 +5387,6 @@
     return contagem;
   };
 
-  // window.debugAtividadesCompartilhadas(): imprime, linha a linha, TODAS
-  // as atividades de "Resumo Atividade Coletiva" dentro do período
-  // efetivo atual (mesma janela usada pelo card "Composição do
-  // numerador"), com o motivo exato pelo qual cada uma ENTROU ou NÃO
-  // entrou na contagem de "Atividades coletivas compartilhadas". Não há
-  // filtro de tipo de atividade aqui (nenhum tipo é excluído nessa aba) —
-  // só entram em jogo "Qtd total de profissionais" >= 2 e a ligação com
-  // Participantes Ativ. Coletiva ("Total de Profissionais da EMulti" >= 1).
-  // Chame no console: debugAtividadesCompartilhadas()
-  window.debugAtividadesCompartilhadas = function(){
-    if(!latestWb){
-      console.warn('[debugAtividadesCompartilhadas] o painel ainda não carregou nenhuma planilha.');
-      return;
-    }
-    var periodo = periodoEfetivoAtual();
-    var racWs = latestWb.Sheets[suffixedName("Resumo Atividade Coletiva")];
-    var racRows = racWs ? sheetToRows(racWs) : [];
-    var racHeader = racRows[0] || [];
-    var iRacData = colIndex(racHeader, "data");
-    var iRacTipo = colIndex(racHeader, "tipo_atividade");
-    var iRacTotalProf = colIndex(racHeader, "qtd_total_profissionais");
-    var iRacProfEnv = colIndex(racHeader, "qtd_profissionais_envolvidos");
-    var partWs = latestWb.Sheets[suffixedName("Participantes Ativ. Coletiva")];
-    var partRows = partWs ? sheetToRows(partWs) : [];
-    var ligacaoAtiv = criarLigacaoAtividades(partRows, racHeader);
-    if(!ligacaoAtiv){
-      console.warn('[debugAtividadesCompartilhadas] não foi possível ligar "Total de Profissionais da EMulti" (aba Participantes Ativ. Coletiva) — coluna "Qtd total de profissionais" ainda é checada normalmente, mas a checagem "temEmulti" fica sempre true (não exclui nenhuma linha por isso).');
-    } else {
-      console.log('[debugAtividadesCompartilhadas] ligação Resumo → Participantes usando: ' + ligacaoAtiv.modo);
-    }
-    var linhas = racRows.slice(1)
-      .filter(function(r){ return withinPeriod(parseBRDate(r[iRacData]), periodo.inicio, periodo.fim); })
-      .map(function(r){
-        var totalEmultiPart = ligacaoAtiv ? ligacaoAtiv.total(r) : undefined;
-        var totalProfGeral = (iRacTotalProf>=0 && r[iRacTotalProf]!=="" && r[iRacTotalProf]!==undefined)
-          ? toInt(r[iRacTotalProf])
-          : 1+toInt(r[iRacProfEnv]);
-        var temEmulti = (totalEmultiPart === undefined) ? true : totalEmultiPart >= 1;
-        var tipoRaw = iRacTipo>=0 ? String(r[iRacTipo]||"").trim() : "";
-        var conta = temEmulti && totalProfGeral >= 2;
-        var motivoExclusao = conta ? "" :
-          (totalProfGeral < 2 ? 'qtd_total_profissionais < 2 (' + totalProfGeral + ')'
-          : 'Total de Profissionais da EMulti = 0 (não achou ligação com Participantes)');
-        return {
-          data: iRacData>=0 ? String(r[iRacData]) : "",
-          tipo_atividade: tipoRaw,
-          qtd_total_profissionais: totalProfGeral,
-          "Total Prof. EMulti (ligação)": totalEmultiPart===undefined ? "(sem ligação)" : totalEmultiPart,
-          "CONTA como compartilhada?": conta ? "SIM" : "não",
-          "motivo se não contou": motivoExclusao
-        };
-      });
-    var totalLinhas = linhas.length;
-    var totalCompartilhadas = linhas.filter(function(l){ return l["CONTA como compartilhada?"] === "SIM"; }).length;
-    console.log('[debugAtividadesCompartilhadas] equipe(s): '+currentEquipes.map(function(e){ return e.label; }).join(' + ')
-      +' | período: '+fmtBRDate(periodo.inicio)+' a '+fmtBRDate(periodo.fim)
-      +' | linhas no período: '+totalLinhas+' | contam como compartilhada: '+totalCompartilhadas);
-    console.table(linhas);
-    return linhas;
-
-  };
-
   function fetchAndLoad(){
     refreshBtn.classList.add('loading');
     refreshBtn.disabled = true;
@@ -7569,17 +5399,8 @@
         var results = arr[0];
         var faltando = results.filter(function(r){ return !r.ok; });
         if(faltando.length){
-          // Mostra o motivo REAL devolvido pelo Apps Script (ou pelo navegador)
-          // para cada aba, em vez de só a mensagem genérica.
-          var motivos = [];
-          faltando.forEach(function(r){
-            var m = (r.error && r.error.message) ? r.error.message : 'erro desconhecido';
-            var linha = r.name + ': ' + m;
-            if(motivos.indexOf(linha) < 0) motivos.push(linha);
-            try{ console.error('[painel] falha ao ler a aba "' + r.name + '":', r.error); }catch(e){}
-          });
           throw new Error('Não foi possível ler a(s) aba(s) "' + faltando.map(function(r){return r.name;}).join('", "')
-            + '". Motivo: ' + motivos.join(' | ') + '.');
+            + '" (verifique se elas ainda existem com esse nome e se a planilha está com acesso "qualquer pessoa com o link pode visualizar").');
         }
 
         var wb = {SheetNames:[], Sheets:{}};
@@ -7646,74 +5467,13 @@
   }
   renderEquipeSwitcher();
 
-  // ---------- Alinhamento uniforme das tabelas ----------
-  // Centraliza cabeçalhos e células; mantém à esquerda apenas os valores
-  // das colunas cujo cabeçalho contém um dos termos metodologicamente definidos.
-  (function aplicarAlinhamentoUniformeTabelas(){
-    if(document.getElementById('alinhamentoUniformeTabelasStyles')) return;
-    var style = document.createElement('style');
-    style.id = 'alinhamentoUniformeTabelasStyles';
-    style.textContent =
-      'table th,table td{text-align:center !important;}' +
-      'table thead th{text-align:center !important;}' +
-      'table td[data-align-left="true"]{text-align:left !important;}';
-    document.head.appendChild(style);
-
-    var excecoes = ['profissional','nome','paciente','equipe','responsavel','participante','tipo de atividade'];
-    function normalizarTitulo(texto){
-      return String(texto || '').toLowerCase()
-        .normalize('NFD').replace(/[\\u0300-\\u036f]/g,'')
-        .replace(/\\s+/g,' ').trim();
-    }
-    function alinharTabelas(root){
-      var tabelas = [];
-      if(root && root.matches && root.matches('table')) tabelas.push(root);
-      if(root && root.querySelectorAll){
-        Array.prototype.forEach.call(root.querySelectorAll('table'), function(t){ tabelas.push(t); });
-      }
-      tabelas.forEach(function(table){
-        var headers = Array.prototype.slice.call(table.querySelectorAll('thead th'));
-        if(!headers.length) return;
-        var indicesEsquerda = {};
-        headers.forEach(function(th){
-          var titulo = normalizarTitulo(th.textContent);
-          if(excecoes.some(function(termo){ return titulo.indexOf(termo) >= 0; })){
-            indicesEsquerda[th.cellIndex] = true;
-          }
-        });
-        Array.prototype.forEach.call(table.querySelectorAll('tbody td'), function(td){
-          if(indicesEsquerda[td.cellIndex]) td.setAttribute('data-align-left','true');
-          else td.removeAttribute('data-align-left');
-        });
-      });
-    }
-    alinharTabelas(document);
-    if(document.body && typeof MutationObserver !== 'undefined'){
-      var observer = new MutationObserver(function(mutations){
-        mutations.forEach(function(m){
-          Array.prototype.forEach.call(m.addedNodes, function(node){
-            if(node.nodeType === 1) alinharTabelas(node);
-          });
-        });
-      });
-      observer.observe(document.body, {childList:true,subtree:true});
-    }
-  })();
-
   // ---------- Init ----------
-  // Só roda DEPOIS do login: o auth.js (mostrarApp) chama
-  // window.iniciarPainelEmulti. Antes disso nenhum dado é buscado.
-  var painelIniciado = false;
-  window.iniciarPainelEmulti = function(){
-    if(painelIniciado) return;
-    painelIniciado = true;
-    refreshHistoryFromStorage(function(arr){
-      if(arr.length){
-        var latest = arr.slice().sort(function(a,b){ return b.timestamp-a.timestamp; })[0];
-        currentRecordId = latest.id;
-        renderDashboard(latest);
-      }
-      fetchAndLoad();
-    });
-  };
+  refreshHistoryFromStorage(function(arr){
+    if(arr.length){
+      var latest = arr.slice().sort(function(a,b){ return b.timestamp-a.timestamp; })[0];
+      currentRecordId = latest.id;
+      renderDashboard(latest);
+    }
+    fetchAndLoad();
+  });
 })();
