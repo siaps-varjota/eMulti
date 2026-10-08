@@ -3597,13 +3597,13 @@
     var oldRow = cPerfil.parentNode;
     function novaLinha(antesDe){
       var r = document.createElement('div');
-      r.style.cssText = 'display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;';
+      r.style.cssText = 'display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;width:100%;max-width:none;box-sizing:border-box;align-self:stretch;grid-column:1/-1;';
       antesDe.parentNode.insertBefore(r, antesDe);
       return r;
     }
     function metade(c){
       c.style.flex = '1 1 0'; c.style.minWidth = '280px'; c.style.marginBottom = '0';
-      c.style.width = 'auto'; c.style.maxWidth = 'none';
+      c.style.width = 'auto'; c.style.maxWidth = 'none'; c.style.boxSizing = 'border-box';
     }
     var h4Ref = cSemana.querySelector('h4');
     var cMedia = document.createElement('div');
