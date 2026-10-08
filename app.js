@@ -3581,6 +3581,48 @@
     setTimeout(function(){ try{ chart.resize(); }catch(e){} }, 0);
   }
 
+  // O painel "Frequência e Retorno" vem pronto do index.html (Funil em
+  // largura total; Perfil + Dia da semana lado a lado). Aqui reorganizamos
+  // o DOM existente, sem precisar editar o index.html:
+  //   linha 1: Funil de abandono | Perfil de frequência
+  //   linha 2: Atendimentos por dia da semana | Média de atendimentos por dia da semana
+  function ajustarLayoutAnalises(){
+    if(document.getElementById('analisesMediaDiaSemana')) return; // já ajustado
+    var funilEl = document.getElementById('analisesFunil');
+    var donutEl = document.getElementById('analisesFreqDonut');
+    var semanaEl = document.getElementById('analisesDiaSemana');
+    if(!funilEl || !donutEl || !semanaEl) return;
+    var cFunil = funilEl.closest('.card'), cPerfil = donutEl.closest('.card'), cSemana = semanaEl.closest('.card');
+    if(!cFunil || !cPerfil || !cSemana) return;
+    var oldRow = cPerfil.parentNode;
+    function novaLinha(antesDe){
+      var r = document.createElement('div');
+      r.style.cssText = 'display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;';
+      antesDe.parentNode.insertBefore(r, antesDe);
+      return r;
+    }
+    function metade(c){
+      c.style.flex = '1 1 0'; c.style.minWidth = '280px'; c.style.marginBottom = '0';
+      c.style.width = 'auto'; c.style.maxWidth = 'none';
+    }
+    var h4Ref = cSemana.querySelector('h4');
+    var cMedia = document.createElement('div');
+    cMedia.className = cSemana.className;
+    cMedia.innerHTML = '<h4 style=\"margin-top:0;\">Média de atendimentos por dia da semana</h4>'
+      + '<div class=\"chart-box-full\" style=\"height:220px;\"><canvas id=\"analisesMediaDiaSemana\"></canvas></div>';
+    if(h4Ref && h4Ref.className) cMedia.querySelector('h4').className = h4Ref.className;
+    var semanaBox = semanaEl.parentNode;
+    if(semanaBox && semanaBox.style && semanaBox.style.height) cMedia.querySelector('.chart-box-full').style.height = semanaBox.style.height;
+
+    var linha1 = novaLinha(cFunil);
+    linha1.appendChild(cFunil); linha1.appendChild(cPerfil);
+    var linha2 = novaLinha(cSemana);
+    linha2.appendChild(cSemana); linha2.appendChild(cMedia);
+    [cFunil,cPerfil,cSemana,cMedia].forEach(metade);
+    // remove a linha antiga se ficou vazia
+    if(oldRow && oldRow !== linha1 && oldRow !== linha2 && !oldRow.children.length && oldRow.parentNode) oldRow.parentNode.removeChild(oldRow);
+  }
+
   // Injeta o botão da aba e o painel "Análises" no DOM (o HTML base do
   // painel não precisa ser editado — a estrutura é montada aqui e
   // aproveita as mesmas classes .tab/.tab-panel/.card já usadas nas
@@ -3592,6 +3634,7 @@
     // só ligamos os filtros. O código abaixo continua como reserva, caso
     // algum index.html antigo (sem essa aba) seja usado com este app.js.
     if(document.getElementById('tabAnalises')){
+      ajustarLayoutAnalises();
       wireAnalisesFiltrosTopo();
       return;
     }
