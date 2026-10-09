@@ -6,7 +6,7 @@
 
 import { CLASS_BANDS_M1, CLASS_BANDS_M1_OV, CLASS_BANDS_M2, CLASS_BANDS_M2_OV, CLASS_BANDS_NOTA_OV, CLASS_PILL_HEX, EQUIPES, JANELA_MESES, LEGEND_M1, LEGEND_M2, OV_LEGEND_M1, OV_LEGEND_M2, OV_LEGEND_NOTA, STORAGE_AVAILABLE, STORAGE_KEY, TREND_MESES, anchorMonthDate, animateGauges, anoMs, calcularIndicadoresDoPeriodo, calcularJanelaComOverride, calcularJanelaPeriodo, calcularSerieTendencia, classificarDesempenho, classificarM1, classificarM2, colIndex, compCardHeaderHTML, createMultiSelect, criarLigacaoAtividades, escapeHtml, estadoApp, fetchAllSheets, fetchOfficialOverridesSafe, fetchProfissionaisSafe, filtrarLinhasPorEquipe, fmtBRDate, fmtDate, fmtDec, fmtInt, init_nucleo_config, init_nucleo_dados, init_nucleo_listas_estado, init_nucleo_periodos, init_nucleo_popovers, init_visual_gauge, init_visual_painel_kpi, isMesFuturo, labelQuadsSelecionados, m1ListNames, m2ListNames, mediaDeMeses, mesMs, mesesDosQuadsSelecionadosUniao, mesesElapsedDosQuadsSelecionadosUniao, monthOptionValue, monthShortLabel, normalizeText, parseBRDate, parseCsv, periodoMesUnico, pillHex, populateAnoQuadSelects, profissionaisRoster, quadCode, quadKeyOfDate, quadMs, refMonthLabel, sheetToRows, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, valoresUnicosOrdenados, withinPeriod } from './nucleo.js';
 import { renderFluxoPacientes, M1_META_THRESHOLDS, M2_META_THRESHOLDS, calcularAnalises, calcularMetasQuadrimestre, calcularPerformanceProfissionais, calcularQuadrimestreAnterior, init_abas_analises_calculo, init_abas_analises_render, init_abas_m1_m2, init_abas_profissionais, ipGaugeCardHTML, ipReadingHTML, metaQuadrimestreHTML, metaQuadrimestreMiniHTML, overviewCardHTML, populateSheetsCache, profListaAtual, renderAnalises, renderPerformanceProfissionais, setupPreliminarToggle, setupTrendInteractivity, sparkline, stackbar } from './abas.js';
-import { gerarPdfDivergenciaOficial, init_listas_atividade_coletiva, renderListsSection } from './listas.js';
+import { gerarPdfDivergenciaOficial, init_listas_atividade_coletiva, pessoasAtendidasParaMeses, renderListsSection } from './listas.js';
 
 // ===== módulo: js/app/render.js =====
 // ======================================================================
@@ -191,6 +191,7 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
   document.getElementById('readingM2').innerHTML =
     ipReadingHTML('Leitura do M2', d.m2, d.classificacaoM2, quadAnterior.m2, 2, '%', CLASS_BANDS_M2, 'de ações compartilhadas');
   renderListsSection('listsM2', m2ListNames());
+  window.__emultiPessoasAtendidas = function(){ return pessoasAtendidasParaMeses([]); };
 
   // Tendência mês a mês: cada ponto é o M1/M2 calculado com sua própria
   // janela móvel de JANELA_MESES meses terminando naquele mês (ver
