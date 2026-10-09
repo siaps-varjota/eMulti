@@ -115,6 +115,7 @@
   <button class="tab" data-tab="m1">M1 - Média de Atendimentos</button>
   <button class="tab" data-tab="m2">M2 - Ações compartilhadas</button>
   <button class="tab" data-tab="analises">Frequência e Retorno</button>
+  <button class="tab" data-tab="agendamentos">Agendamentos</button>
   <button class="tab" data-tab="profissionais">Panoroma Assistencial</button>
   <button class="tab" data-tab="tendencia">Tendência</button>
   <button class="tab" data-tab="notas">Notas metodológicas</button>
@@ -297,6 +298,15 @@
     </div>
   </div>
 
+  <div id="tabAgendamentos" class="tab-panel">
+    <div class="ip-header"><div class="ip-header-text"><h2>Agendamentos</h2><p>Lista sincronizada a partir de Pessoas atendidas. A situação, data e observações ficam registradas na planilha.</p></div></div>
+    <div class="card agendamentos-card">
+      <div class="agendamentos-toolbar"><input id="agendamentosBusca" type="search" placeholder="Buscar pessoa…" aria-label="Buscar pessoa"><span id="agendamentosContagem">—</span><button id="agendamentosAtualizar" type="button">Atualizar lista</button><button id="agendamentosSincronizar" type="button">Sincronizar Pessoas atendidas</button></div>
+      <p id="agendamentosFeedback" class="agendamentos-feedback" role="status"></p>
+      <div class="table-wrap"><table class="data-table agendamentos-table"><thead><tr><th>Nome</th><th>Atendimentos</th><th>Participantes coletivos</th><th>Total</th><th>Situação</th><th>Data agendada</th><th>Observações</th><th>Ação</th></tr></thead><tbody id="agendamentosBody"><tr><td colspan="8" class="agendamentos-vazio">Entre na aba para carregar os registros.</td></tr></tbody></table></div>
+    </div>
+  </div>
+
   <div id="tabNotas" class="tab-panel">
     <div class="card">
       <ul class="notes-list" id="notesList"></ul>
@@ -311,6 +321,7 @@
 
 <script>window.iniciarPainelEmulti=function(){window.__emultiPendente=true;};</script>
 <script type="module" src="app.js"></script>
+<script type="module" src="agendamentos.js"></script>
 <script src="auth.js"></script>
 </body>
 </html>
