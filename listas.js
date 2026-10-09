@@ -5,7 +5,7 @@
 // ======================================================================
 
 import { EQUIPES, TOTAL_PROF_EMULTI_HEADER, calcularJanelaPeriodo, colIndex, colRespParticipantes, colTotalProfEmulti, createMultiSelect, dateColIndexForList, debounce, displayListName, equipeColIndex, escapeHtml, estadoApp, fmtBRDate, fmtDec, fmtInt, listDatasExpandidas, listDateColIdx, listModel, listMonthFilters, monthOptionLabel, monthOptionValue, monthOptionsForList, monthShortLabel, nomeEhDaEmulti, normalizeText, parseBRDate, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, withinPeriod } from './nucleo.js';
-import { ACAO_M2_FILTER_VALUE, DIAS_SEM_ATENDIMENTO_HEADER, FAIXAS_DIAS_SEM_ATENDIMENTO, PROF_EMULTI_FILTER_VALUE, buscaAtivaCompute, diasBucketLabel, profissionalBadgeHtml } from './abas.js';
+import { ACAO_M2_FILTER_VALUE, DIAS_SEM_ATENDIMENTO_HEADER, FAIXAS_DIAS_SEM_ATENDIMENTO, PROF_EMULTI_FILTER_VALUE, RISCO_CFG_BUSCA, buscaAtivaCompute, diasBucketLabel, profissionalBadgeHtml, riscoTableHtml, wireRiscoFiltros } from './abas.js';
 import { latestWb } from './app.js';
 
 // ===== módulo: js/pdf/pdf-listas.js =====
@@ -1060,6 +1060,17 @@ function renderListCard(name, containerId){
     body = '<div class="list-placeholder">Não encontramos uma aba chamada "'+escapeHtml(name)+'" na planilha publicada.</div>';
   } else if(!cached.rows.length && isBuscaAtiva){
     body = '<div class="list-placeholder">Nenhum paciente na janela de busca ativa no momento (mais de 30 e até 120 dias sem atendimento, considerando o fim do mês atual).</div>';
+  } else if(isBuscaAtiva){
+    // Mesmo layout/recursos da lista "Pacientes em risco de abandono"
+    // (filtros por profissional/coluna, busca, ordenação, paginação,
+    // popover "+N", PDF e Excel) — ver riscoTableHtml/wireRiscoFiltros.
+    // Não usa a classe .list-card pra não cair nos tratadores genéricos
+    // das listas da planilha (que dependem de listModel).
+    return '<div class="card risco-list-card" data-list-card="'+escapeHtml(name)+'" data-state-key="'+escapeHtml(sk)+'">'
+      + '<div class="list-card-head"><h4>'+escapeHtml(displayListName(name))+'</h4></div>'
+      + '<p class="footnote" style="margin:0 0 10px;line-height:1.5;">Pacientes com mais de 30 e até 120 dias sem atendimento, contados do fim do mês atual (quem está prestes a sair da janela do M1). "Consultas" conta só os atendimentos dos últimos 4 meses; "Dias restantes" é o que falta para completar 120 dias sem atendimento.</p>'
+      + riscoTableHtml(cached.registros || [], RISCO_CFG_BUSCA)
+      + '</div>';
   } else if(!cached.rows.length && !isPessoasAtendidas){
     body = '<div class="list-placeholder">Esta lista está vazia.</div>';
   } else {
@@ -1215,13 +1226,19 @@ export function renderListsSection(containerId, names){
     estadoApp.latestSheets[buscaAtivaName] = buscaAtivaCompute();
   }
   el.innerHTML = relatedListsPillsHtml(containerId, names) + names.map(function(n){ return renderListCard(n, containerId); }).join('');
+  // Liga filtros/ordenação/PDF/Excel da Busca-Ativa (tabela no formato da
+  // lista de risco de abandono).
+  if(names.indexOf(buscaAtivaName) >= 0){
+    var regsBusca = (estadoApp.latestSheets[buscaAtivaName] || {}).registros || [];
+    if(regsBusca.length) wireRiscoFiltros(regsBusca, [], false, regsBusca, RISCO_CFG_BUSCA);
+  }
 
   // Só o card da lista ativa (pill selecionada) fica visível — os
   // outros continuam no DOM (com seus próprios filtros já montados),
   // só escondidos, pra alternar de lista sem perder filtro/estado.
   function aplicarAbaAtiva(){
     var active = listActiveTab[containerId];
-    el.querySelectorAll('.list-card').forEach(function(card){
+    el.querySelectorAll('[data-list-card]').forEach(function(card){
       card.style.display = (card.getAttribute('data-list-card') === active) ? '' : 'none';
     });
     el.querySelectorAll('[data-list-pill]').forEach(function(btn){
@@ -1520,7 +1537,7 @@ export function renderListsSection(containerId, names){
     input.addEventListener('input', debouncedApply);
   });
 
-  el.querySelectorAll('.filter-pair').forEach(function(pair){
+  el.querySelectorAll('.list-card .filter-pair').forEach(function(pair){
     var colSelect = pair.querySelector('.filter-col');
     var valWrap = pair.querySelector('.filter-val-ms');
     // Multisseleção de valores ("Todos os valores"): fica desabilitada
@@ -1677,7 +1694,7 @@ export function renderListsSection(containerId, names){
     ordenarModeloLista(listKey, m);
     applyFilters(card);
   }
-  el.querySelectorAll('.sortable-th').forEach(function(th){
+  el.querySelectorAll('.list-card .sortable-th').forEach(function(th){
     th.addEventListener('click', function(){ ordenarTabelaPorColuna(th); });
   });
   el.querySelectorAll('.list-card').forEach(function(card){
