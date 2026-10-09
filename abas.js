@@ -3283,6 +3283,10 @@ var FLUXO_MESES = 12;
 
 var fluxoProfissional = '';
 
+function ehEmulti(nome){
+  return profissionaisRoster.length ? nomeEhDaEmulti(nome) : ehProfissionalComparativoEmulti(nome);
+}
+
 export function calcularFluxoPacientes(profissionalSel){
   var rows = sheetToRows(latestRawSheets["Atendimentos"] || []);
   rows = filtrarLinhasPorEquipe(rows, estadoApp.currentEquipes || []);
@@ -3297,10 +3301,13 @@ export function calcularFluxoPacientes(profissionalSel){
     var d = parseBRDate(r[iData]);
     if(!nome || !d) return;
     var t = d.getTime();
-    // limites da base (equipe inteira) — valem também com filtro de profissional
+    var prof = iProfF >= 0 ? String(r[iProfF]||"").trim() : "";
+    // só consultas de profissionais da EMULTI (lista da aba PROFISSIONAIS;
+    // se ela não carregou, cai na lista fixa do comparativo por profissional)
+    if(iProfF >= 0 && !ehEmulti(prof)) return;
+    // limites da base (consultas EMULTI) — valem também com filtro de profissional
     if(t > maxT) maxT = t;
     if(t < minT) minT = t;
-    var prof = iProfF >= 0 ? String(r[iProfF]||"").trim() : "";
     if(prof) profs[prof] = true;
     if(profissionalSel && prof !== profissionalSel) return;
     var k = nome.toUpperCase();
@@ -3395,7 +3402,7 @@ export function renderFluxoPacientes(){
       + '<select id="fluxoProfSelect" style="font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);max-width:100%;">'+opcoes+'</select></label>'
     : '';
   el.innerHTML = '<h4 style="margin:0 0 4px;font-size:14.5px;font-weight:500;">Fluxo mensal de pacientes — entrada e saída'+(fluxoProfissional?' — '+escapeHtml(fluxoProfissional):'')+'</h4>'
-    + '<p class="footnote" style="margin:0 0 10px;line-height:1.5;">Segue o filtro de equipe do topo. <strong>Entrada</strong>: paciente cuja 1ª consulta na base foi no mês. <strong>Saída</strong>: paciente cuja última consulta foi no mês e que está há '+FLUXO_DIAS_SAIDA+' dias ou mais sem voltar (até '+f.ultimaData.toLocaleDateString('pt-BR')+', data do último atendimento da base); meses ainda dentro dessa janela aparecem como "obs." (em observação). Com um profissional escolhido, só contam as consultas dele (entrada = 1ª consulta com ele; saída = última consulta com ele e sem voltar a ele). O 1º mês da base não é exibido, pois não dá para separar quem já era paciente antes. Saldo = entradas − saídas.</p>'
+    + '<p class="footnote" style="margin:0 0 10px;line-height:1.5;">Segue o filtro de equipe do topo e considera só consultas de profissionais da EMULTI. <strong>Entrada</strong>: paciente cuja 1ª consulta na base foi no mês. <strong>Saída</strong>: paciente cuja última consulta foi no mês e que está há '+FLUXO_DIAS_SAIDA+' dias ou mais sem voltar (até '+f.ultimaData.toLocaleDateString('pt-BR')+', data do último atendimento da base); meses ainda dentro dessa janela aparecem como "obs." (em observação). Com um profissional escolhido, só contam as consultas dele (entrada = 1ª consulta com ele; saída = última consulta com ele e sem voltar a ele). O 1º mês da base não é exibido, pois não dá para separar quem já era paciente antes. Saldo = entradas − saídas.</p>'
     + filtroProf + legenda + svg;
   var sel = document.getElementById('fluxoProfSelect');
   if(sel) sel.addEventListener('change', function(){
