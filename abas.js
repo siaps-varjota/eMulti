@@ -3281,21 +3281,28 @@ export function init_abas_analises_calculo(){
 var FLUXO_DIAS_SAIDA = 120;
 var FLUXO_MESES = 12;
 
-export function calcularFluxoPacientes(){
+var fluxoProfissional = '';
+
+export function calcularFluxoPacientes(profissionalSel){
   var rows = sheetToRows(latestRawSheets["Atendimentos"] || []);
   rows = filtrarLinhasPorEquipe(rows, estadoApp.currentEquipes || []);
   var header = rows[0] || [];
   var iData = colIndex(header, "data_hora");
   var iNome = colIndex(header, "nome");
+  var iProfF = colIndex(header, "profissional");
   if(iData < 0 || iNome < 0) return null;
-  var pac = {}, maxT = 0, minT = Infinity;
+  var pac = {}, maxT = 0, minT = Infinity, profs = {};
   rows.slice(1).forEach(function(r){
     var nome = String(r[iNome]||"").trim();
     var d = parseBRDate(r[iData]);
     if(!nome || !d) return;
     var t = d.getTime();
+    // limites da base (equipe inteira) — valem também com filtro de profissional
     if(t > maxT) maxT = t;
     if(t < minT) minT = t;
+    var prof = iProfF >= 0 ? String(r[iProfF]||"").trim() : "";
+    if(prof) profs[prof] = true;
+    if(profissionalSel && prof !== profissionalSel) return;
     var k = nome.toUpperCase();
     var p = pac[k];
     if(!p) pac[k] = {primeira:t, ultima:t};
@@ -3324,14 +3331,20 @@ export function calcularFluxoPacientes(){
     var fechado = (maxT - fimMes) >= limiteMs;
     meses.push({mes:dt, entradas:entradas[m]||0, saidas: fechado ? (saidas[m]||0) : null, parcial: !fechado});
   }
-  return {meses:meses, ultimaData:new Date(maxT)};
+  return {meses:meses, ultimaData:new Date(maxT), profissionais:Object.keys(profs).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); })};
 }
 
 export function renderFluxoPacientes(){
   var el = document.getElementById('fluxoPacientes');
   if(!el) return;
   var f = null;
-  try{ f = calcularFluxoPacientes(); }catch(e){ console.error('[painel] fluxo de pacientes', e); }
+  try{
+    f = calcularFluxoPacientes(fluxoProfissional);
+    if(f && fluxoProfissional && f.profissionais.indexOf(fluxoProfissional) < 0){
+      fluxoProfissional = '';
+      f = calcularFluxoPacientes('');
+    }
+  }catch(e){ console.error('[painel] fluxo de pacientes', e); }
   if(!f || !f.meses.length){
     el.innerHTML = '<p class="footnote" style="margin:0;">Sem dados de atendimentos suficientes para montar o fluxo mensal de pacientes.</p>';
     return;
@@ -3374,7 +3387,19 @@ export function renderFluxoPacientes(){
   var legenda = '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;margin:0 0 6px;">'
     + '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:'+COR_E+';margin-right:6px;"></span>Entradas (1ª consulta)</span>'
     + '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:'+COR_S+';margin-right:6px;"></span>Saídas (sem retorno há '+FLUXO_DIAS_SAIDA+'+ dias)</span></div>';
-  el.innerHTML = '<h4 style="margin:0 0 4px;font-size:14.5px;font-weight:500;">Fluxo mensal de pacientes — entrada e saída</h4>'
-    + '<p class="footnote" style="margin:0 0 10px;line-height:1.5;">Segue o filtro de equipe do topo. <strong>Entrada</strong>: paciente cuja 1ª consulta na base foi no mês. <strong>Saída</strong>: paciente cuja última consulta foi no mês e que está há '+FLUXO_DIAS_SAIDA+' dias ou mais sem voltar (até '+f.ultimaData.toLocaleDateString('pt-BR')+', data do último atendimento da base); meses ainda dentro dessa janela aparecem como "obs." (em observação). O 1º mês da base não é exibido, pois não dá para separar quem já era paciente antes. Saldo = entradas − saídas.</p>'
-    + legenda + svg;
+  var opcoes = '<option value="">Todos os profissionais</option>' + f.profissionais.map(function(n){
+    return '<option value="'+escapeHtml(n)+'"'+(n===fluxoProfissional?' selected':'')+'>'+escapeHtml(n)+'</option>';
+  }).join('');
+  var filtroProf = f.profissionais.length
+    ? '<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;margin:0 0 10px;">Profissional'
+      + '<select id="fluxoProfSelect" style="font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);max-width:100%;">'+opcoes+'</select></label>'
+    : '';
+  el.innerHTML = '<h4 style="margin:0 0 4px;font-size:14.5px;font-weight:500;">Fluxo mensal de pacientes — entrada e saída'+(fluxoProfissional?' — '+escapeHtml(fluxoProfissional):'')+'</h4>'
+    + '<p class="footnote" style="margin:0 0 10px;line-height:1.5;">Segue o filtro de equipe do topo. <strong>Entrada</strong>: paciente cuja 1ª consulta na base foi no mês. <strong>Saída</strong>: paciente cuja última consulta foi no mês e que está há '+FLUXO_DIAS_SAIDA+' dias ou mais sem voltar (até '+f.ultimaData.toLocaleDateString('pt-BR')+', data do último atendimento da base); meses ainda dentro dessa janela aparecem como "obs." (em observação). Com um profissional escolhido, só contam as consultas dele (entrada = 1ª consulta com ele; saída = última consulta com ele e sem voltar a ele). O 1º mês da base não é exibido, pois não dá para separar quem já era paciente antes. Saldo = entradas − saídas.</p>'
+    + filtroProf + legenda + svg;
+  var sel = document.getElementById('fluxoProfSelect');
+  if(sel) sel.addEventListener('change', function(){
+    fluxoProfissional = sel.value;
+    renderFluxoPacientes();
+  });
 }
