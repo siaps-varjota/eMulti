@@ -123,7 +123,7 @@ export function init_nucleo_config(){
   // visual/comportamento do seletor do topo (single-select + "Todas"),
   // mas filtra client-side em cima do cache bruto (latestRawSheets), sem
   // disparar um novo fetch. Começa igual ao padrão do filtro do topo.
-  estadoApp.analisesEquipes = [EQUIPES[0]];
+  estadoApp.analisesEquipes = EQUIPES.slice(); // padrão: Todas as equipes
 
   // Quadrimestre(s) marcados no multisselect da aba Análises (array de
   // {ano, qIndex}). Vazio = comportamento padrão de sempre: histórico
