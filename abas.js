@@ -608,18 +608,19 @@ export function gerarPdfGraficosAnalises(){
 // Mesma linha visual dos outros PDFs do painel (faixa de cabeçalho +
 // tabela), mas usa a lista COMPLETA de risco (não só os 40 primeiros
 // mostrados na tela).
-export function gerarPdfRisco(risco, totalGeral, profSel){
+export function gerarPdfRisco(risco, totalGeral, profSel, cfg){
+  cfg = cfg || RISCO_CFG;
   var jspdfNs = window.jspdf;
   if(!jspdfNs || !jspdfNs.jsPDF){
     alert('Não foi possível carregar a biblioteca de geração de PDF (verifique a conexão com a internet) — tente novamente.');
     return;
   }
   if(!risco.length){
-    alert('Não há pacientes pra exportar (nenhum paciente na janela de risco com o filtro atual).');
+    alert(cfg.vazioPdf);
     return;
   }
   var filtroAtivo = typeof totalGeral === 'number' && totalGeral > risco.length;
-  var equipeLabel = estadoApp.analisesEquipes.map(function(e){ return e.label; }).join(' + ') + (estadoApp.analisesProfissional ? ' — ' + estadoApp.analisesProfissional : '');
+  var equipeLabel = cfg.equipeLabel();
   var doc = new jspdfNs.jsPDF({orientation:'landscape', unit:'pt', format:'a4'});
   var pageWidth = doc.internal.pageSize.getWidth();
   var pageHeight = doc.internal.pageSize.getHeight();
@@ -642,14 +643,14 @@ export function gerarPdfRisco(risco, totalGeral, profSel){
   doc.setTextColor(21,63,53);
   doc.setFont('helvetica','bold');
   doc.setFontSize(13);
-  doc.text('Pacientes em risco de abandono', margin, y);
+  doc.text(cfg.titulo, margin, y);
   y += 16;
   y = pdfLinhaProfissional(doc, 'Profissional (última consulta)', profSel && profSel.ultima, margin, y, pageWidth-margin*2);
   y = pdfLinhaProfissional(doc, 'Profissional (qualquer consulta)', profSel && profSel.qualquer, margin, y, pageWidth-margin*2);
   doc.setFont('helvetica','normal');
   doc.setFontSize(9);
   doc.setTextColor(81,96,90);
-  doc.text('Pacientes com 2+ consultas cujo último atendimento já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível.', margin, y, {maxWidth: pageWidth-margin*2});
+  doc.text(cfg.descricaoPdf, margin, y, {maxWidth: pageWidth-margin*2});
   y += 22;
   doc.text(fmtInt(risco.length)+(risco.length===1?' paciente no total':' pacientes no total')+(filtroAtivo ? ' (filtro de profissional/busca aplicado — total geral sem filtro: '+fmtInt(totalGeral)+')' : '')+'.', margin, y, {maxWidth: pageWidth-margin*2});
   y += 10;
@@ -675,7 +676,7 @@ export function gerarPdfRisco(risco, totalGeral, profSel){
     }
   });
 
-  var arquivo = slugifyFileName('Pacientes_risco_abandono')+'__'+slugifyFileName(equipeLabel)+'__'+slugifyFileName(new Date().toLocaleDateString('pt-BR'))+'.pdf';
+  var arquivo = slugifyFileName(cfg.arquivo)+'__'+slugifyFileName(equipeLabel)+'__'+slugifyFileName(new Date().toLocaleDateString('pt-BR'))+'.pdf';
   doc.save(arquivo);
 }
 
@@ -690,6 +691,36 @@ export function gerarPdfRisco(risco, totalGeral, profSel){
 // Cabeçalhos da tabela "Pacientes em risco de abandono", na mesma ordem
 // das células montadas em linhaRiscoHtml — usado tanto pro <thead>
 // quanto pro comparador de ordenação (compareRiscoPorColuna).
+function equipeLabelAnalises(){
+  return estadoApp.analisesEquipes.map(function(e){ return e.label; }).join(' + ') + (estadoApp.analisesProfissional ? ' — ' + estadoApp.analisesProfissional : '');
+}
+
+// Configuração da tabela (mesmo layout/recursos) — usada pela lista
+// "Pacientes em risco de abandono" (aba Frequência e Retorno) e pela lista
+// "Busca-Ativa" (aba M1). p = prefixo dos ids do DOM; cada tabela usa o seu.
+var RISCO_CFG = {
+  p:'risco', btnPdf:'btnRiscoPdf', btnXlsx:'btnRiscoXlsx', resumoId:'analisesRiscoResumo',
+  titulo:'Pacientes em risco de abandono', arquivo:'Pacientes_risco_abandono', planilha:'Risco de abandono',
+  statusPadrao:'risco', filtroSituacao:true, podarFaixas:false,
+  vazio:'Nenhum paciente na janela de risco no momento (ou ainda não há intervalo histórico suficiente pra calcular).',
+  vazioPdf:'Não há pacientes pra exportar (nenhum paciente na janela de risco com o filtro atual).',
+  descricaoPdf:'Pacientes com 2+ consultas cujo último atendimento já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível.',
+  equipeLabel: equipeLabelAnalises
+};
+
+export var RISCO_CFG_BUSCA = {
+  p:'busca', btnPdf:'btnBuscaPdf', btnXlsx:'btnBuscaXlsx', resumoId:null,
+  titulo:'Busca ativa', arquivo:'Busca_ativa', planilha:'Busca ativa',
+  statusPadrao:null, filtroSituacao:false, podarFaixas:true,
+  vazio:'Nenhum paciente na janela de busca ativa no momento (mais de 30 e até 120 dias sem atendimento, considerando o fim do mês atual).',
+  vazioPdf:'Não há pacientes pra exportar (nenhum paciente na janela de busca ativa com o filtro atual).',
+  descricaoPdf:'Pacientes com mais de 30 e até 120 dias sem atendimento (contados do fim do mês atual), ainda dentro da janela do M1. "Consultas" conta só os atendimentos dos últimos 4 meses; "Dias restantes" é o que falta para completar 120 dias sem atendimento.',
+  equipeLabel: function(){ return estadoApp.currentEquipes.map(function(e){ return e.label; }).join(' + '); },
+  situacaoTxt:'Busca ativa',
+  acaoTxt:'Contato ativo (telefone/visita) para reagendar',
+  motivo: function(r){ return fmtInt(r.diasDesde)+' dias sem atendimento; janela de busca ativa de 31 a 120 dias (faltam '+fmtInt(r.diasRestantes)+' dias para sair da janela do M1)'; }
+};
+
 var RISCO_HEADERS = ['Paciente','Profissional','Equipe','Consultas','Última consulta','Dias sem voltar','Dias restantes','Última participação coletiva'];
 
 // Colunas oferecidas no "Filtrar por coluna…" da tabela de risco — cada
@@ -719,8 +750,12 @@ var RISCO_COLUNAS_FILTRAVEIS = [
 // Valores distintos de uma coluna filtrável, na ordem certa pro tipo:
 // cronológica (isDate), numérica (numeric) ou alfanumérica (padrão) —
 // mesmo critério já usado pros filtros de coluna da aba Listas.
-function valoresDistintosRisco(colDef, dados){
-  if(colDef.fixedValues) return colDef.fixedValues.slice();
+function valoresDistintosRisco(colDef, dados, cfg){
+  if(colDef.fixedValues){
+    return colDef.fixedValues.filter(function(v){
+      return !(cfg && cfg.podarFaixas) || dados.some(function(r){ return colDef.getValor(r) === v; });
+    });
+  }
   var seen = {}, values = [];
   dados.forEach(function(r){
     var v = colDef.getValor(r);
@@ -857,18 +892,20 @@ function profissionalCelulaHtml(r){
   return profissionalBadgeHtml(r.profissionalUltimo || r.profissional, r.outrosProfissionais);
 }
 
-export function riscoTableHtml(risco){
-  if(!risco.length) return '<p class="footnote">Nenhum paciente na janela de risco no momento (ou ainda não há intervalo histórico suficiente pra calcular).</p>';
+export function riscoTableHtml(risco, cfg){
+  cfg = cfg || RISCO_CFG;
+  var P = cfg.p;
+  if(!risco.length) return '<p class="footnote">'+escapeHtml(cfg.vazio)+'</p>';
   // A tabela/contador/rodapé começam vazios de propósito — quem preenche
   // (e reage ao filtro de profissional + coluna + busca) é
   // wireRiscoFiltros, logo depois deste HTML entrar no DOM. Isso garante
   // que o quantitativo mostrado na tela E o PDF sempre reflitam o filtro
   // atual, em vez de só esconder linhas já renderizadas da lista
   // completa.
-  var pdfBtnHtml = '<button type="button" class="pdf-btn" id="btnRiscoPdf">'
+  var pdfBtnHtml = '<button type="button" class="pdf-btn" id="'+cfg.btnPdf+'">'
     + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h1a1.5 1.5 0 0 0 0-3H9v5"/><path d="M13 12v5h1a2 2 0 0 0 0-5z"/><path d="M18.5 12H17v5"/><path d="M17 14.5h1.3"/></svg>'
     + '<span>Gerar PDF</span></button>';
-  var xlsxBtnHtml = '<button type="button" class="pdf-btn" id="btnRiscoXlsx" style="margin-right:8px;">'
+  var xlsxBtnHtml = '<button type="button" class="pdf-btn" id="'+cfg.btnXlsx+'" style="margin-right:8px;">'
     + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13l4 5M13 13l-4 5"/></svg>'
     + '<span>Exportar Excel</span></button>';
   // Filtro por coluna (Paciente/Equipe/Consultas/Última consulta/Dias sem
@@ -882,32 +919,32 @@ export function riscoTableHtml(risco){
     {value:'status:abandono', label:'Abandono consumado'}
   ];
   var colOptionsHtml = '<option value="">Filtrar…</option>'
-    + opcoesSituacao.map(function(o){ return '<option value="'+o.value+'">'+escapeHtml(o.label)+'</option>'; }).join('')
+    + (cfg.filtroSituacao ? opcoesSituacao : []).map(function(o){ return '<option value="'+o.value+'">'+escapeHtml(o.label)+'</option>'; }).join('')
     + RISCO_COLUNAS_FILTRAVEIS.map(function(c, i){ return '<option value="col:'+i+'">'+escapeHtml(c.label)+'</option>'; }).join('');
   var colFilterHtml = '<div class="filter-pair">'
-    + '<select class="filter-col" id="riscoFilterCol">'+colOptionsHtml+'</select>'
-    + '<div class="ms-wrap filter-val-ms ms-disabled" id="riscoFilterValMs"></div>'
+    + '<select class="filter-col" id="'+P+'FilterCol">'+colOptionsHtml+'</select>'
+    + '<div class="ms-wrap filter-val-ms ms-disabled" id="'+P+'FilterValMs"></div>'
     + '</div>';
   // Cabeçalhos clicáveis (ordenação alfanumérica, mesmo padrão visual
   // .sortable-th/.sort-ind usado na aba Listas) — ver ordenarTabelaRisco.
   var theadHtml = RISCO_HEADERS.map(function(h, i){
-    return '<th class="sortable-th" data-risco-col-idx="'+i+'">'+escapeHtml(h)+'<span class="sort-ind"></span></th>';
+    return '<th class="sortable-th" data-'+P+'-col-idx="'+i+'">'+escapeHtml(h)+'<span class="sort-ind"></span></th>';
   }).join('');
   return '<div style="display:flex;justify-content:flex-end;margin-bottom:8px;">'+xlsxBtnHtml+pdfBtnHtml+'</div>'
-    + '<p class="list-meta" id="riscoListMeta"></p>'
+    + '<p class="list-meta" id="'+P+'ListMeta"></p>'
     + '<div class="list-filters">'
     +   '<div class="list-month-filter"><label class="list-month-filter-label">Profissional (última consulta)</label>'
-    +     '<div class="ms-wrap" id="riscoProfMs"></div></div>'
+    +     '<div class="ms-wrap" id="'+P+'ProfMs"></div></div>'
     +   '<div class="list-month-filter"><label class="list-month-filter-label">Profissional</label>'
-    +     '<div class="ms-wrap" id="riscoProfAnyMs"></div></div>'
+    +     '<div class="ms-wrap" id="'+P+'ProfAnyMs"></div></div>'
     +   colFilterHtml
     + '</div>'
-    + '<input class="list-search" type="text" placeholder="Filtrar nesta lista…" id="riscoSearchInput">'
+    + '<input class="list-search" type="text" placeholder="Filtrar nesta lista…" id="'+P+'SearchInput">'
     + '<div class="table-wrap"><table class="data-table"><thead><tr>'
     + theadHtml
-    + '</tr></thead><tbody id="riscoTbody"></tbody></table></div>'
-    + '<div class="risco-pager" id="riscoPager"></div>'
-    + '<p class="footnote" id="riscoFootnote"></p>';
+    + '</tr></thead><tbody id="'+P+'Tbody"></tbody></table></div>'
+    + '<div class="risco-pager" id="'+P+'Pager"></div>'
+    + '<p class="footnote" id="'+P+'Footnote"></p>';
 }
 
 // Liga o filtro de profissional (multisseleção) e a busca livre da
@@ -916,16 +953,18 @@ export function riscoTableHtml(risco){
 // riscoFiltrado, abaixo), pra que o quantitativo na tela, o rodapé
 // ("Mostrando X de Y") e o PDF gerado batam sempre com o filtro atual
 // (profissional da última consulta + busca), em vez do total geral.
-export function wireRiscoFiltros(risco, kpiRegistros, temMediana, registrosTabela){
-  var profMsEl = document.getElementById('riscoProfMs');
-  var searchEl = document.getElementById('riscoSearchInput');
-  var metaEl = document.getElementById('riscoListMeta');
-  var footnoteEl = document.getElementById('riscoFootnote');
-  var tbody = document.getElementById('riscoTbody');
-  var btnPdf = document.getElementById('btnRiscoPdf');
-  var btnXlsx = document.getElementById('btnRiscoXlsx');
-  var resumoEl = document.getElementById('analisesRiscoResumo');
-  var pagerEl = document.getElementById('riscoPager');
+export function wireRiscoFiltros(risco, kpiRegistros, temMediana, registrosTabela, cfg){
+  cfg = cfg || RISCO_CFG;
+  var P = cfg.p;
+  var profMsEl = document.getElementById(P+'ProfMs');
+  var searchEl = document.getElementById(P+'SearchInput');
+  var metaEl = document.getElementById(P+'ListMeta');
+  var footnoteEl = document.getElementById(P+'Footnote');
+  var tbody = document.getElementById(P+'Tbody');
+  var btnPdf = document.getElementById(cfg.btnPdf);
+  var btnXlsx = document.getElementById(cfg.btnXlsx);
+  var resumoEl = cfg.resumoId ? document.getElementById(cfg.resumoId) : null;
+  var pagerEl = document.getElementById(P+'Pager');
   var RISCO_POR_PAGINA = 100, paginaRisco = 1;
   if(!document.getElementById('riscoPagerStyles')){
     var stPg = document.createElement('style');
@@ -979,7 +1018,7 @@ export function wireRiscoFiltros(risco, kpiRegistros, temMediana, registrosTabel
   }) : null;
   if(profMs) profMs.setOptions(profsOpts);
 
-  var profAnyMsEl = document.getElementById('riscoProfAnyMs');
+  var profAnyMsEl = document.getElementById(P+'ProfAnyMs');
   var profAnyMs = profAnyMsEl ? createMultiSelect(profAnyMsEl, {
     placeholder: 'Todos', multi:true, search: profsAnyOpts.length>8, showTags:true,
     onChange: function(){ renderTabelaRisco(); }
@@ -992,8 +1031,8 @@ export function wireRiscoFiltros(risco, kpiRegistros, temMediana, registrosTabel
   // voltar): select da coluna + multisseleção de valores, mesmo padrão da
   // aba Listas — a multisseleção de valores fica desabilitada até uma
   // coluna ser escolhida (ver RISCO_COLUNAS_FILTRAVEIS/valoresDistintosRisco).
-  var colSelectEl = document.getElementById('riscoFilterCol');
-  var colValWrapEl = document.getElementById('riscoFilterValMs');
+  var colSelectEl = document.getElementById(P+'FilterCol');
+  var colValWrapEl = document.getElementById(P+'FilterValMs');
   var colValMs = colValWrapEl ? createMultiSelect(colValWrapEl, {
     placeholder: 'Todos os valores', multi:true, search:true, showTags:true,
     onChange: function(){ renderTabelaRisco(); }
@@ -1006,7 +1045,7 @@ export function wireRiscoFiltros(risco, kpiRegistros, temMediana, registrosTabel
         if(colValMs){ colValMs.setOptions([]); colValMs.setSelected([]); }
         if(colValWrapEl) colValWrapEl.classList.add('ms-disabled');
       } else {
-        var valores = valoresDistintosRisco(RISCO_COLUNAS_FILTRAVEIS[idx], todos);
+        var valores = valoresDistintosRisco(RISCO_COLUNAS_FILTRAVEIS[idx], todos, cfg);
         colValMs.setOptions(valores.map(function(v){ return {value:v, label:v}; }));
         colValMs.setSelected([]);
         colValWrapEl.classList.remove('ms-disabled');
@@ -1021,10 +1060,10 @@ export function wireRiscoFiltros(risco, kpiRegistros, temMediana, registrosTabel
   // compareRiscoPorColuna). Clicar de novo no mesmo cabeçalho inverte a
   // direção; clicar em outro reinicia em ordem crescente.
   var sortColIdx = null, sortDir = 'asc';
-  var theadThs = Array.prototype.slice.call(document.querySelectorAll('[data-risco-col-idx]'));
+  var theadThs = Array.prototype.slice.call(document.querySelectorAll('[data-'+P+'-col-idx]'));
   theadThs.forEach(function(th){
     th.addEventListener('click', function(){
-      var idx = parseInt(th.getAttribute('data-risco-col-idx'), 10);
+      var idx = parseInt(th.getAttribute('data-'+P+'-col-idx'), 10);
       sortDir = (sortColIdx === idx && sortDir === 'asc') ? 'desc' : 'asc';
       sortColIdx = idx;
       theadThs.forEach(function(h){ h.classList.remove('sort-asc','sort-desc'); });
@@ -1066,7 +1105,7 @@ export function wireRiscoFiltros(risco, kpiRegistros, temMediana, registrosTabel
     else if(statusFiltro === 'abandono') matchesSituacao = r.status === 'abandono';
     // Sem situação escolhida, mantém o comportamento original: a tabela
     // começa mostrando apenas os pacientes em risco.
-    else if(paraTabela) matchesSituacao = r.status === 'risco';
+    else if(paraTabela && cfg.statusPadrao) matchesSituacao = r.status === cfg.statusPadrao;
     return matchesProf && matchesProfAny && matchesTexto && matchesColuna && matchesSituacao;
   }
 
@@ -1160,8 +1199,8 @@ export function wireRiscoFiltros(risco, kpiRegistros, temMediana, registrosTabel
   if(btnPdf) btnPdf.addEventListener('click', function(){ gerarPdfRisco(riscoFiltrado, todos.length, {
     ultima: profMs ? profMs.getSelected() : [],
     qualquer: profAnyMs ? profAnyMs.getSelected() : []
-  }); });
-  if(btnXlsx) btnXlsx.addEventListener('click', function(){ gerarExcelRisco(riscoFiltrado, todos.length); });
+  }, cfg); });
+  if(btnXlsx) btnXlsx.addEventListener('click', function(){ gerarExcelRisco(riscoFiltrado, todos.length, cfg); });
 }
 
 // ---------- Exportar "Pacientes em risco de abandono" em Excel ----------
@@ -1169,7 +1208,8 @@ export function wireRiscoFiltros(risco, kpiRegistros, temMediana, registrosTabel
 // ordem atual — não só a página visível). "Motivo" é objetivo (dias sem
 // retorno x mediana/limite); "Próxima ação sugerida" segue só a situação;
 // "Ação realizada" e "Responsável" ficam em branco pra equipe preencher.
-function gerarExcelRisco(lista, totalGeral){
+function gerarExcelRisco(lista, totalGeral, cfg){
+  cfg = cfg || RISCO_CFG;
   if(typeof XLSX === 'undefined' || !XLSX.utils){
     alert('Não foi possível carregar a biblioteca de Excel (verifique a conexão com a internet) — tente novamente.');
     return;
@@ -1189,6 +1229,7 @@ function gerarExcelRisco(lista, totalGeral){
     semMediana:'—'
   };
   function motivo(r){
+    if(cfg.motivo) return cfg.motivo(r);
     if(!mediana || r.status==='unica' || r.status==='semMediana') return '—';
     var base = fmtInt(r.diasDesde)+' dias sem voltar; mediana de retorno '+fmtDec(mediana,0)+' dias';
     if(r.status==='emDia') return base+' (dentro da mediana)';
@@ -1199,19 +1240,19 @@ function gerarExcelRisco(lista, totalGeral){
   var rows = lista.map(function(r){
     return [
       r.nome, r.profissionalUltimo || r.profissional, r.profissional, r.equipe, r.totalConsultas,
-      fmtBRDate(r.ultima), r.diasDesde, SITUACAO[r.status] || r.status,
+      fmtBRDate(r.ultima), r.diasDesde, cfg.situacaoTxt || SITUACAO[r.status] || r.status,
       r.diasRestantes == null ? '' : r.diasRestantes,
       r.ultimaColetiva ? fmtBRDate(r.ultimaColetiva) : '',
-      motivo(r), ACAO[r.status] || '', '', ''
+      motivo(r), cfg.acaoTxt || ACAO[r.status] || '', '', ''
     ];
   });
   var ws = XLSX.utils.aoa_to_sheet([head].concat(rows));
   ws['!cols'] = [{wch:34},{wch:28},{wch:34},{wch:20},{wch:10},{wch:14},{wch:14},{wch:20},{wch:16},{wch:18},{wch:58},{wch:44},{wch:26},{wch:22}];
   ws['!autofilter'] = {ref: XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:rows.length, c:head.length-1}})};
   var wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Risco de abandono');
-  var equipeLabel = estadoApp.analisesEquipes.map(function(e){ return e.label; }).join(' + ') + (estadoApp.analisesProfissional ? ' — ' + estadoApp.analisesProfissional : '');
-  XLSX.writeFile(wb, slugifyFileName('Pacientes_risco_abandono')+'__'+slugifyFileName(equipeLabel)+'__'+slugifyFileName(new Date().toLocaleDateString('pt-BR'))+'.xlsx');
+  XLSX.utils.book_append_sheet(wb, ws, cfg.planilha);
+  var equipeLabel = cfg.equipeLabel();
+  XLSX.writeFile(wb, slugifyFileName(cfg.arquivo)+'__'+slugifyFileName(equipeLabel)+'__'+slugifyFileName(new Date().toLocaleDateString('pt-BR'))+'.xlsx');
 }
 
 // ===== módulo: js/abas/m1-busca-ativa.js =====
@@ -1285,21 +1326,33 @@ export function buscaAtivaCompute(){
         var d = parseBRDate(r[iData]);
         if(!nome || !d) return;
         var chave = nome.toUpperCase();
-        if(!pessoasSet[chave]) pessoasSet[chave] = {nome:nome, countPeriodo:0, ultima:null, equipe:'', profissional:''};
+        if(!pessoasSet[chave]) pessoasSet[chave] = {nome:nome, countPeriodo:0, ultima:null, equipe:'', profissional:'', ultimosProfs:{}, profsJanela:{}, consultasPorProf:{}, ultimaDataPorProf:{}};
+        var ps = pessoasSet[chave];
+        var profLinha = iProf >= 0 ? String(r[iProf]||"").trim() : '';
         // Só entra na contagem exibida se cair dentro da janela dos
         // últimos 4 meses — a "Última Consulta" (usada pra saber há
         // quantos dias a pessoa está sem atendimento) continua olhando
         // TODO o histórico, não só a janela.
         if(withinPeriod(d, janelaPeriodo.inicio, janelaPeriodo.fim)){
-          pessoasSet[chave].countPeriodo++;
+          ps.countPeriodo++;
+          if(profLinha){
+            ps.profsJanela[profLinha] = true;
+            ps.consultasPorProf[profLinha] = (ps.consultasPorProf[profLinha] || 0) + 1;
+          }
         }
+        if(profLinha && (!ps.ultimaDataPorProf[profLinha] || d > ps.ultimaDataPorProf[profLinha])) ps.ultimaDataPorProf[profLinha] = d;
         // Equipe/Profissional guardados são sempre os da ÚLTIMA consulta
         // (a mesma que aparece na coluna "Última Consulta"), não os do
-        // primeiro atendimento encontrado.
-        if(!pessoasSet[chave].ultima || d > pessoasSet[chave].ultima){
-          pessoasSet[chave].ultima = d;
-          pessoasSet[chave].equipe = iEquipe >= 0 ? equipeLabelFromRaw(r[iEquipe]) : '—';
-          pessoasSet[chave].profissional = iProf >= 0 ? (String(r[iProf]||"").trim() || '—') : '—';
+        // primeiro atendimento encontrado. Em empate de data, todos os
+        // profissionais daquele dia entram em ultimosProfs.
+        if(!ps.ultima || d > ps.ultima){
+          ps.ultima = d;
+          ps.equipe = iEquipe >= 0 ? equipeLabelFromRaw(r[iEquipe]) : '—';
+          ps.profissional = iProf >= 0 ? (profLinha || '—') : '—';
+          ps.ultimosProfs = {};
+          if(profLinha) ps.ultimosProfs[profLinha] = true;
+        } else if(ps.ultima && d.getTime() === ps.ultima.getTime() && profLinha){
+          ps.ultimosProfs[profLinha] = true;
         }
       });
     }
@@ -1322,7 +1375,8 @@ export function buscaAtivaCompute(){
       var ultimaDiaZero = new Date(p.ultima.getFullYear(), p.ultima.getMonth(), p.ultima.getDate());
       var diasAteFimMes = Math.round((fimMes - ultimaDiaZero) / MS_DIA);
       var diasReais = Math.round((hojeDiaZero - ultimaDiaZero) / MS_DIA);
-      return {nome:p.nome, count:p.countPeriodo, ultima:p.ultima, diasAteFimMes:diasAteFimMes, diasReais:diasReais, equipe:p.equipe, profissional:p.profissional};
+      return {nome:p.nome, count:p.countPeriodo, ultima:p.ultima, diasAteFimMes:diasAteFimMes, diasReais:diasReais, equipe:p.equipe, profissional:p.profissional,
+        ultimosProfs:p.ultimosProfs, profsJanela:p.profsJanela, consultasPorProf:p.consultasPorProf, ultimaDataPorProf:p.ultimaDataPorProf};
     })
     // Janela: mais de 30 dias e no máximo 120 dias sem atendimento,
     // contados até o último dia do mês atual (critério de filtro — não é
@@ -1333,9 +1387,58 @@ export function buscaAtivaCompute(){
       if(diffData !== 0) return diffData; // mais antiga primeiro
       return a.count - b.count; // 2º critério: menos consultas primeiro
     });
+  // Última participação em atividade coletiva (só informativa, igual à
+  // lista de risco): aba Participantes Ativ. Coletiva, filtrada pela(s)
+  // equipe(s) do topo.
+  var ultimaColetivaPorNome = {};
+  (function(){
+    var pr = filtrarLinhasPorEquipe(sheetToRows(latestRawSheets["Participantes Ativ. Coletiva"] || []), estadoApp.currentEquipes);
+    var h = pr[0] || [];
+    var iN = colIndex(h, "participante"), iD = colIndex(h, "data");
+    if(iN < 0 || iD < 0) return;
+    pr.slice(1).forEach(function(r){
+      var nome = String(r[iN]||"").trim();
+      if(!nome || nome.indexOf("(sem lista nominal") === 0) return;
+      var d = parseBRDate(r[iD]);
+      if(!d) return;
+      var k = nome.toUpperCase();
+      if(!ultimaColetivaPorNome[k] || d > ultimaColetivaPorNome[k]) ultimaColetivaPorNome[k] = d;
+    });
+  })();
+  // Registros no MESMO formato da lista "Pacientes em risco de abandono"
+  // (ver analises/calculo.js), pra reaproveitar a mesma tabela.
+  var registros = lista.map(function(p){
+    var ultimos = Object.keys(p.ultimosProfs).sort(function(a,b){
+      var eA = nomeEhDaEmulti(a) ? 0 : 1, eB = nomeEhDaEmulti(b) ? 0 : 1;
+      if(eA !== eB) return eA - eB;
+      return a.localeCompare(b,'pt-BR');
+    });
+    var todosSet = {};
+    Object.keys(p.profsJanela).forEach(function(n){ todosSet[n] = true; });
+    ultimos.forEach(function(n){ todosSet[n] = true; });
+    var todos = Object.keys(todosSet).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); });
+    var principal = ultimos[0] || null;
+    var outros = todos.filter(function(n){ return n !== principal; }).map(function(n){
+      return {nome:n, data:(p.ultimaDataPorProf||{})[n] || null};
+    }).sort(function(a,b){
+      return (b.data ? b.data.getTime() : 0) - (a.data ? a.data.getTime() : 0);
+    });
+    return {
+      nome:p.nome, status:'busca', diasDesde:p.diasReais, ultima:p.ultima,
+      totalConsultas:p.count, consultasPorProf:p.consultasPorProf,
+      profissional: todos.join(', ') || p.profissional || '—',
+      profissionalUltimo: principal || p.profissional || '—',
+      outrosProfissionais: outros, ultimoProfissionais: ultimos, todosProfissionais: todos,
+      equipe: p.equipe || '—',
+      // Dias que faltam pra completar 120 dias sem atendimento (saída da janela do M1).
+      diasRestantes: Math.max(0, 120 - p.diasReais),
+      ultimaColetiva: ultimaColetivaPorNome[p.nome.toUpperCase()] || null
+    };
+  });
   return {
     headers: ["Nome","Equipe","Profissional","Última Consulta","Dias sem Atendimento","Atendimentos"],
-    rows: lista.map(function(p){ return [p.nome, p.equipe, p.profissional, fmtBRDate(p.ultima), p.diasReais, p.count]; })
+    rows: lista.map(function(p){ return [p.nome, p.equipe, p.profissional, fmtBRDate(p.ultima), p.diasReais, p.count]; }),
+    registros: registros
   };
 }
 
