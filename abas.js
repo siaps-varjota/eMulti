@@ -150,11 +150,9 @@ export function calcularPerformanceProfissionais(wb, periodo){
       media: totalPacientes ? (totalAtend/totalPacientes) : null
     };
   });
-  // No fallback (sem roster), continua escondendo quem não teve
-  // nenhum atendimento — não faz sentido listar um "profissional"
-  // sem nenhuma linha em Atendimentos nesse caso. Com roster, todo
-  // mundo cadastrado na equipe aparece, mesmo com 0 atendimentos.
-  var listaFinal = rosterFiltrado.length ? comContagens : comContagens.filter(function(p){ return p.totalPacientes > 0; });
+  // Profissional sem nenhum atendimento no período (zerado) não aparece:
+  // nem o card, nem o gráfico geral, nem o somatório da equipe.
+  var listaFinal = comContagens.filter(function(p){ return p.totalPacientes > 0; });
   return listaFinal.sort(function(a,b){ return b.totalPacientes - a.totalPacientes; });
 }
 
