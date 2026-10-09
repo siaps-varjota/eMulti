@@ -3278,7 +3278,7 @@ export function init_abas_analises_calculo(){
 //           janela ficam "em observação" (sem barra de saída).
 // O 1º mês da base não entra: todo mundo que já era paciente antes do início
 // da planilha apareceria como "entrada" nele.
-var FLUXO_DIAS_SAIDA = 90;
+var FLUXO_DIAS_SAIDA = 120;
 var FLUXO_MESES = 12;
 
 export function calcularFluxoPacientes(){
@@ -3338,7 +3338,7 @@ export function renderFluxoPacientes(){
   }
   var meses = f.meses;
   var max = Math.max.apply(null, meses.map(function(m){ return Math.max(m.entradas, m.saidas||0); }).concat([1]));
-  var W = 760, H = 300, padL = 36, padR = 8, padT = 22, padB = 54;
+  var W = 760, H = 225, padL = 36, padR = 8, padT = 22, padB = 54;
   var plotH = H - padT - padB, plotW = W - padL - padR;
   var passo = plotW / meses.length, bw = Math.min(26, passo*0.36);
   var COR_E = '#2F6F5E', COR_S = '#B5474B';
