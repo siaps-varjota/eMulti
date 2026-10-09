@@ -7,7 +7,7 @@
 import { TOTAL_PROF_EMULTI_HEADER, colTotalProfEmulti } from '../indicadores/calculo.js';
 import { profissionalColIndex } from './pessoas-atendidas.js';
 import { displayListName } from '../nucleo/config.js';
-import { colIndex, colRespParticipantes, equipeColIndex, nomeEhDaEmulti, toInt } from '../nucleo/dados.js';
+import { colIndex, colRespParticipantes, equipeColIndex, nomeEhDaEmulti, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt } from '../nucleo/dados.js';
 import { escapeHtml } from '../nucleo/utils.js';
 
 // "Participantes Ativ. Coletiva" não tem uma única coluna "profissional"
@@ -100,6 +100,16 @@ function textoCelulaLista(row, idx){
 }
 
 function classificarAcaoM2Atividade(headers, row){
+  // Reunião (de equipe / outras equipes / intersetorial): só é Compartilhada
+  // quando o tema é "Discussão de caso / Projeto terapêutico singular" — mesma
+  // regra do numerador do M2 (ver calcularIndicadoresDoPeriodo).
+  var iTipoReun = colIndex(headers, "tipo_atividade");
+  if(iTipoReun >= 0 && tipoEhReuniao(textoCelulaLista(row, iTipoReun))){
+    var iTemaReun = colIndex(headers, "temas_reuniao");
+    if(iTemaReun < 0 || !temaEhDiscussaoCasoPts(textoCelulaLista(row, iTemaReun))){
+      return {classe:"especifica", label:"Específica", qtd:0, totalEmulti:null, motivo:"reuniaosemtema"};
+    }
+  }
   var iTot = colIndex(headers, "qtd_total_profissionais");
   var iEnv = colIndex(headers, "qtd_profissionais_envolvidos");
   var iEm = colTotalProfEmulti(headers);
@@ -167,6 +177,8 @@ function montarDetalhesAtividadeHTML(headers, row){
   var notaClassificacao;
   if(classificacao.classe === 'compartilhada'){
     notaClassificacao = classificacao.qtd+' profissionais na atividade, com participação da eMulti — conta como Ação Compartilhada (M2).';
+  } else if(classificacao.motivo === 'reuniaosemtema'){
+    notaClassificacao = 'Reunião sem o tema "Discussão de caso / Projeto terapêutico singular" — não conta como Ação Compartilhada (M2).';
   } else if(classificacao.motivo === 'sememulti'){
     notaClassificacao = classificacao.qtd+' profissionais na atividade, mas nenhum da eMulti — não conta como Ação Compartilhada (M2).';
   } else if(classificacao.classe === 'especifica'){

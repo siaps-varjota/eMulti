@@ -6,7 +6,7 @@
 
 import { estadoApp } from '../nucleo/estado.js';
 import { EQUIPES, suffixedName } from '../nucleo/config.js';
-import { NOTAS_METODOLOGICAS, PONTOS_POR_CLASSE, classificarDesempenho, classificarM1, classificarM2, colIndex, colRespParticipantes, equipeColIndex, equipeKeyFromNomeOficial, nomeEhDaEmulti, normalizarTexto, normalizeText, parseBRDate, parseMesAbrevPt, profissionaisRoster, sheetToRows, toInt, withinPeriod } from '../nucleo/dados.js';
+import { NOTAS_METODOLOGICAS, PONTOS_POR_CLASSE, classificarDesempenho, classificarM1, classificarM2, colIndex, colRespParticipantes, equipeColIndex, equipeKeyFromNomeOficial, nomeEhDaEmulti, temaEhDiscussaoCasoPts, tipoEhReuniao, normalizarTexto, normalizeText, parseBRDate, parseMesAbrevPt, profissionaisRoster, sheetToRows, toInt, withinPeriod } from '../nucleo/dados.js';
 
 // ---------- "Total de Profissionais da EMulti" (coluna virtual) ----------
 // Coluna calculada aqui (não existe na planilha de origem de "Participantes
@@ -377,7 +377,15 @@ export function calcularIndicadoresDoPeriodo(wb, periodo){
   // Atividade Coletiva"/"Participantes Ativ. Coletiva", conta desde que
   // bata essas duas condições. A restrição de tipo só existe pra reuniões
   // (aba "Resumo Reuniões", ver TIPOS_REUNIAO_COMPARTILHADA abaixo).
+  // EXCEÇÃO — reuniões: uma atividade do tipo "Reunião de equipe" (ou com
+  // outras equipes / intersetorial) só conta como compartilhada quando o tema
+  // for "Discussão de caso / Projeto terapêutico singular". Se a aba não
+  // tiver coluna de temas, o tema não pode ser confirmado e ela NÃO conta.
+  var iRacTema = colIndex(racHeader, "temas_reuniao");
   var atividadesCompartilhadasListas = racFiltradas.filter(function(r){
+    if(iRacTipo >= 0 && tipoEhReuniao(r[iRacTipo])){
+      if(iRacTema < 0 || !temaEhDiscussaoCasoPts(r[iRacTema])) return false;
+    }
     var totalEmultiPart = ligacaoAtiv ? ligacaoAtiv.total(r) : undefined;
     var totalProfGeral = (iRacTotalProf>=0 && r[iRacTotalProf]!=="" && r[iRacTotalProf]!==undefined)
       ? toInt(r[iRacTotalProf])
@@ -412,13 +420,13 @@ export function calcularIndicadoresDoPeriodo(wb, periodo){
   // final, daí a comparação por "contém" abaixo, igual à de tipo de
   // atividade coletiva) —, (b) tiver "Discussão de caso / Projeto
   // terapêutico singular" entre os "Temas da reunião" (a célula pode
-  // listar vários temas) E (c) 2+ participantes. Se a coluna de tipo ou
-  // de temas não existir na aba, essa parte da regra não é aplicada
-  // (não zera a reunião por isso) e avisa no console.
+  // listar vários temas) E (c) 2+ participantes. Sem a coluna de temas
+  // o tema não pode ser confirmado e a reunião NÃO conta (avisa no
+  // console). Se só a coluna de tipo faltar, o filtro de tipo é ignorado.
   var iRrTema = colIndex(rrHeader, "temas_reuniao");
   var iRrTipo = colIndex(rrHeader, "tipo_reuniao");
   if(iRrTema < 0 && rrRows.length){
-    console.warn('[painel] Coluna "Temas da reunião" não encontrada na aba Resumo Reuniões — contando toda reunião com 2+ participantes.');
+    console.warn('[painel] Coluna "Temas da reunião" não encontrada na aba Resumo Reuniões — o tema "Discussão de caso / Projeto terapêutico singular" não pode ser confirmado, então NENHUMA reunião entra no numerador do M2.');
   }
   if(iRrTipo < 0 && rrRows.length){
     console.warn('[painel] Coluna "Tipo" da reunião não encontrada na aba Resumo Reuniões — não filtrando reunião por tipo (só por tema + participantes).');
@@ -434,9 +442,9 @@ export function calcularIndicadoresDoPeriodo(wb, periodo){
     return TIPOS_REUNIAO_COMPARTILHADA.some(function(tp){ return t.indexOf(tp) >= 0; });
   }
   function reuniaoTemDiscussaoCaso(r){
-    if(iRrTema < 0) return true;
-    var t = normalizarTexto(r[iRrTema]);
-    return t.indexOf('discussao de caso') >= 0 || t.indexOf('projeto terapeutico singular') >= 0;
+    // Sem coluna de temas não há como confirmar o tema → não conta.
+    if(iRrTema < 0) return false;
+    return temaEhDiscussaoCasoPts(r[iRrTema]);
   }
   var reunioesCompartilhadas = rrFiltradas.filter(function(r){
     return toInt(r[iRrQtd]) >= 2 && reuniaoTipoOk(r) && reuniaoTemDiscussaoCaso(r);

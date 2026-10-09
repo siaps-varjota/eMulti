@@ -13,7 +13,7 @@ import { renderDashboard } from './render.js';
 import { calcularIndicadoresDoPeriodo, criarLigacaoAtividades } from '../indicadores/calculo.js';
 import { mediaDeMeses } from '../indicadores/media-meses.js';
 import { EQUIPES, calcularJanelaPeriodo, monthOptionValue, monthShortLabel, refMonthLabel, suffixedName } from '../nucleo/config.js';
-import { calcularJanelaComOverride, colIndex, fetchOfficialOverridesSafe, fetchProfissionaisSafe, filtrarLinhasPorEquipe, fmtBRDate, normalizeText, parseBRDate, parseCsv, profissionaisRoster, sheetToRows, toInt, withinPeriod } from '../nucleo/dados.js';
+import { calcularJanelaComOverride, colIndex, fetchOfficialOverridesSafe, fetchProfissionaisSafe, filtrarLinhasPorEquipe, fmtBRDate, normalizeText, parseBRDate, parseCsv, profissionaisRoster, sheetToRows, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, withinPeriod } from '../nucleo/dados.js';
 import { fetchAllSheets } from '../nucleo/fetch-csv.js';
 import { createMultiSelect } from '../nucleo/multiselect.js';
 import { JANELA_MESES, TREND_MESES, anchorMonthDate, labelQuadsSelecionados, mesesDosQuadsSelecionadosUniao, mesesElapsedDosQuadsSelecionadosUniao, periodoMesUnico } from '../nucleo/periodos.js';
@@ -381,9 +381,13 @@ window.debugAtividadesCompartilhadas = function(){
           : 1+toInt(r[iRacProfEnv]);
         var temEmulti = (totalEmultiPart === undefined) ? true : totalEmultiPart >= 1;
         var tipoRaw = iRacTipo>=0 ? String(r[iRacTipo]||"").trim() : "";
-        var conta = temEmulti && totalProfGeral >= 2;
+        var iRacTemaDbg = colIndex(racHeader, "temas_reuniao");
+        var reuniaoSemTema = tipoRaw !== "" && tipoEhReuniao(tipoRaw)
+          && (iRacTemaDbg < 0 || !temaEhDiscussaoCasoPts(r[iRacTemaDbg]));
+        var conta = temEmulti && totalProfGeral >= 2 && !reuniaoSemTema;
         var motivoExclusao = conta ? "" :
-          (totalProfGeral < 2 ? 'qtd_total_profissionais < 2 (' + totalProfGeral + ')'
+          (reuniaoSemTema ? 'reunião sem o tema "Discussão de caso / Projeto terapêutico singular"'
+          : totalProfGeral < 2 ? 'qtd_total_profissionais < 2 (' + totalProfGeral + ')'
           : 'Total de Profissionais da EMulti = 0 (não achou ligação com Participantes)');
         return {
           data: iRacData>=0 ? String(r[iRacData]) : "",
