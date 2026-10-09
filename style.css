@@ -980,3 +980,18 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important;}
 }
+
+/* Agendamentos */
+.agendamentos-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.agendamentos-toolbar input{flex:1 1 220px;min-width:180px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:inherit}
+.agendamentos-toolbar button,.agendamentos-salvar{border:1px solid #153F35;background:#153F35;color:#fff;border-radius:8px;padding:8px 12px;font:inherit;font-weight:600;cursor:pointer;white-space:nowrap}
+.agendamentos-toolbar button:disabled,.agendamentos-salvar:disabled{opacity:.6;cursor:wait}
+.agendamentos-feedback{min-height:1.5em;margin:4px 0 10px;color:var(--pill-otimo);font-size:13px}
+.agendamentos-feedback.erro{color:var(--pill-regular)}
+.agendamentos-vazio{text-align:center!important;padding:20px!important;color:var(--ink-soft)}
+.agendamentos-nome{font-weight:600;text-align:left!important;min-width:170px}
+.agendamentos-table input,.agendamentos-table select{max-width:190px;min-width:125px;padding:7px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--ink);font:inherit}
+.agendamentos-table input[type=date]{min-width:145px}
+.agendamentos-table input[type=text]{min-width:180px}
+.agendamentos-salvar{padding:6px 10px}
+@media(max-width:700px){.agendamentos-toolbar button{flex:1 1 100%}.agendamentos-table{min-width:920px}}
