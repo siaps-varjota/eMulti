@@ -116,7 +116,7 @@ export function init_nucleo_config(){
   // Agora suporta seleção múltipla: quando mais de uma equipe está
   // marcada, as linhas de AMBAS entram no cálculo (resultado combinado/
   // somado das equipes selecionadas). Sempre fica pelo menos 1 marcada.
-  estadoApp.currentEquipes = [EQUIPES[0]];
+  estadoApp.currentEquipes = EQUIPES.slice(); // padrão: Todas as equipes
 
   // Filtro de Equipe da aba Análises — INDEPENDENTE do filtro global do
   // topo (currentEquipes): mudar um não muda o outro (a pedido). Mesmo
