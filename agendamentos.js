@@ -9,10 +9,6 @@ var CAP_MANHA_AG=6, CAP_TARDE_AG=6, CAP_DIA_AG=CAP_MANHA_AG+CAP_TARDE_AG;
 // Último atendimento de uma linha de Pessoas atendidas: usa a data completa
 // (listas.js) e, se ela não existir, a maior das colunas "Data 1..N" (índice 6+).
 function ultimoAg(r){if(r.ultimoAtendimentoISO)return r.ultimoAtendimentoISO;var best='';for(var i=6;i<r.length;i++){var m=String(r[i]==null?'':r[i]).match(/^(\d{2})\/(\d{2})\/(\d{4})$/);if(m){var iso=m[3]+'-'+m[2]+'-'+m[1];if(iso>best)best=iso;}}return best;}
-// Só entram em Agendamentos pessoas cujo último atendimento foi há no máximo
-// DIAS_MAX_AG dias (contados a partir de hoje).
-var DIAS_MAX_AG=120;
-function recenteAg(iso){var m=String(iso||'').match(/^(\d{4})-(\d\d)-(\d\d)$/);if(!m)return false;var d=new Date(Number(m[1]),Number(m[2])-1,Number(m[3])),h=new Date();h.setHours(0,0,0,0);return Math.round((h-d)/86400000)<=DIAS_MAX_AG;}
 function normAg(v){return String(v==null?'':v).trim().toLocaleLowerCase('pt-BR').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ');}
 // Mapa pessoa -> profissionais (histórico completo), vindo de Pessoas atendidas
 // (coluna "Profissional"). Também junta a lista de profissionais para o datalist.
@@ -32,7 +28,7 @@ function profMapAg(){
     map[normAg(r[0])]=normAg(txt);
     txt.split(',').forEach(function(n){n=n.trim();if(n&&n!=='—')nomes[n]=1;});
   });
-  profCacheAg={map:map,ult:ult,ultProf:ultProf,nomes:Object.keys(nomes).sort(function(a,b){return a.localeCompare(b,'pt-BR');})};
+  profCacheAg={map:map,ult:ult,ultProf:ultProf,rows:list.rows,nomes:Object.keys(nomes).sort(function(a,b){return a.localeCompare(b,'pt-BR');})};
   return profCacheAg;
 }
 function fillProfAg(){var dl=document.getElementById('agendamentosProfissionais'),c=profMapAg();if(!dl||!c)return;dl.innerHTML=c.nomes.map(function(n){return '<option value="'+escAg(n)+'"></option>';}).join('');}
@@ -40,6 +36,31 @@ function apiAg(payload){var api=window.PAINEL_API,token=window.painelToken&&wind
 function msgAg(text,error){var el=document.getElementById('agendamentosFeedback');if(el){el.textContent=text||'';el.className='agendamentos-feedback'+(error?' erro':'');}}
 function dateAg(v){if(!v)return '';if(v instanceof Date&&!isNaN(v))return v.toISOString().slice(0,10);var s=String(v).trim(),m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);if(/^\d{4}-\d\d-\d\d$/.test(s))return s;if(m)return m[3]+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[1]).slice(-2);var d=new Date(s);return isNaN(d)?'':d.toISOString().slice(0,10);}
 function ultimoDeAg(r,uc){return (uc&&uc.ult[normAg(r.Nome)])||dateAg(r['Último Atendimento'])||'';}
+// A lista de Agendamentos segue a lista "Pessoas atendidas" com os filtros
+// aplicados lá (Mês, colunas, busca): só aparece quem está nela. Sem estado
+// (lista ainda não aberta) mostra todo mundo.
+function filtroListaAg(){
+  var f=window.__emultiPessoasAtendidasFiltradas&&window.__emultiPessoasAtendidasFiltradas();
+  if(!f||!Array.isArray(f.nomes))return null;
+  var set={};f.nomes.forEach(function(n){set[normAg(n)]=true;});
+  return {set:set,origem:f.origem,meses:f.meses||[],n:f.nomes.length};
+}
+// Quem está em Pessoas atendidas mas ainda não existe na planilha vira uma
+// linha "virtual" (Pendente, sem data). Ela só é gravada na planilha quando
+// recebe data/situação (antes disso é sincronizada automaticamente).
+function completarVirtuaisAg(){
+  var uc=profMapAg();if(!uc)return;
+  var tem={};rowsAg.forEach(function(r){tem[normAg(r.Nome)]=true;});
+  uc.rows.forEach(function(p){
+    var nome=String(p[0]||'').trim();if(!nome||tem[normAg(nome)])return;tem[normAg(nome)]=true;
+    rowsAg.push({Nome:nome,Atendimentos:Number(p[1])||0,Total:Number(p[3])||0,'Último Atendimento':ultimoAg(p),Situação:'Pendente','Data agendada':'','Atualizado em':'',_virtual:true});
+  });
+}
+function garantirNaPlanilhaAg(linhas){
+  var uc=profMapAg();
+  var pessoas=linhas.map(function(r){return{nome:String(r.Nome||'').trim(),at:Number(r.Atendimentos)||0,total:Number(r.Total)||0,ultimo:ultimoDeAg(r,uc)};});
+  return apiAg({action:'agendamentos.sync',rows:pessoas}).then(function(){linhas.forEach(function(r){delete r._virtual;});});
+}
 function brAg(v){var s=String(v==null?'':v).trim(),m=s.match(/^(\d{4})-(\d\d)-(\d\d)$/);return m?m[3]+'/'+m[2]+'/'+m[1]:s;}
 function escAg(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function renderAg(){
@@ -47,16 +68,18 @@ function renderAg(){
   var uc=profMapAg(),
       q=(document.getElementById('agendamentosBusca').value||'').trim().toLocaleLowerCase('pt-BR'),
       pq=normAg(document.getElementById('agendamentosProfissional').value),
-      pc=pq?uc:null, semProf=!!pq&&!pc;
+      lf=filtroListaAg(), semProf=!!pq&&!uc;
   var list=semProf?[]:rowsAg.filter(function(r){
-    if(!recenteAg(ultimoDeAg(r,uc)))return false;
+    if(lf&&!lf.set[normAg(r.Nome)])return false;
     if(q&&!String(r.Nome||'').toLocaleLowerCase('pt-BR').includes(q))return false;
-    if(pq){var ps=pc.map[normAg(r.Nome)]||'';if(ps.indexOf(pq)<0)return false;}
+    if(pq){var up=uc.ultProf[normAg(r.Nome)]||'';if(normAg(up).indexOf(pq)<0)return false;}
     return true;
   });
   document.getElementById('agendamentosContagem').textContent=list.length+(list.length===1?' pessoa':' pessoas');
+  var info=document.getElementById('agendamentosFiltroInfo');
+  if(info)info.textContent=lf?('Seguindo a lista Pessoas atendidas (aba '+lf.origem+'): '+lf.n+(lf.n===1?' pessoa':' pessoas')+' · '+(lf.meses.length?lf.meses.length+(lf.meses.length===1?' mês selecionado':' meses selecionados'):'todos os meses')+'. Mude os filtros lá e esta lista acompanha.'):'Mostrando todas as pessoas — abra a lista Pessoas atendidas (M1/M2) e aplique filtros para limitar esta lista.';
   if(!list.length){
-    body.innerHTML='<tr><td colspan="10" class="agendamentos-vazio">'+(busyAg?'Carregando…':semProf?'Dados de profissionais indisponíveis. Atualize os dados do painel.':(q||pq)?'Nenhuma pessoa encontrada.':'Nenhum registro disponível. Sincronize Pessoas atendidas.')+'</td></tr>';
+    body.innerHTML='<tr><td colspan="10" class="agendamentos-vazio">'+(busyAg?'Carregando…':semProf?'Dados de profissionais indisponíveis. Atualize os dados do painel.':(q||pq||lf)?'Nenhuma pessoa encontrada.':'Nenhum registro disponível. Sincronize Pessoas atendidas.')+'</td></tr>';
     return;
   }
   var turnos=turnosAg(uc);
@@ -160,6 +183,7 @@ function gerarAg(){
   var ini=isoParaDataAg(document.getElementById('agendamentosInicio').value);
   var inicio=diaUtilAg(ini||amanhaAg());
   var pq=normAg(document.getElementById('agendamentosProfissional').value);
+  var lf=filtroListaAg();
   var ocupados={},nomes={},cands=[],semProf=0,jaTem=0;
   rowsAg.forEach(function(r){
     var k=chaveProfAg(r,uc),d=dateAg(r['Data agendada']);
@@ -167,7 +191,7 @@ function gerarAg(){
     (ocupados[k]=ocupados[k]||{})[d]=((ocupados[k]||{})[d]||0)+1;
   });
   rowsAg.forEach(function(r,ix){
-    if(!recenteAg(ultimoDeAg(r,uc)))return;
+    if(lf&&!lf.set[normAg(r.Nome)])return;
     if((r.Situação||'Pendente')!=='Pendente')return;
     if(dateAg(r['Data agendada'])){jaTem++;return;}
     var prof=uc.ultProf[normAg(r.Nome)];
@@ -191,6 +215,11 @@ function salvarGeradosAg(){
   var datas=ixs.map(function(i){return propostaAg[i];}).sort();
   if(!window.confirm('Salvar '+ixs.length+' agendamentos (de '+brAg(datas[0])+' a '+brAg(datas[datas.length-1])+')?\nA situação dessas pessoas passará para "Agendado".'))return;
   busyAg=true;
+  var virtuais=ixs.map(function(i){return rowsAg[Number(i)];}).filter(function(r){return r&&r._virtual;});
+  var preparo=virtuais.length?(msgAg('Preparando '+virtuais.length+' pessoas novas na planilha…',false),garantirNaPlanilhaAg(virtuais)):Promise.resolve();
+  preparo.then(function(){executarSalvarGeradosAg(ixs);}).catch(function(e){busyAg=false;msgAg((e&&e.message)||'Não foi possível preparar as pessoas na planilha.',true);});
+}
+function executarSalvarGeradosAg(ixs){
   var fila=ixs.slice(),total=ixs.length,ok=0,falhas=0,ultimoErro='';
   ['agendamentosGerar','agendamentosSalvarGerados','agendamentosDescartar'].forEach(function(id){var el=document.getElementById(id);if(el)el.disabled=true;});
   function proximo(){
@@ -213,10 +242,16 @@ function salvarGeradosAg(){
     msgAg(ok+(ok===1?' agendamento salvo':' agendamentos salvos')+(falhas?'; '+falhas+' não foram salvos'+(ultimoErro?' ('+ultimoErro+')':'')+' e continuam como proposta — clique em "Salvar datas geradas" para tentar de novo.':'.'),falhas>0);
   });
 }
-function loadAg(){if(busyAg)return;busyAg=true;profCacheAg=null;propostaAg={};atualizarBotoesGeracaoAg();msgAg('Carregando agendamentos…');renderAg();apiAg({action:'agendamentos.list'}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:[];msgAg('');}).catch(function(e){msgAg(e.message||'Falha ao carregar.',true);}).finally(function(){busyAg=false;renderAg();});}
-function syncAg(){if(busyAg)return;profCacheAg=null;var list=window.__emultiPessoasAtendidas&&window.__emultiPessoasAtendidas();if(!list||!Array.isArray(list.rows)||!list.rows.length){msgAg('Atualize os dados do painel para carregar Pessoas atendidas antes de sincronizar.',true);return;}var pessoas=list.rows.map(function(r){return{nome:String(r[0]||'').trim(),at:Number(r[1])||0,total:Number(r[3])||0,ultimo:ultimoAg(r)};}).filter(function(x){return x.nome&&recenteAg(x.ultimo);});if(!pessoas.length){msgAg('Nenhuma pessoa com último atendimento em até '+DIAS_MAX_AG+' dias. Atualize os dados do painel e tente de novo.',true);return;}busyAg=true;msgAg('Sincronizando '+pessoas.length+' pessoas…');renderAg();apiAg({action:'agendamentos.sync',rows:pessoas}).then(function(r){msgAg('Sincronização concluída: '+(Number(r.inseridos)||0)+' novos; '+(Number(r.atualizados)||0)+' atualizados; (últimos '+DIAS_MAX_AG+' dias: '+pessoas.length+' pessoas).');return apiAg({action:'agendamentos.list'});}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:rowsAg;}).catch(function(e){msgAg(e.message||'Falha ao sincronizar.',true);}).finally(function(){busyAg=false;renderAg();});}
-function saveAg(tr){var r=rowsAg[Number(tr.dataset.agIx)];if(!r)return;var btn=tr.querySelector('[data-ag-save]'),fields={};tr.querySelectorAll('[data-ag]').forEach(function(el){fields[el.dataset.ag]=el.value;});btn.disabled=true;btn.textContent='Salvando…';apiAg(Object.assign({action:'agendamentos.update',nome:r.Nome},fields)).then(function(){r.Situação=fields.situacao;r['Data agendada']=fields.dataAgendada;delete propostaAg[Number(tr.dataset.agIx)];atualizarBotoesGeracaoAg();msgAg('Alterações de '+r.Nome+' salvas.');}).catch(function(e){msgAg(e.message||'Falha ao salvar.',true);}).finally(function(){renderAg();});}
+function loadAg(){if(busyAg)return;busyAg=true;profCacheAg=null;propostaAg={};atualizarBotoesGeracaoAg();msgAg('Carregando agendamentos…');renderAg();apiAg({action:'agendamentos.list'}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:[];completarVirtuaisAg();msgAg('');}).catch(function(e){msgAg(e.message||'Falha ao carregar.',true);}).finally(function(){busyAg=false;renderAg();});}
+function syncAg(){if(busyAg)return;profCacheAg=null;var list=window.__emultiPessoasAtendidas&&window.__emultiPessoasAtendidas();if(!list||!Array.isArray(list.rows)||!list.rows.length){msgAg('Atualize os dados do painel para carregar Pessoas atendidas antes de sincronizar.',true);return;}var pessoas=list.rows.map(function(r){return{nome:String(r[0]||'').trim(),at:Number(r[1])||0,total:Number(r[3])||0,ultimo:ultimoAg(r)};}).filter(function(x){return x.nome;});if(!pessoas.length){msgAg('Nenhuma pessoa em Pessoas atendidas. Atualize os dados do painel e tente de novo.',true);return;}busyAg=true;msgAg('Sincronizando '+pessoas.length+' pessoas…');renderAg();apiAg({action:'agendamentos.sync',rows:pessoas}).then(function(r){msgAg('Sincronização concluída: '+(Number(r.inseridos)||0)+' novos; '+(Number(r.atualizados)||0)+' atualizados ('+pessoas.length+' pessoas em Pessoas atendidas).');return apiAg({action:'agendamentos.list'});}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:rowsAg;completarVirtuaisAg();}).catch(function(e){msgAg(e.message||'Falha ao sincronizar.',true);}).finally(function(){busyAg=false;renderAg();});}
+function saveAg(tr){var r=rowsAg[Number(tr.dataset.agIx)];if(!r)return;var btn=tr.querySelector('[data-ag-save]'),fields={};tr.querySelectorAll('[data-ag]').forEach(function(el){fields[el.dataset.ag]=el.value;});btn.disabled=true;btn.textContent='Salvando…';(r._virtual?garantirNaPlanilhaAg([r]):Promise.resolve()).then(function(){return apiAg(Object.assign({action:'agendamentos.update',nome:r.Nome},fields));}).then(function(){r.Situação=fields.situacao;r['Data agendada']=fields.dataAgendada;delete propostaAg[Number(tr.dataset.agIx)];atualizarBotoesGeracaoAg();msgAg('Alterações de '+r.Nome+' salvas.');}).catch(function(e){msgAg(e.message||'Falha ao salvar.',true);}).finally(function(){renderAg();});}
 document.addEventListener('DOMContentLoaded',function(){var b=document.getElementById('agendamentosBody');document.getElementById('agendamentosBusca').addEventListener('input',renderAg);var pf=document.getElementById('agendamentosProfissional');pf.addEventListener('input',renderAg);pf.addEventListener('focus',fillProfAg);document.getElementById('agendamentosAtualizar').addEventListener('click',loadAg);document.getElementById('agendamentosSincronizar').addEventListener('click',syncAg);
+  // Mudou o filtro em Pessoas atendidas: a lista acompanha e as datas geradas (que valiam
+  // pro filtro antigo) são descartadas.
+  window.addEventListener('emulti:pessoas-filtro',function(){
+    if(Object.keys(propostaAg).length){propostaAg={};atualizarBotoesGeracaoAg();msgAg('O filtro da lista Pessoas atendidas mudou: as datas geradas foram descartadas. Gere novamente.',false);}
+    var painel=document.getElementById('tabAgendamentos');if(painel&&painel.classList.contains('active'))renderAg();
+  });
   var ini=document.getElementById('agendamentosInicio');if(ini)ini.value=isoAg(diaUtilAg(amanhaAg()));
   document.getElementById('agendamentosGerar').addEventListener('click',gerarAg);
   document.getElementById('agendamentosSalvarGerados').addEventListener('click',salvarGeradosAg);

@@ -1195,6 +1195,12 @@ function relatedListsPillsHtml(containerId, names){
 // (listsM1/listsM2) da última vez — ver renderListsSection logo abaixo.
 var listsRenderedForWb = {};
 
+// Último estado FILTRADO da lista "Pessoas atendidas" (a que o usuário mexeu
+// por último, em M1 ou M2): quem aparece nela depois de Mês, filtros de coluna
+// e busca. A aba Agendamentos lê isto pra mostrar exatamente as mesmas pessoas.
+var pessoasFiltroAtual = null;
+window.__emultiPessoasAtendidasFiltradas = function(){ return pessoasFiltroAtual; };
+
 export function renderListsSection(containerId, names){
   var el = document.getElementById(containerId);
   if(!el) return;
@@ -1430,6 +1436,14 @@ export function renderListsSection(containerId, names){
       if(matchesText && matchesCols && matchesMonth) view.push(row);
     });
     m.view = view;
+    if(listName === suffixedName("Pessoas atendidas")){
+      pessoasFiltroAtual = {
+        origem: listKey.indexOf('listsM1') === 0 ? 'M1' : (listKey.indexOf('listsM2') === 0 ? 'M2' : listKey),
+        nomes: view.map(function(row){ return String(row.t[0] === undefined ? '' : row.t[0]).trim(); }),
+        meses: selectedMonths.slice()
+      };
+      try{ window.dispatchEvent(new CustomEvent('emulti:pessoas-filtro')); }catch(e){}
+    }
     var visibleCount = view.length;
     // Contagem de linhas mostrada acima da lista: reflete o resultado
     // depois de aplicar TODOS os filtros ativos (mês, colunas e busca),
