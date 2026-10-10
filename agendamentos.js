@@ -237,14 +237,17 @@ function resumoGeradoAg(uc,nomes){
   }).join('');
   el.innerHTML=itens?'<ul>'+itens+'</ul>':'';
 }
-function gerarAg(){
+// auto=true: geração automática (ao abrir a aba / mudar filtros). Não depende do filtro de
+// profissional da tela e fica em silêncio quando não há o que gerar. prefixo: texto a manter no aviso.
+function gerarAg(auto,prefixo){
+  if(auto!==true)auto=false;
   if(busyAg)return;
   var uc=profMapAg();
-  if(!uc||!Object.keys(uc.ultProf).length){msgAg('Atualize os dados do painel para carregar Pessoas atendidas antes de gerar as datas.',true);return;}
-  if(!rowsAg.length){msgAg('Não há registros em Agendamentos. Clique em "Sincronizar Pessoas atendidas" primeiro.',true);return;}
+  if(!uc||!Object.keys(uc.ultProf).length){if(!auto)msgAg('Atualize os dados do painel para carregar Pessoas atendidas antes de gerar as datas.',true);return;}
+  if(!rowsAg.length){if(!auto)msgAg('Não há registros em Agendamentos. Clique em "Sincronizar Pessoas atendidas" primeiro.',true);return;}
   var ini=isoParaDataAg(document.getElementById('agendamentosInicio').value);
   var inicio=diaUtilAg(ini||amanhaAg());
-  var pq=normAg(document.getElementById('agendamentosProfissional').value);
+  var pq=auto?'':normAg(document.getElementById('agendamentosProfissional').value);
   var lf=filtroListaAg(),lim=limiteDiasAg();
   var ocupados={},nomes={},cands=[],semProf=0,jaTem=0;
   rowsAg.forEach(function(r){
@@ -264,11 +267,11 @@ function gerarAg(){
     nomes[k]=prof;
     cands.push({ix:ix,prof:k,nome:String(r.Nome||''),ult:ultimoDeAg(r,uc)});
   });
-  if(!cands.length){propostaAg={};atualizarBotoesGeracaoAg();renderAg();msgAg('Nenhuma pessoa pendente para agendar'+(pq?' deste profissional':'')+'.'+(jaTem?' '+jaTem+' já têm data.':''),false);return;}
+  if(!cands.length){propostaAg={};atualizarBotoesGeracaoAg();renderAg();if(auto){if(prefixo)msgAg(prefixo,false);return;}msgAg('Nenhuma pessoa pendente para agendar'+(pq?' deste profissional':'')+'.'+(jaTem?' '+jaTem+' já têm data.':''),false);return;}
   propostaAg=planejarAg(cands,ocupados,inicio);
   var datas=Object.keys(propostaAg).map(function(i){return propostaAg[i];}).sort();
   renderAg();atualizarBotoesGeracaoAg();resumoGeradoAg(uc,nomes);
-  msgAg(cands.length+(cands.length===1?' pessoa distribuída':' pessoas distribuídas')+' de '+brAg(datas[0])+' a '+brAg(datas[datas.length-1])+' (seg–sex, até '+CAP_MANHA_AG+' de manhã + '+CAP_TARDE_AG+' à tarde por profissional/dia). Revise e clique em "Salvar datas geradas".'+(semProf?' '+semProf+' sem profissional identificado ficaram de fora.':''),false);
+  msgAg((prefixo?prefixo+' ':'')+cands.length+(cands.length===1?' pessoa distribuída':' pessoas distribuídas')+' de '+brAg(datas[0])+' a '+brAg(datas[datas.length-1])+' (seg–sex, até '+CAP_MANHA_AG+' de manhã + '+CAP_TARDE_AG+' à tarde por profissional/dia). Revise e clique em "Salvar datas geradas".'+(semProf?' '+semProf+' sem profissional identificado ficaram de fora.':''),false);
 }
 function descartarAg(){propostaAg={};atualizarBotoesGeracaoAg();renderAg();msgAg('Datas geradas descartadas.',false);}
 // Grava as datas geradas na planilha (Situação passa a "Agendado"), 3 pedidos por vez.
@@ -305,8 +308,8 @@ function executarSalvarGeradosAg(ixs){
     msgAg(ok+(ok===1?' agendamento salvo':' agendamentos salvos')+(falhas?'; '+falhas+' não foram salvos'+(ultimoErro?' ('+ultimoErro+')':'')+' e continuam como proposta — clique em "Salvar datas geradas" para tentar de novo.':'.'),falhas>0);
   });
 }
-function loadAg(){if(busyAg)return;busyAg=true;profCacheAg=null;propostaAg={};atualizarBotoesGeracaoAg();msgAg('Carregando agendamentos…');renderAg();apiAg({action:'agendamentos.list'}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:[];completarVirtuaisAg();msgAg('');}).catch(function(e){msgAg(e.message||'Falha ao carregar.',true);}).finally(function(){busyAg=false;renderAg();});}
-function syncAg(){if(busyAg)return;profCacheAg=null;var list=window.__emultiPessoasAtendidas&&window.__emultiPessoasAtendidas();if(!list||!Array.isArray(list.rows)||!list.rows.length){msgAg('Atualize os dados do painel para carregar Pessoas atendidas antes de sincronizar.',true);return;}var pessoas=list.rows.map(function(r){return{nome:String(r[0]||'').trim(),at:Number(r[1])||0,total:Number(r[3])||0,ultimo:ultimoAg(r)};}).filter(function(x){return x.nome;});if(!pessoas.length){msgAg('Nenhuma pessoa em Pessoas atendidas. Atualize os dados do painel e tente de novo.',true);return;}busyAg=true;msgAg('Sincronizando '+pessoas.length+' pessoas…');renderAg();apiAg({action:'agendamentos.sync',rows:pessoas}).then(function(r){msgAg('Sincronização concluída: '+(Number(r.inseridos)||0)+' novos; '+(Number(r.atualizados)||0)+' atualizados ('+pessoas.length+' pessoas em Pessoas atendidas).');return apiAg({action:'agendamentos.list'});}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:rowsAg;completarVirtuaisAg();}).catch(function(e){msgAg(e.message||'Falha ao sincronizar.',true);}).finally(function(){busyAg=false;renderAg();});}
+function loadAg(){if(busyAg)return;busyAg=true;profCacheAg=null;propostaAg={};atualizarBotoesGeracaoAg();msgAg('Carregando agendamentos…');renderAg();apiAg({action:'agendamentos.list'}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:[];completarVirtuaisAg();msgAg('');}).catch(function(e){msgAg(e.message||'Falha ao carregar.',true);}).finally(function(){busyAg=false;renderAg();gerarAg(true);});}
+function syncAg(){if(busyAg)return;profCacheAg=null;var list=window.__emultiPessoasAtendidas&&window.__emultiPessoasAtendidas();if(!list||!Array.isArray(list.rows)||!list.rows.length){msgAg('Atualize os dados do painel para carregar Pessoas atendidas antes de sincronizar.',true);return;}var pessoas=list.rows.map(function(r){return{nome:String(r[0]||'').trim(),at:Number(r[1])||0,total:Number(r[3])||0,ultimo:ultimoAg(r)};}).filter(function(x){return x.nome;});if(!pessoas.length){msgAg('Nenhuma pessoa em Pessoas atendidas. Atualize os dados do painel e tente de novo.',true);return;}busyAg=true;msgAg('Sincronizando '+pessoas.length+' pessoas…');renderAg();var syncMsg='';apiAg({action:'agendamentos.sync',rows:pessoas}).then(function(r){syncMsg='Sincronização concluída: '+(Number(r.inseridos)||0)+' novos; '+(Number(r.atualizados)||0)+' atualizados ('+pessoas.length+' pessoas em Pessoas atendidas).';msgAg(syncMsg);return apiAg({action:'agendamentos.list'});}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:rowsAg;completarVirtuaisAg();}).catch(function(e){msgAg(e.message||'Falha ao sincronizar.',true);}).finally(function(){busyAg=false;renderAg();if(syncMsg){propostaAg={};gerarAg(true,syncMsg);}});}
 function saveAg(tr){var r=rowsAg[Number(tr.dataset.agIx)];if(!r)return;var btn=tr.querySelector('[data-ag-save]'),fields={};tr.querySelectorAll('[data-ag]').forEach(function(el){fields[el.dataset.ag]=el.value;});btn.disabled=true;btn.textContent='Salvando…';(r._virtual?garantirNaPlanilhaAg([r]):Promise.resolve()).then(function(){return apiAg(Object.assign({action:'agendamentos.update',nome:r.Nome},fields));}).then(function(){r.Situação=fields.situacao;r['Data agendada']=fields.dataAgendada;delete propostaAg[Number(tr.dataset.agIx)];atualizarBotoesGeracaoAg();msgAg('Alterações de '+r.Nome+' salvas.');}).catch(function(e){msgAg(e.message||'Falha ao salvar.',true);}).finally(function(){renderAg();});}
 document.addEventListener('DOMContentLoaded',function(){var b=document.getElementById('agendamentosBody');document.getElementById('agendamentosBusca').addEventListener('input',renderAg);
   var thead=document.querySelector('#tabAgendamentos .agendamentos-table thead');
@@ -317,18 +320,23 @@ document.addEventListener('DOMContentLoaded',function(){var b=document.getElemen
     renderAg();
   });
   // Mudou o filtro de dias ou o "seguir lista": as datas geradas valiam pro filtro antigo e são descartadas.
-  function refiltrarAg(){if(Object.keys(propostaAg).length){propostaAg={};atualizarBotoesGeracaoAg();msgAg('O filtro mudou: as datas geradas foram descartadas. Gere novamente.',false);}renderAg();}
+  // Mudou o filtro (dias / seguir lista) ou a data inicial: refaz a sugestão automática.
+  function refiltrarAg(){propostaAg={};atualizarBotoesGeracaoAg();renderAg();gerarAg(true);}
   var tEl=document.getElementById('agendamentosTurno');if(tEl)tEl.addEventListener('change',renderAg);
   var dEl=document.getElementById('agendamentosDias');if(dEl)dEl.addEventListener('input',refiltrarAg);
-  var sEl=document.getElementById('agendamentosSeguir');if(sEl)sEl.addEventListener('change',refiltrarAg);var pf=document.getElementById('agendamentosProfissional');pf.addEventListener('input',renderAg);pf.addEventListener('focus',fillProfAg);document.getElementById('agendamentosAtualizar').addEventListener('click',loadAg);document.getElementById('agendamentosSincronizar').addEventListener('click',syncAg);
+  var sEl=document.getElementById('agendamentosSeguir');if(sEl)sEl.addEventListener('change',refiltrarAg);
+  var iEl=document.getElementById('agendamentosInicio');if(iEl)iEl.addEventListener('change',refiltrarAg);var pf=document.getElementById('agendamentosProfissional');pf.addEventListener('input',renderAg);pf.addEventListener('focus',fillProfAg);document.getElementById('agendamentosAtualizar').addEventListener('click',loadAg);document.getElementById('agendamentosSincronizar').addEventListener('click',syncAg);
   // Mudou o filtro em Pessoas atendidas: a lista acompanha e as datas geradas (que valiam
   // pro filtro antigo) são descartadas.
   window.addEventListener('emulti:pessoas-filtro',function(){
-    if(Object.keys(propostaAg).length){propostaAg={};atualizarBotoesGeracaoAg();msgAg('O filtro da lista Pessoas atendidas mudou: as datas geradas foram descartadas. Gere novamente.',false);}
-    var painel=document.getElementById('tabAgendamentos');if(painel&&painel.classList.contains('active'))renderAg();
+    // Só interessa se a aba está seguindo a lista Pessoas atendidas.
+    if(!seguirListaAg())return;
+    var painel=document.getElementById('tabAgendamentos');
+    if(painel&&painel.classList.contains('active'))refiltrarAg();
+    else if(Object.keys(propostaAg).length){propostaAg={};atualizarBotoesGeracaoAg();}
   });
   var ini=document.getElementById('agendamentosInicio');if(ini)ini.value=isoAg(diaUtilAg(amanhaAg()));
-  document.getElementById('agendamentosGerar').addEventListener('click',gerarAg);
+  document.getElementById('agendamentosGerar').addEventListener('click',function(){gerarAg(false);});
   document.getElementById('agendamentosSalvarGerados').addEventListener('click',salvarGeradosAg);
   document.getElementById('agendamentosDescartar').addEventListener('click',descartarAg);document.querySelector('.tab[data-tab="agendamentos"]').addEventListener('click',loadAg);b.addEventListener('click',function(e){var btn=e.target.closest('[data-ag-save]');if(btn)saveAg(btn.closest('tr'));});b.addEventListener('change',function(e){
     if(e.target.dataset.ag==='situacao')saveAg(e.target.closest('tr'));
