@@ -1113,6 +1113,9 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 .agenda-toolbar select{min-width:150px}.agenda-nav-sem select{min-width:190px}
 
 /* Agendamentos: cabeçalho mais compacto (título + pills na mesma linha) */
-#tabAgendamentos{margin-top:-8px}
 #tabAgendamentos .ip-header{margin-bottom:8px;gap:12px;flex-wrap:wrap}
 #tabAgendamentos .ag-pills{margin:0}
+
+/* Espaço entre a barra de abas e o título: sem a barra de filtros, não reserva a margem dela */
+.filter-bar-outer:has(#filterBar.hidden){margin-top:0}
+.main:has(#tabAgendamentos.active){padding-top:12px}
