@@ -4,7 +4,7 @@
 // Cada seção "=== módulo: ... ===" corresponde a um arquivo original.
 // ======================================================================
 
-import { EQUIPES, TOTAL_PROF_EMULTI_HEADER, calcularJanelaPeriodo, colIndex, colRespParticipantes, colTotalProfEmulti, createMultiSelect, dateColIndexForList, debounce, displayListName, equipeColIndex, escapeHtml, estadoApp, fmtBRDate, fmtDec, fmtInt, listDatasExpandidas, listDateColIdx, listModel, listMonthFilters, monthOptionLabel, monthOptionValue, monthOptionsForList, monthShortLabel, nomeEhDaEmulti, normalizeText, parseBRDate, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, withinPeriod } from './nucleo.js';
+import { profissionaisRoster, ehProfissionalComparativoEmulti, EQUIPES, TOTAL_PROF_EMULTI_HEADER, calcularJanelaPeriodo, colIndex, colRespParticipantes, colTotalProfEmulti, createMultiSelect, dateColIndexForList, debounce, displayListName, equipeColIndex, escapeHtml, estadoApp, fmtBRDate, fmtDec, fmtInt, listDatasExpandidas, listDateColIdx, listModel, listMonthFilters, monthOptionLabel, monthOptionValue, monthOptionsForList, monthShortLabel, nomeEhDaEmulti, normalizeText, parseBRDate, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, withinPeriod } from './nucleo.js';
 import { ACAO_M2_FILTER_VALUE, DIAS_SEM_ATENDIMENTO_HEADER, FAIXAS_DIAS_SEM_ATENDIMENTO, PROF_EMULTI_FILTER_VALUE, RISCO_CFG_BUSCA, buscaAtivaCompute, diasBucketLabel, profissionalBadgeHtml, riscoTableHtml, wireRiscoFiltros } from './abas.js';
 import { latestWb } from './app.js';
 
@@ -652,6 +652,11 @@ function fluxoLabelPara(fluxoInfo, nome){
   return "";
 }
 
+// Profissional da eMulti: pelo cadastro da aba PROFISSIONAIS; se ele ainda não carregou, cai no critério comparativo.
+function ehEmultiAgenda(nome){
+  return profissionaisRoster.length ? nomeEhDaEmulti(nome) : ehProfissionalComparativoEmulti(nome);
+}
+
 export function pessoasAtendidasParaMeses(monthValues){
   // nome em maiúsculas -> {nome, at, part, datas:[Date,...],
   // profissionais:{nome:true} (todo mundo que já atendeu, histórico
@@ -705,7 +710,7 @@ export function pessoasAtendidasParaMeses(monthValues){
     }
   }
   function novaPessoa(nome){
-    return {nome:nome, at:0, part:0, datas:[], profissionais:{}, infoPorProf:{}, ultimaData:null, ultimoTipo:null, ultimoProfissionalPrincipal:null};
+    return {nome:nome, at:0, part:0, datas:[], profissionais:{}, infoPorProf:{}, ultimaData:null, ultimoTipo:null, ultimoProfissionalPrincipal:null, atEmulti:0, ultAgData:null, ultAgProf:''};
   }
   var atCached = estadoApp.latestSheets[suffixedName("Atendimentos")];
   if(atCached){
@@ -726,6 +731,15 @@ export function pessoasAtendidasParaMeses(monthValues){
         if(prof){
           registrarProf(p, prof, d, TIPO_EVENTO_ATENDIMENTO);
           atualizarUltimoGeral(p, d, TIPO_EVENTO_ATENDIMENTO, prof);
+          // Aba Agendamentos: só conta ATENDIMENTO individual feito por profissional da eMulti
+          // (participação em atividade coletiva não entra).
+          if(ehEmultiAgenda(prof)){
+            p.atEmulti++;
+            if(d && (!p.ultAgData || d.getTime() > p.ultAgData.getTime()
+                || (d.getTime() === p.ultAgData.getTime() && prioridadeMenor(prof, p.ultAgProf) < 0))){
+              p.ultAgData = d; p.ultAgProf = prof;
+            }
+          }
         }
       });
     }
@@ -821,6 +835,13 @@ export function pessoasAtendidasParaMeses(monthValues){
       var ultData = p.datas.length ? p.datas[p.datas.length-1] : null;
       row.ultimoAtendimentoISO = ultData
         ? ultData.getFullYear()+'-'+('0'+(ultData.getMonth()+1)).slice(-2)+'-'+('0'+ultData.getDate()).slice(-2)
+        : '';
+      // Aba Agendamentos: elegível = teve atendimento individual com profissional da eMulti.
+      // Quem só participou de atividade coletiva (ou só foi atendido por outros profissionais) fica de fora.
+      row.agendavel = p.atEmulti > 0;
+      row.ultimoProfissionalAgenda = p.ultAgProf || '';
+      row.ultimoAtendimentoAgendaISO = p.ultAgData
+        ? p.ultAgData.getFullYear()+'-'+('0'+(p.ultAgData.getMonth()+1)).slice(-2)+'-'+('0'+p.ultAgData.getDate()).slice(-2)
         : '';
       return row;
     })
