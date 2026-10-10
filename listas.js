@@ -813,6 +813,9 @@ export function pessoasAtendidasParaMeses(monthValues){
           return tb - ta;
         });
       row.profissionalHtml = profissionalBadgeHtml(nomePrincipal, extras);
+      // Nome (texto puro) do profissional do evento mais recente — usado pela
+      // aba Agendamentos pra distribuir as datas por profissional da última consulta.
+      row.ultimoProfissional = (nomePrincipal && nomePrincipal !== '—') ? nomePrincipal : '';
       // Data do evento mais recente (p.datas já está em ordem cronológica
       // aqui, sem o corte de 10 colunas) — usada na aba Agendamentos.
       var ultData = p.datas.length ? p.datas[p.datas.length-1] : null;
