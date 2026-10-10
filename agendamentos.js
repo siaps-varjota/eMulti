@@ -115,22 +115,23 @@ function renderAg(){
   var uc=profMapAg(),
       q=(document.getElementById('agendamentosBusca').value||'').trim().toLocaleLowerCase('pt-BR'),
       pq=normAg(document.getElementById('agendamentosProfissional').value),
-      lf=filtroListaAg(), lim=limiteDiasAg(), semProf=!!pq&&!uc;
-  var list=semProf?[]:rowsAg.filter(function(r){
+      lf=filtroListaAg(), lim=limiteDiasAg(), semProf=!!pq&&!uc,
+      tf=(document.getElementById('agendamentosTurno')||{}).value||'', turnos=turnosAg(uc);
+  var list=semProf?[]:rowsAg.filter(function(r,ix){
     if(lf&&!lf.set[normAg(r.Nome)])return false;
     if(!dentroDiasAg(r,uc,lim))return false;
+    if(tf){var t=turnos[ix];if(tf==='sem'?!!t:(!t||t.classe!==tf))return false;}
     if(q&&!String(r.Nome||'').toLocaleLowerCase('pt-BR').includes(q))return false;
     if(pq){var up=uc.ultProf[normAg(r.Nome)]||'';if(normAg(up).indexOf(pq)<0)return false;}
     return true;
   });
   marcarOrdemAg();
-  var turnos=turnosAg(uc);
   list=ordenarAg(list,uc,turnos);
   document.getElementById('agendamentosContagem').textContent=list.length+(list.length===1?' pessoa':' pessoas');
   var info=document.getElementById('agendamentosFiltroInfo');
   if(info){var dn=diasAg(),txtDias=dn?('Último atendimento nos últimos '+dn+' dias'+(lim?' (desde '+brAg(lim)+')':'')):'Todos os períodos';info.textContent=txtDias+(lf?' · seguindo também a lista Pessoas atendidas (aba '+lf.origem+'): '+lf.n+(lf.n===1?' pessoa':' pessoas')+' · '+(lf.meses.length?lf.meses.length+(lf.meses.length===1?' mês selecionado':' meses selecionados'):'todos os meses')+'.':'.');}
   if(!list.length){
-    body.innerHTML='<tr><td colspan="10" class="agendamentos-vazio">'+(busyAg?'Carregando…':semProf?'Dados de profissionais indisponíveis. Atualize os dados do painel.':(q||pq||lf||lim)?'Nenhuma pessoa encontrada.':'Nenhum registro disponível. Sincronize Pessoas atendidas.')+'</td></tr>';
+    body.innerHTML='<tr><td colspan="10" class="agendamentos-vazio">'+(busyAg?'Carregando…':semProf?'Dados de profissionais indisponíveis. Atualize os dados do painel.':(q||pq||lf||lim||tf)?'Nenhuma pessoa encontrada.':'Nenhum registro disponível. Sincronize Pessoas atendidas.')+'</td></tr>';
     return;
   }
   body.innerHTML=list.map(function(r){
@@ -306,6 +307,7 @@ document.addEventListener('DOMContentLoaded',function(){var b=document.getElemen
   });
   // Mudou o filtro de dias ou o "seguir lista": as datas geradas valiam pro filtro antigo e são descartadas.
   function refiltrarAg(){if(Object.keys(propostaAg).length){propostaAg={};atualizarBotoesGeracaoAg();msgAg('O filtro mudou: as datas geradas foram descartadas. Gere novamente.',false);}renderAg();}
+  var tEl=document.getElementById('agendamentosTurno');if(tEl)tEl.addEventListener('change',renderAg);
   var dEl=document.getElementById('agendamentosDias');if(dEl)dEl.addEventListener('input',refiltrarAg);
   var sEl=document.getElementById('agendamentosSeguir');if(sEl)sEl.addEventListener('change',refiltrarAg);var pf=document.getElementById('agendamentosProfissional');pf.addEventListener('input',renderAg);pf.addEventListener('focus',fillProfAg);document.getElementById('agendamentosAtualizar').addEventListener('click',loadAg);document.getElementById('agendamentosSincronizar').addEventListener('click',syncAg);
   // Mudou o filtro em Pessoas atendidas: a lista acompanha e as datas geradas (que valiam

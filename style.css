@@ -1027,3 +1027,6 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 .agendamentos-table .sortable-th.sort-asc .sort-ind,.agendamentos-table .sortable-th.sort-desc .sort-ind{opacity:1}
 .agendamentos-table .sortable-th.sort-asc .sort-ind::after{content:"▲"}
 .agendamentos-table .sortable-th.sort-desc .sort-ind::after{content:"▼"}
+
+.agendamentos-toolbar select#agendamentosTurno{flex:0 0 auto;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);font:inherit}
+@media(max-width:700px){.agendamentos-toolbar select#agendamentosTurno{flex:1 1 100%}}
