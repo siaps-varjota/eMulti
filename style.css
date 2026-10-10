@@ -1030,3 +1030,29 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 
 .agendamentos-toolbar select#agendamentosTurno{flex:0 0 auto;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);font:inherit}
 @media(max-width:700px){.agendamentos-toolbar select#agendamentosTurno{flex:1 1 100%}}
+
+.agendamentos-toolbar select{flex:0 0 auto;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);font:inherit}
+.agendamentos-filtros2{margin-top:2px}
+.agendamentos-filtros2 input[type=date]{flex:0 0 auto;min-width:150px}
+.agendamentos-btn{border:1px solid #153F35;background:#153F35;color:#fff;border-radius:8px;padding:7px 12px;font:inherit;font-weight:600;cursor:pointer;white-space:nowrap}
+.agendamentos-btn.agendamentos-secundario{background:#fff;color:#153F35}
+.agendamentos-btn:disabled{opacity:.5;cursor:default}
+.agendamentos-detalhe{margin:6px 0 10px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.agendamentos-detalhe>summary{cursor:pointer;padding:9px 12px;font-weight:600;color:#153F35;font-size:13.5px}
+.agendamentos-detalhe[open]>summary{border-bottom:1px solid var(--line)}
+.agendamentos-vagas,.agendamentos-cfg{padding:10px 12px}
+.agendamentos-cfg-linha{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-bottom:8px;font-size:13px}
+.agendamentos-cfg-linha label{display:flex;align-items:center;gap:6px}
+.agendamentos-cfg-linha input[type=number],.agendamentos-cfg input[type=number]{width:70px;padding:6px 8px;border:1px solid var(--line);border-radius:7px;font:inherit}
+.agendamentos-cfg .data-table input[type=number]{width:64px}
+.agendamentos-cfg .data-table td,.agendamentos-cfg .data-table th{text-align:center}
+.agendamentos-cfg .data-table td.agendamentos-nome{text-align:left}
+.agendamentos-vagas-tab td{text-align:center}
+.agendamentos-vagas-tab td.agendamentos-nome{text-align:left}
+.vaga-livre{background:#E4F2E9;color:#1C6D53;font-weight:600}
+.vaga-quase{background:#FFF3D6;color:#8A5A00;font-weight:600}
+.vaga-lotado{background:#FBE3E0;color:#9B2C1F;font-weight:600}
+.vaga-off{color:#9aa39d;background:#f4f5f2}
+.agendamentos-pager{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:6px 0 8px;font-size:13px;color:var(--ink-soft)}
+.agendamentos-pager select{padding:6px 8px;border:1px solid var(--line);border-radius:7px;background:#fff;font:inherit}
+@media(max-width:700px){.agendamentos-toolbar select{flex:1 1 100%}}
