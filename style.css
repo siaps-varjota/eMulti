@@ -1094,3 +1094,9 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 
 .ag-pills{margin:0 0 14px}
 #agVisaoLista[hidden],#agVisaoAgenda[hidden]{display:none}
+
+/* Buscar pessoa / Profissional: campos mais largos */
+.agendamentos-toolbar input#agendamentosBusca,.agendamentos-toolbar input#agendamentosProfissional{flex:2 1 260px;min-width:220px;max-width:380px;font-size:14px;padding:10px 12px}
+@media(max-width:700px){.agendamentos-toolbar input#agendamentosBusca,.agendamentos-toolbar input#agendamentosProfissional{max-width:none;flex:1 1 100%}}
+/* Com campos mais largos, só mantém a linha única em telas grandes */
+@media(min-width:1000px) and (max-width:1219px){.agendamentos-toolbar{flex-wrap:wrap}}
