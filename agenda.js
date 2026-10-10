@@ -106,12 +106,13 @@ function renderAgenda(){
   for(var d=1;d<=ultimo.getDate();d++){
     var dia=new Date(mesAgenda.getFullYear(),mesAgenda.getMonth(),d),k=chaveDiaAgenda(dia),evs=porDia[k]||[];
     var fora=st.sem&&(dia<st.sem.inicio||dia>st.sem.fim);
-    cel.push('<div class="agenda-dia'+(mesmoDiaAgenda(dia,hoje)?' hoje':st.lotados[k]?' lotado':'')+'"'+(fora?' style="opacity:.45"':'')+'>'
+    cel.push('<div class="agenda-dia'+(mesmoDiaAgenda(dia,hoje)?' hoje':st.lotados[k]?' lotado':'')+'"'+'>'
       +'<div class="agenda-dia-topo"><span class="agenda-num">'+d+'</span>'+(st.lotados[k]?'<span class="agenda-lot">LOTADO</span>':'')+'</div>'
       +evs.map(function(e){return '<span class="agenda-ev '+e.tipo+'" title="'+escAgenda(e.nome+' · '+e.prof+(e.turno?' · '+e.turno:'')+' · '+TIPO_ROTULO_AGENDA[e.tipo])+'">'+escAgenda(nomeCurtoAgenda(e.nome))+'</span>';}).join('')
       +'</div>');
   }
   while(cel.length%7)cel.push('<div class="agenda-dia vazio"></div>');
+  if(st.sem){var li=(+st.sem.n-1)*7;cel=cel.slice(li,li+7);}   // semana escolhida: só a linha dela
   grade.innerHTML='<div class="agenda-sem">'+DIAS_AGENDA.map(function(x){return '<div>'+x+'</div>';}).join('')+'</div><div class="agenda-dias">'+cel.join('')+'</div>';
 
   // Lista detalhada
@@ -234,6 +235,24 @@ function baixarCardAgenda(){
   img.src=url;
 }
 
+// Avança/volta uma semana. Vindo de "Todo o mês": mostra a semana de hoje (no mês atual), a 1ª (avançar)
+// ou a última (voltar) nos outros meses. Ao passar da borda do mês, troca de mês.
+function irSemanaAgenda(delta){
+  var sems=semanasDoMes(),idx;
+  if(semanaAgenda){
+    idx=(+semanaAgenda)-1+delta;
+  }else{
+    var h=new Date(),hj=new Date(h.getFullYear(),h.getMonth(),h.getDate());
+    if(h.getFullYear()===mesAgenda.getFullYear()&&h.getMonth()===mesAgenda.getMonth()){
+      idx=0;sems.forEach(function(x,i){if(hj>=x.inicio)idx=i;});
+    }else idx=delta>0?0:sems.length-1;
+  }
+  if(idx<0){mesAgenda=new Date(mesAgenda.getFullYear(),mesAgenda.getMonth()-1,1);idx=semanasDoMes().length-1;}
+  else if(idx>=sems.length){mesAgenda=new Date(mesAgenda.getFullYear(),mesAgenda.getMonth()+1,1);idx=0;}
+  semanaAgenda=String(idx+1);
+  renderAgenda();
+}
+
 // ---------- Eventos ----------
 function iniciarAgenda(){
   var pl=elAgenda('agPillLista'),pa=elAgenda('agPillAgenda');if(!pl||!pa||!elAgenda('agendaGrade'))return;
@@ -249,6 +268,8 @@ function iniciarAgenda(){
   window.addEventListener('emulti:agenda-dados',function(){if(ativa())renderAgenda();});
   elAgenda('agendaProf').addEventListener('change',function(e){profAgenda=e.target.value;renderAgenda();});
   elAgenda('agendaSemana').addEventListener('change',function(e){semanaAgenda=e.target.value;renderAgenda();});
+  elAgenda('agendaSemPrev').addEventListener('click',function(){irSemanaAgenda(-1);});
+  elAgenda('agendaSemNext').addEventListener('click',function(){irSemanaAgenda(1);});
   elAgenda('agendaPrev').addEventListener('click',function(){mesAgenda=new Date(mesAgenda.getFullYear(),mesAgenda.getMonth()-1,1);semanaAgenda='';renderAgenda();});
   elAgenda('agendaNext').addEventListener('click',function(){mesAgenda=new Date(mesAgenda.getFullYear(),mesAgenda.getMonth()+1,1);semanaAgenda='';renderAgenda();});
   elAgenda('agendaPdf').addEventListener('click',gerarPdfAgenda);

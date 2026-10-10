@@ -1107,3 +1107,7 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 .ag-info:hover .ag-info-i,.ag-info:focus .ag-info-i{background:#1C6D53;color:#fff}
 .ag-info-tip{display:none;position:absolute;z-index:50;top:28px;left:-6px;width:min(560px,86vw);padding:12px 14px;border-radius:10px;background:#13241F;color:#EEF3EA;font:400 12.5px/1.5 'Inter',sans-serif;letter-spacing:0;box-shadow:0 8px 24px rgba(0,0,0,.25);text-align:left}
 .ag-info:hover .ag-info-tip,.ag-info:focus .ag-info-tip,.ag-info:focus-within .ag-info-tip{display:block}
+
+.agenda-nav-sem{gap:4px}.agenda-nav-sem select{min-width:200px}
+@media(max-width:700px){.agenda-nav-sem{flex:1 1 100%}.agenda-nav-sem select{flex:1 1 auto;min-width:0}}
+.agenda-toolbar select{min-width:150px}.agenda-nav-sem select{min-width:190px}
