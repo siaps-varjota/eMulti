@@ -179,6 +179,7 @@ function calcularListaAg(){
   return {uc:uc,list:list,turnos:turnos,lf:lf,lim:lim,semProf:semProf,filtrado:!!(q||pq||lf||lim||tf||sf||de||ate)};
 }
 function renderAg(){
+  setTimeout(function(){window.dispatchEvent(new Event('emulti:agenda-dados'));},0);
   var body=document.getElementById('agendamentosBody'); if(!body)return;
   marcarOrdemAg();
   var c=calcularListaAg(),uc=c.uc,list=c.list,turnos=c.turnos,lf=c.lf,lim=c.lim;
@@ -511,6 +512,23 @@ function executarSalvarGeradosAg(ixs){
 }
 function loadAg(){if(busyAg)return;busyAg=true;profCacheAg=null;propostaAg={};atualizarBotoesGeracaoAg();msgAg('Carregando agendamentos…');renderAg();apiAg({action:'agendamentos.list'}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:[];completarVirtuaisAg();msgAg('');}).catch(function(e){msgAg(e.message||'Falha ao carregar.',true);}).finally(function(){busyAg=false;renderAg();renderConfigAg();gerarAg(true);});}
 function syncAg(){if(busyAg)return;profCacheAg=null;var list=window.__emultiPessoasAtendidas&&window.__emultiPessoasAtendidas();if(!list||!Array.isArray(list.rows)||!list.rows.length){msgAg('Atualize os dados do painel para carregar Pessoas atendidas antes de sincronizar.',true);return;}var pessoas=list.rows.filter(function(r){return r.agendavel===true;}).map(function(r){return{nome:String(r[0]||'').trim(),at:Number(r[1])||0,total:Number(r[3])||0,ultimo:r.ultimoAtendimentoAgendaISO||''};}).filter(function(x){return x.nome;});if(!pessoas.length){msgAg('Nenhuma pessoa em Pessoas atendidas. Atualize os dados do painel e tente de novo.',true);return;}busyAg=true;msgAg('Sincronizando '+pessoas.length+' pessoas…');renderAg();var syncMsg='';apiAg({action:'agendamentos.sync',rows:pessoas}).then(function(r){syncMsg='Sincronização concluída: '+(Number(r.inseridos)||0)+' novos; '+(Number(r.atualizados)||0)+' atualizados ('+pessoas.length+' pessoas em Pessoas atendidas).';msgAg(syncMsg);return apiAg({action:'agendamentos.list'});}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:rowsAg;completarVirtuaisAg();}).catch(function(e){msgAg(e.message||'Falha ao sincronizar.',true);}).finally(function(){busyAg=false;renderAg();renderConfigAg();if(syncMsg){propostaAg={};gerarAg(true,syncMsg);}});}
+
+// ---------- Dados para a aba Agenda (calendário) ----------
+// Mesma base da aba Agendamentos: salvos na planilha (Agendado/Realizado) + datas geradas ainda não salvas (Sugerido).
+window.__emultiAgendaDados=function(){
+  var uc=profMapAg();if(!uc)return {eventos:[],pronto:false};
+  var turnos=turnosAg(uc),ev=[];
+  rowsAg.forEach(function(r,ix){
+    if(!uc.elegiveis[normAg(r.Nome)])return;
+    var prop=propostaAg[ix],d=prop||dateAg(r['Data agendada']);if(!d)return;
+    var sit=r.Situação||'Pendente';if(!prop&&!ehAtivoAg(r))return;
+    var k=chaveProfAg(r,uc);if(!k)return;
+    var t=turnos[ix];
+    ev.push({data:d,nome:String(r.Nome||''),prof:uc.ultProf[normAg(r.Nome)],profKey:k,tipo:prop?'sugerido':(sit==='Realizado'?'realizado':'agendado'),situacao:sit,turno:t?t.rotulo:'',ult:ultimoDeAg(r,uc),capDia:capAg(k).dia});
+  });
+  return {eventos:ev,pronto:true};
+};
+window.__emultiAgendaCarregar=function(){if(rowsAg.length||busyAg){window.dispatchEvent(new Event('emulti:agenda-dados'));return;}loadAg();};
 
 // ---------- Salvar uma linha ----------
 function saveAg(tr){
