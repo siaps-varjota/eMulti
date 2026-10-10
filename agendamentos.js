@@ -268,6 +268,23 @@ function planejarAg(cands,ocupados,inicio,opt){
   return plano;
 }
 function chaveProfAg(r,uc){var p=uc&&uc.ultProf[normAg(r.Nome)];return p?normAg(p):'';}
+// Próximo dia de atendimento (a partir de iso, inclusive) em que o profissional ainda tem vaga.
+// ignorarIx = linha que está sendo movida (não conta como ocupante). Nunca deixa "excedente".
+function proximaVagaAg(ix,iso,uc){
+  var r=rowsAg[ix],k=chaveProfAg(r,uc),cap=capAg(k),oc={};
+  rowsAg.forEach(function(x,i){
+    if(i===ix||chaveProfAg(x,uc)!==k||!ehAtivoAg(x))return;
+    var d=propostaAg[i]||dateAg(x['Data agendada']);if(d)oc[d]=(oc[d]||0)+1;
+  });
+  var dia=isoParaDataAg(iso);if(!dia)return iso;
+  dia=proxDiaAg(dia,cap.dias);
+  for(var g=0;g<3000;g++){
+    var d=isoAg(dia);
+    if((oc[d]||0)<cap.dia)return d;
+    dia=proxDiaAg(somaDiaAg(dia,1),cap.dias);
+  }
+  return iso;
+}
 // Por que a linha está sem turno (mostrado como dica no "—" da coluna Turno).
 function motivoSemTurnoAg(r,ix,uc){
   if((r.Situação||'Pendente')==='Cancelado')return 'Sem turno: agendamento cancelado';
@@ -360,6 +377,13 @@ function gerarAg(auto,prefixo){
     if(!k||!d||!ehAtivoAg(r))return;
     (ocupados[k]=ocupados[k]||{})[d]=((ocupados[k]||{})[d]||0)+1;
   });
+  // Excedente não existe: quem está acima do limite do dia vai para o próximo dia com vaga.
+  var turnosAtuais=turnosAg(uc),excedentes=[];
+  Object.keys(turnosAtuais).forEach(function(i){
+    var r=rowsAg[i],d=propostaAg[i]||dateAg(r['Data agendada']);
+    if(turnosAtuais[i].classe==='excedente'&&!propostaAg[i]&&(r.Situação||'Pendente')!=='Realizado'&&d>=isoAg(new Date()))excedentes.push({ix:Number(i),d:d});
+  });
+  excedentes.forEach(function(x){var k=chaveProfAg(rowsAg[x.ix],uc);if(ocupados[k]&&ocupados[k][x.d])ocupados[k][x.d]--;});
   rowsAg.forEach(function(r,ix){
     if(lf&&!lf.set[normAg(r.Nome)])return;
     if(!dentroDiasAg(r,uc,lim))return;
@@ -375,8 +399,14 @@ function gerarAg(auto,prefixo){
     if(sit==='Faltou')faltosos++;
     cands.push({ix:ix,prof:k,nome:String(r.Nome||''),ult:ultimoDeAg(r,uc),pri:sit==='Faltou'?0:1});
   });
-  if(!cands.length){propostaAg={};atualizarBotoesGeracaoAg();renderAg();if(auto){if(prefixo)msgAg(prefixo,false);return;}msgAg('Nenhuma pessoa pendente para agendar'+(pq?' deste profissional':'')+'.'+(jaTem?' '+jaTem+' já têm data.':''),false);return;}
-  propostaAg=planejarAg(cands,ocupados,inicio,{cap:capAg,janela:cfgAg.janela});
+  if(!cands.length&&!excedentes.length){propostaAg={};atualizarBotoesGeracaoAg();renderAg();if(auto){if(prefixo)msgAg(prefixo,false);return;}msgAg('Nenhuma pessoa pendente para agendar'+(pq?' deste profissional':'')+'.'+(jaTem?' '+jaTem+' já têm data.':''),false);return;}
+  propostaAg=cands.length?planejarAg(cands,ocupados,inicio,{cap:capAg,janela:cfgAg.janela}):{};
+  // Realoca os excedentes para o primeiro dia seguinte (ao dia deles) com vaga.
+  excedentes.sort(function(a,b){return a.d<b.d?-1:a.d>b.d?1:a.ix-b.ix;}).forEach(function(x){
+    var k=chaveProfAg(rowsAg[x.ix],uc);nomes[k]=nomes[k]||uc.ultProf[normAg(rowsAg[x.ix].Nome)];
+    var nova=proximaVagaAg(x.ix,isoAg(somaDiaAg(isoParaDataAg(x.d),1)),uc);
+    propostaAg[x.ix]=nova;
+  });
   var datas=Object.keys(propostaAg).map(function(i){return propostaAg[i];}).sort();
   renderAg();atualizarBotoesGeracaoAg();resumoGeradoAg(uc,nomes);
   msgAg((prefixo?prefixo+' ':'')+cands.length+(cands.length===1?' pessoa distribuída':' pessoas distribuídas')+(faltosos?' ('+faltosos+(faltosos===1?' faltoso reagendado':' faltosos reagendados')+')':'')+' de '+brAg(datas[0])+' a '+brAg(datas[datas.length-1])+' (dias de atendimento e vagas por profissional conforme a configuração). Revise e clique em "Salvar datas geradas".'+(semProf?' '+semProf+' sem profissional identificado ficaram de fora.':''),false);
@@ -487,17 +517,25 @@ function saveAg(tr){
   var btn=tr.querySelector('[data-ag-save]'),fields={};
   tr.querySelectorAll('[data-ag]').forEach(function(el){fields[el.dataset.ag]=el.value;});
   btn.disabled=true;btn.textContent='Salvando…';
-  var turno='';
+  var turno='',movidoAg='';
   verificarConflitosAg([r]).then(function(conf){return conf.length?confirmarConflitosAg(conf):true;}).then(function(seguir){
     if(!seguir)throw {cancelado:true};
     return r._virtual?garantirNaPlanilhaAg([r]):null;
   }).then(function(){
+    // Sem excedente: se o dia escolhido já está lotado para o profissional, vai para o próximo dia com vaga.
+    if(fields.dataAgendada&&fields.situacao!=='Cancelado'&&fields.situacao!=='Faltou'){
+      var ucv=profMapAg();
+      if(ucv&&chaveProfAg(r,ucv)){
+        var livre=proximaVagaAg(ix,fields.dataAgendada,ucv);
+        if(livre!==fields.dataAgendada){movidoAg=brAg(fields.dataAgendada)+' → '+brAg(livre);fields.dataAgendada=livre;}
+      }
+    }
     turno=turnoFuturoAg(ix,fields.situacao,fields.dataAgendada);
     return apiAg(Object.assign({action:'agendamentos.update',nome:r.Nome,turno:turno},fields));
   }).then(function(){
     r.Situação=fields.situacao;r['Data agendada']=fields.dataAgendada;r.Turno=turno;
     delete propostaAg[ix];atualizarBotoesGeracaoAg();
-    var aviso='Alterações de '+r.Nome+' salvas.';
+    var aviso='Alterações de '+r.Nome+' salvas.'+(movidoAg?' O dia estava lotado, então a data passou para o próximo dia com vaga ('+movidoAg+').':'');
     msgAg(aviso);
     // Faltou: a pessoa volta para a fila e já recebe uma nova data sugerida.
     if(fields.situacao==='Faltou'){busyAg=false;gerarAg(true,aviso+' Nova data sugerida para o reagendamento.');}
@@ -683,7 +721,7 @@ document.addEventListener('DOMContentLoaded',function(){
   b.addEventListener('change',function(e){
     if(e.target.dataset.ag==='situacao')saveAg(e.target.closest('tr'));
     // Ajuste manual da data de uma linha gerada: vale como nova proposta (ainda sem salvar).
-    if(e.target.dataset.ag==='dataAgendada'){var tr=e.target.closest('tr'),ix=Number(tr.dataset.agIx);if(propostaAg[ix]!==undefined){if(e.target.value)propostaAg[ix]=e.target.value;else delete propostaAg[ix];atualizarBotoesGeracaoAg();renderAg();}}
+    if(e.target.dataset.ag==='dataAgendada'){var tr=e.target.closest('tr'),ix=Number(tr.dataset.agIx);if(propostaAg[ix]!==undefined){if(e.target.value){var ucm=profMapAg(),dm=e.target.value;if(ucm&&chaveProfAg(rowsAg[ix],ucm)){var lv=proximaVagaAg(ix,dm,ucm);if(lv!==dm){dm=lv;msgAg('Dia lotado: a data passou para o próximo dia com vaga ('+brAg(lv)+').',false);}}propostaAg[ix]=dm;}else delete propostaAg[ix];atualizarBotoesGeracaoAg();renderAg();}}
   });
   b.addEventListener('keydown',function(e){if(e.key==='Enter'&&e.target.matches('input[data-ag]')){e.preventDefault();saveAg(e.target.closest('tr'));}});
 });
