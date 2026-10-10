@@ -195,7 +195,7 @@ function renderAg(){
   if(bp)bp.disabled=paginaAg<=1;if(bn)bn.disabled=paginaAg>=paginas;
   renderVagasAg(uc);
   if(!list.length){
-    body.innerHTML='<tr><td colspan="10" class="agendamentos-vazio">'+(busyAg?'Carregando…':c.semProf?'Dados de profissionais indisponíveis. Atualize os dados do painel.':c.filtrado?'Nenhuma pessoa encontrada.':'Nenhum registro disponível. Sincronize Pessoas atendidas.')+'</td></tr>';
+    body.innerHTML='<tr><td colspan="9" class="agendamentos-vazio">'+(busyAg?'Carregando…':c.semProf?'Dados de profissionais indisponíveis. Atualize os dados do painel.':c.filtrado?'Nenhuma pessoa encontrada.':'Nenhum registro disponível. Sincronize Pessoas atendidas.')+'</td></tr>';
     return;
   }
   var pos=new Map();rowsAg.forEach(function(r,i){pos.set(r,i);});
@@ -207,7 +207,6 @@ function renderAg(){
     return '<tr data-ag-ix="'+ix+'"'+(prop?' class="agendamentos-gerada" title="Data gerada automaticamente — ainda não salva"':'')+'>'
       +'<td class="agendamentos-nome">'+escAg(r.Nome)+'</td>'
       +'<td>'+escAg(r.Atendimentos)+'</td>'
-      +'<td>'+escAg(r.Total)+'</td>'
       +'<td>'+escAg(brAg(ultimoDeAg(r,uc)))+'</td>'
       +'<td class="agendamentos-prof">'+escAg(prof)+'</td>'
       +'<td><select data-ag="situacao" aria-label="Situação">'+['Pendente','Agendado','Realizado','Faltou','Cancelado'].map(function(s){return '<option'+(sit===s?' selected':'')+'>'+s+'</option>';}).join('')+'</select></td>'
@@ -614,8 +613,8 @@ function csvCelAg(v){var s=String(v==null?'':v);return /[";\r\n]/.test(s)?'"'+s.
 function exportarCsvAg(){
   var linhas=linhasAgendaAg(calcularListaAg());
   if(!linhas.length){msgAg('Nada para exportar: nenhuma pessoa com data na lista atual.',true);return;}
-  var cab=['Profissional','Data','Dia da semana','Turno','Nome','Último atendimento','Situação','Atendimentos','Total'];
-  var txt=[cab].concat(linhas.map(function(l){return [l.prof,brAg(l.data),diaSemAg(l.data),l.turno,l.nome,brAg(l.ult),l.sit,l.at,l.total];})).map(function(r){return r.map(csvCelAg).join(';');}).join('\r\n');
+  var cab=['Profissional','Data','Dia da semana','Turno','Nome','Último atendimento','Situação','Atendimentos'];
+  var txt=[cab].concat(linhas.map(function(l){return [l.prof,brAg(l.data),diaSemAg(l.data),l.turno,l.nome,brAg(l.ult),l.sit,l.at];})).map(function(r){return r.map(csvCelAg).join(';');}).join('\r\n');
   var blob=new Blob(['\ufeff'+txt],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');
   a.href=url;a.download='agenda-'+isoAg(new Date())+'.csv';document.body.appendChild(a);a.click();document.body.removeChild(a);
   setTimeout(function(){URL.revokeObjectURL(url);},2000);
