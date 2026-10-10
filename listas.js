@@ -813,6 +813,12 @@ export function pessoasAtendidasParaMeses(monthValues){
           return tb - ta;
         });
       row.profissionalHtml = profissionalBadgeHtml(nomePrincipal, extras);
+      // Data do evento mais recente (p.datas já está em ordem cronológica
+      // aqui, sem o corte de 10 colunas) — usada na aba Agendamentos.
+      var ultData = p.datas.length ? p.datas[p.datas.length-1] : null;
+      row.ultimoAtendimentoISO = ultData
+        ? ultData.getFullYear()+'-'+('0'+(ultData.getMonth()+1)).slice(-2)+'-'+('0'+ultData.getDate()).slice(-2)
+        : '';
       return row;
     })
   };
@@ -1995,4 +2001,3 @@ export function gerarPdfDivergenciaOficial(serieTendencia){
   var arquivo = 'divergencia_oficial__'+slugifyFileName(equipeLabel)+'__'+slugifyFileName(new Date().toLocaleDateString('pt-BR'))+'.pdf';
   doc.save(arquivo);
 }
-
