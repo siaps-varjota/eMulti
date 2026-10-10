@@ -1,4 +1,4 @@
-// Aba Agenda: calendário mensal dos agendamentos da eMulti.
+// Visão Agenda (pill dentro da aba Agendamentos): calendário mensal dos agendamentos da eMulti.
 // Os dados vêm da aba Agendamentos (window.__emultiAgendaDados): agendados/realizados salvos na
 // planilha + datas sugeridas ainda não salvas. Exporta PDF, texto para WhatsApp e card em imagem.
 var MESES_AGENDA=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
@@ -236,9 +236,16 @@ function baixarCardAgenda(){
 
 // ---------- Eventos ----------
 function iniciarAgenda(){
-  var tab=document.querySelector('.tab[data-tab="agenda"]');if(!tab||!elAgenda('agendaGrade'))return;
-  function ativa(){var p=elAgenda('tabAgenda');return !!(p&&p.classList.contains('active'));}
-  tab.addEventListener('click',function(){if(window.__emultiAgendaCarregar)window.__emultiAgendaCarregar();renderAgenda();});
+  var pl=elAgenda('agPillLista'),pa=elAgenda('agPillAgenda');if(!pl||!pa||!elAgenda('agendaGrade'))return;
+  function ativa(){var p=elAgenda('tabAgendamentos'),v=elAgenda('agVisaoAgenda');return !!(p&&p.classList.contains('active')&&v&&!v.hidden);}
+  function mostrar(agenda){
+    elAgenda('agVisaoLista').hidden=agenda;elAgenda('agVisaoAgenda').hidden=!agenda;
+    pl.classList.toggle('active',!agenda);pa.classList.toggle('active',agenda);
+    pl.setAttribute('aria-selected',String(!agenda));pa.setAttribute('aria-selected',String(agenda));
+    if(agenda){if(window.__emultiAgendaCarregar)window.__emultiAgendaCarregar();renderAgenda();}
+  }
+  pl.addEventListener('click',function(){mostrar(false);});
+  pa.addEventListener('click',function(){mostrar(true);});
   window.addEventListener('emulti:agenda-dados',function(){if(ativa())renderAgenda();});
   elAgenda('agendaProf').addEventListener('change',function(e){profAgenda=e.target.value;renderAgenda();});
   elAgenda('agendaSemana').addEventListener('change',function(e){semanaAgenda=e.target.value;renderAgenda();});

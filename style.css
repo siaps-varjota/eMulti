@@ -1091,3 +1091,6 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 .agenda-tag.sugerido{background:#FFF0D9;color:#8A5A12}
 .agenda-tag.realizado{background:#E8ECE6;color:#51605A}
 @media(max-width:700px){.agenda-toolbar{justify-content:flex-start}.agenda-toolbar select{flex:1 1 100%}.agenda-dia{min-height:64px;padding:3px}.agenda-ev{font-size:9px;padding:1px 3px}}
+
+.ag-pills{margin:0 0 14px}
+#agVisaoLista[hidden],#agVisaoAgenda[hidden]{display:none}

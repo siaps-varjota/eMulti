@@ -116,7 +116,6 @@
   <button class="tab" data-tab="m2">M2 - Ações compartilhadas</button>
   <button class="tab" data-tab="analises">Frequência e Retorno</button>
   <button class="tab" data-tab="agendamentos">Agendamentos</button>
-  <button class="tab" data-tab="agenda">Agenda</button>
   <button class="tab" data-tab="profissionais">Panoroma Assistencial</button>
   <button class="tab" data-tab="tendencia">Tendência</button>
   <button class="tab" data-tab="notas">Notas metodológicas</button>
@@ -301,6 +300,8 @@
 
   <div id="tabAgendamentos" class="tab-panel">
     <div class="ip-header"><div class="ip-header-text"><h2>Agendamentos</h2><p>Mostra por padrão as pessoas cujo último atendimento foi nos últimos 120 dias (ajuste os dias ao lado; 0 mostra todas). Clique no título de uma coluna para ordenar (por padrão, o agendamento mais recente fica no topo). Marque “Também seguir os filtros da lista Pessoas atendidas” para respeitar também os filtros aplicados lá (Mês, colunas e busca). Os filtros ficam lembrados neste navegador. Situação “Faltou” devolve a pessoa para a fila de reagendamento. A situação e a data agendada ficam registradas na planilha. Use “Gerar datas automaticamente” para distribuir as pessoas pendentes por profissional da última consulta (mais antiga primeiro, segunda a sexta, até 6 pela manhã e 6 à tarde por dia).</p></div></div>
+    <div class="pill-group ag-pills" role="tablist" aria-label="Visão"><button type="button" class="pill-btn active" id="agPillLista" role="tab" aria-selected="true">Agendamentos</button><button type="button" class="pill-btn" id="agPillAgenda" role="tab" aria-selected="false">Agenda</button></div>
+    <div id="agVisaoLista">
     <div class="card agendamentos-card">
       <div class="agendamentos-toolbar"><input id="agendamentosBusca" type="search" placeholder="Buscar pessoa…" aria-label="Buscar pessoa"><input id="agendamentosProfissional" type="search" list="agendamentosProfissionais" placeholder="Filtrar por profissional…" aria-label="Filtrar por profissional" autocomplete="off"><datalist id="agendamentosProfissionais"></datalist><select id="agendamentosTurno" aria-label="Filtrar por turno"><option value="">Todos os turnos</option><option value="manha">Manhã</option><option value="tarde">Tarde</option><option value="sem">Sem turno</option></select><label class="agendamentos-dias" for="agendamentosDias">Último atendimento nos últimos</label><input id="agendamentosDias" type="number" min="0" step="1" value="120" inputmode="numeric" aria-label="Dias desde o último atendimento (0 = todos)"><span class="agendamentos-dias">dias</span><span id="agendamentosContagem">—</span><button id="agendamentosAtualizar" type="button">Atualizar lista</button><button id="agendamentosSincronizar" type="button">Sincronizar Pessoas atendidas</button></div>
       <div class="agendamentos-toolbar agendamentos-gerar"><label for="agendamentosInicio">Gerar a partir de</label><input id="agendamentosInicio" type="date"><button id="agendamentosGerar" type="button">Gerar datas automaticamente</button><button id="agendamentosSalvarGerados" type="button" hidden>Salvar datas geradas</button><button id="agendamentosDescartar" type="button" class="agendamentos-secundario" hidden>Descartar</button></div>
@@ -322,10 +323,8 @@
       <div class="agendamentos-pager"><label for="agendamentosPorPagina">Linhas por página</label><select id="agendamentosPorPagina" aria-label="Linhas por página"><option>50</option><option selected>100</option><option>200</option><option value="0">Todas</option></select><button id="agendamentosPrev" type="button" class="agendamentos-btn agendamentos-secundario">‹ Anterior</button><span id="agendamentosPagina">—</span><button id="agendamentosNext" type="button" class="agendamentos-btn agendamentos-secundario">Próxima ›</button></div>
       <div class="table-wrap"><table class="data-table agendamentos-table"><thead><tr><th class="sortable-th" data-ag-sort="nome">Nome<span class="sort-ind"></span></th><th class="sortable-th" data-ag-sort="atendimentos">Atendimentos<span class="sort-ind"></span></th><th class="sortable-th" data-ag-sort="ultimo">Último Atendimento<span class="sort-ind"></span></th><th class="sortable-th" data-ag-sort="prof">Profissional (última consulta)<span class="sort-ind"></span></th><th class="sortable-th" data-ag-sort="situacao">Situação<span class="sort-ind"></span></th><th class="sortable-th" data-ag-sort="data">Data agendada<span class="sort-ind"></span></th><th class="sortable-th" data-ag-sort="turno">Turno<span class="sort-ind"></span></th><th class="sortable-th" data-ag-sort="atualizado">Atualizado em<span class="sort-ind"></span></th><th>Ação</th></tr></thead><tbody id="agendamentosBody"><tr><td colspan="10" class="agendamentos-vazio">Entre na aba para carregar os registros.</td></tr></tbody></table></div>
     </div>
-  </div>
-
-  <div id="tabAgenda" class="tab-panel">
-    <div class="ip-header"><div class="ip-header-text"><h2>Agenda</h2><p>Calendário mensal dos agendamentos da eMulti (pessoas com atendimento individual com profissional da eMulti). Mostra o que já está agendado na planilha e as datas sugeridas ainda não salvas na aba Agendamentos.</p></div></div>
+    </div>
+    <div id="agVisaoAgenda" hidden>
     <div class="card agenda-card">
       <div class="agenda-toolbar">
         <select id="agendaProf" aria-label="Profissional"><option value="">Todos os profissionais</option></select>
@@ -338,6 +337,7 @@
       <div class="agenda-legenda" id="agendaLegenda"></div>
       <div class="agenda-grade" id="agendaGrade"></div>
       <div class="agenda-lista" id="agendaLista"></div>
+    </div>
     </div>
   </div>
 
