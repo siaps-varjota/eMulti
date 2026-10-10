@@ -995,4 +995,5 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 .agendamentos-table input[type=date]{min-width:145px}
 .agendamentos-table input[type=text]{min-width:180px}
 .agendamentos-salvar{padding:6px 10px}
+.agendamentos-atualizado{white-space:nowrap;font-size:13px;color:var(--ink-soft)}
 @media(max-width:700px){.agendamentos-toolbar input{max-width:none;flex:1 1 100%}.agendamentos-toolbar button{flex:1 1 100%}.agendamentos-table{min-width:920px}}
