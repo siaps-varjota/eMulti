@@ -1111,3 +1111,8 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 .agenda-nav-sem{gap:4px}.agenda-nav-sem select{min-width:200px}
 @media(max-width:700px){.agenda-nav-sem{flex:1 1 100%}.agenda-nav-sem select{flex:1 1 auto;min-width:0}}
 .agenda-toolbar select{min-width:150px}.agenda-nav-sem select{min-width:190px}
+
+/* Agendamentos: cabeçalho mais compacto (título + pills na mesma linha) */
+#tabAgendamentos{margin-top:-8px}
+#tabAgendamentos .ip-header{margin-bottom:8px;gap:12px;flex-wrap:wrap}
+#tabAgendamentos .ag-pills{margin:0}
