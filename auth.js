@@ -10,7 +10,7 @@
 // já que foi o modelo enviado como referência. Se o Painel eMulti
 // precisar de um backend/planilha próprios, troque só estas duas
 // constantes pela URL e chave do novo Apps Script.
-const URL_DO_WEB_APP = 'https://script.google.com/macros/s/AKfycbwyx_7_o9YJTsnJhX6psRDuo7P2TBpynd0HUQWT2_9x-Mxf9VN6H3ceFhzWbqEJH8uGRw/exec';
+const URL_DO_WEB_APP = 'https://script.google.com/macros/s/AKfycbwRgJRNswpxatNugYGpHbA9wNp8RJS6wonPj0z_Fs2kuywDQxeMdoigeALEw9ciqemKag/exec';
 const CHAVE_SECRETA = 'scamander'; // precisa ser igual à do Apps Script
 
 // Se quiser restringir o login só a certas categorias de usuário
@@ -26,7 +26,7 @@ let sessaoTemp = null;
 
 // O app.js usa isto para buscar os dados pelo backend (com o token da
 // sessão) em vez de ler a planilha diretamente.
-window.PAINEL_API = { url: 'https://script.google.com/macros/s/AKfycbwyx_7_o9YJTsnJhX6psRDuo7P2TBpynd0HUQWT2_9x-Mxf9VN6H3ceFhzWbqEJH8uGRw/exec', chave: 'scamander' };
+window.PAINEL_API = { url: 'https://script.google.com/macros/s/AKfycbwRgJRNswpxatNugYGpHbA9wNp8RJS6wonPj0z_Fs2kuywDQxeMdoigeALEw9ciqemKag/exec', chave: 'scamander' };
 window.painelToken = function () {
   try {
     const s = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null');
