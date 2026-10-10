@@ -137,7 +137,7 @@ function renderAg(){
   body.innerHTML=list.map(function(r){
     var ix=rowsAg.indexOf(r), prop=propostaAg[ix], data=prop||dateAg(r['Data agendada']);
     var prof=(uc&&uc.ultProf[normAg(r.Nome)])||'—', t=turnos[ix];
-    var turnoHtml=t?'<span class="ag-turno '+t.classe+'" title="'+escAg(t.dica)+'">'+t.rotulo+'</span>':'—';
+    var turnoHtml=t?'<span class="ag-turno '+t.classe+'" title="'+escAg(t.dica)+'">'+t.rotulo+'</span>':'<span title="'+escAg(motivoSemTurnoAg(r,ix,uc))+'">—</span>';
     return '<tr data-ag-ix="'+ix+'"'+(prop?' class="agendamentos-gerada" title="Data gerada automaticamente — ainda não salva"':'')+'>'
       +'<td class="agendamentos-nome">'+escAg(r.Nome)+'</td>'
       +'<td>'+escAg(r.Atendimentos)+'</td>'
@@ -186,6 +186,13 @@ function chaveProfAg(r,uc){var p=uc&&uc.ultProf[normAg(r.Nome)];return p?normAg(
 // Turno de cada pessoa com data (salva ou gerada, exceto Cancelado): em cada
 // profissional+dia, as 6 de última consulta mais antiga ficam de manhã, as 6
 // seguintes à tarde; passou de 12 = excedente (só acontece com data manual).
+// Por que a linha está sem turno (mostrado como dica no "—" da coluna Turno).
+function motivoSemTurnoAg(r,ix,uc){
+  if((r.Situação||'Pendente')==='Cancelado')return 'Sem turno: agendamento cancelado';
+  if(!chaveProfAg(r,uc))return 'Sem turno: profissional da última consulta não identificado';
+  if(!(propostaAg[ix]||dateAg(r['Data agendada'])))return 'Sem turno: ainda não tem data agendada';
+  return 'Sem turno';
+}
 function turnosAg(uc){
   var grupos={},res={};
   rowsAg.forEach(function(r,ix){
@@ -195,13 +202,17 @@ function turnosAg(uc){
     (grupos[k+'|'+d]=grupos[k+'|'+d]||[]).push({ix:ix,ult:ultimoDeAg(r,uc),nome:String(r.Nome||'')});
   });
   Object.keys(grupos).forEach(function(g){
-    grupos[g].sort(function(a,b){
+    var ord=grupos[g].sort(function(a,b){
       if(a.ult!==b.ult)return a.ult<b.ult?-1:1;
       return a.nome.localeCompare(b.nome,'pt-BR');
-    }).forEach(function(x,pos){
+    });
+    // Equilíbrio: dia com poucas pessoas divide meio a meio (manhã fica com a metade
+    // de cima, arredondando pra cima) em vez de lotar a manhã. Teto de 6 na manhã.
+    var manhaN=Math.min(CAP_MANHA_AG,Math.ceil(Math.min(ord.length,CAP_DIA_AG)/2));
+    ord.forEach(function(x,pos){
       var n=pos+1;
-      if(pos<CAP_MANHA_AG)res[x.ix]={rotulo:'Manhã',classe:'manha',dica:'Manhã — vaga '+n+' de '+CAP_MANHA_AG};
-      else if(pos<CAP_DIA_AG)res[x.ix]={rotulo:'Tarde',classe:'tarde',dica:'Tarde — vaga '+(n-CAP_MANHA_AG)+' de '+CAP_TARDE_AG};
+      if(pos<manhaN)res[x.ix]={rotulo:'Manhã',classe:'manha',dica:'Manhã — vaga '+n+' de '+manhaN};
+      else if(pos<CAP_DIA_AG)res[x.ix]={rotulo:'Tarde',classe:'tarde',dica:'Tarde — vaga '+(n-manhaN)+' de '+(Math.min(ord.length,CAP_DIA_AG)-manhaN)};
       else res[x.ix]={rotulo:'Excedente',classe:'excedente',dica:'Acima do limite de '+CAP_DIA_AG+' pessoas por dia para este profissional'};
     });
   });
