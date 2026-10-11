@@ -692,12 +692,39 @@ function renderFolgasAg(){
     sel.innerHTML='<option value="">Profissional…</option>'+nomes.map(function(n){return '<option value="'+escAg(n)+'">'+escAg(n)+'</option>';}).join('');
     sel.value=atual;
   }
+  var sc=document.getElementById('agConsultaProf');
+  if(sc&&uc){var at=sc.value,ag=agendasAg(uc),ks=Object.keys(ag).sort(function(a,b){return ag[a].localeCompare(ag[b],'pt-BR');});
+    sc.innerHTML='<option value="">Agenda…</option>'+ks.map(function(k){return '<option value="'+escAg(k)+'">'+escAg(ag[k])+'</option>';}).join('');sc.value=at;}
   var box=document.getElementById('agFolgasLista');if(!box)return;
   var itens=[];
   cfgAg.feriados.forEach(function(f,i){itens.push({ini:f.ini,html:'<li><b>Feriado</b>'+(f.nome?' — '+escAg(f.nome):'')+' · '+periodoAg(f.ini,f.fim)+' <button type="button" class="agendamentos-btn agendamentos-secundario" data-folga="f" data-i="'+i+'">Remover</button></li>'});});
   cfgAg.faltas.forEach(function(f,i){itens.push({ini:f.ini,html:'<li><b>Falta</b> — '+escAg(f.prof)+(f.motivo?' ('+escAg(f.motivo)+')':'')+' · '+periodoAg(f.ini,f.fim)+' <button type="button" class="agendamentos-btn agendamentos-secundario" data-folga="l" data-i="'+i+'">Remover</button></li>'});});
   itens.sort(function(a,b){return a.ini<b.ini?-1:a.ini>b.ini?1:0;});
   box.innerHTML=itens.length?'<ul class="agendamentos-folgas-lista">'+itens.map(function(x){return x.html;}).join('')+'</ul>':'<p class="agendamentos-filtro-info">Nenhum feriado ou falta cadastrado.</p>';
+}
+// Consulta: por que uma agenda (profissional/unidade) aceita ou não agendamento em um dia.
+function motivoDiaAg(k,iso){
+  var dt=isoParaDataAg(iso);if(!dt)return 'Informe uma data válida.';
+  var uc=profMapAg(),cap=capAg(k),nomes=uc?agendasAg(uc):{},nome=nomes[k]||k||'agenda';
+  var dow=dt.getDay(),sem=DIAS_SEM_AG[dow]+', '+brDataAg(iso);
+  var atende=DIAS_SEM_AG.filter(function(n,i){return cap.dias[i];}).join(', ');
+  if(!cap.dias[dow])return 'NÃO aceita — '+nome+' não atende às '+DIAS_SEM_AG[dow]+' (dias configurados: '+atende+').';
+  var fo=folgaDiaAg(k,iso);if(fo)return 'NÃO aceita — '+sem+' está fechado: '+fo+'.';
+  var cd=capNoDiaAg(cap,iso);
+  if(cd.dia<1)return 'NÃO aceita — '+nome+' está com 0 vagas neste dia (confira as vagas da manhã/tarde).';
+  var n=0;if(uc)rowsAg.forEach(function(r,ix){if(chaveProfAg(r,uc)!==k||!ehAtivoAg(r))return;if((propostaAg[ix]||dateAg(r['Data agendada']))===iso)n++;});
+  var tur=cd.t<1&&cap.t>0?' (dia só de manhã)':'';
+  var ini=valAg('agendamentosInicio'),extra='';
+  if(iso<isoAg(amanhaAg()))extra=' Atenção: a data já passou; a geração automática só usa datas a partir de amanhã.';
+  else if(ini&&iso<ini)extra=' Atenção: a geração automática começa em '+brDataAg(ini)+' (campo Início), então este dia não é usado.';
+  if(n>=cd.dia)return 'NÃO aceita — '+sem+' está LOTADO para '+nome+': '+n+'/'+cd.dia+' vagas'+tur+'.'+extra;
+  return 'ACEITA — '+sem+': '+n+'/'+cd.dia+' vagas ocupadas, '+(cd.dia-n)+' livre(s)'+tur+'.'+extra+(n===0?' (a distribuição automática só chega a este dia quando os anteriores já estão cheios ou não bastam para todos).':'');
+}
+function consultarDiaAg(){
+  var out=document.getElementById('agConsultaRes'),k=valAg('agConsultaProf'),iso=valAg('agConsultaData');
+  if(!out)return;
+  if(!k||!iso){out.textContent='Escolha a agenda e a data.';return;}
+  out.textContent=motivoDiaAg(k,iso);
 }
 function folgaMudouAg(){salvarConfigAg();renderFolgasAg();configMudouAg();}
 function addFeriadoAg(){
@@ -833,6 +860,7 @@ document.addEventListener('DOMContentLoaded',function(){
       var bf=document.getElementById('agFerAdd'),bl=document.getElementById('agFaltaAdd'),ls=document.getElementById('agFolgasLista');
       if(bf)bf.addEventListener('click',addFeriadoAg);
       if(bl)bl.addEventListener('click',addFaltaAg);
+      var bc=document.getElementById('agConsultaBtn');if(bc)bc.addEventListener('click',consultarDiaAg);
       if(ls)ls.addEventListener('click',function(e){
         var b=e.target.closest('button[data-folga]');if(!b)return;
         var i=Number(b.dataset.i);(b.dataset.folga==='f'?cfgAg.feriados:cfgAg.faltas).splice(i,1);folgaMudouAg();
