@@ -106,8 +106,9 @@ function renderAgenda(){
   for(var d=1;d<=ultimo.getDate();d++){
     var dia=new Date(mesAgenda.getFullYear(),mesAgenda.getMonth(),d),k=chaveDiaAgenda(dia),evs=porDia[k]||[];
     var fora=st.sem&&(dia<st.sem.inicio||dia>st.sem.fim);
-    cel.push('<div class="agenda-dia'+(mesmoDiaAgenda(dia,hoje)?' hoje':st.lotados[k]?' lotado':'')+'"'+'>'
-      +'<div class="agenda-dia-topo"><span class="agenda-num">'+d+'</span>'+(st.lotados[k]?'<span class="agenda-lot">LOTADO</span>':'')+'</div>'
+    var fer=window.__emultiFeriadoAg?window.__emultiFeriadoAg(k):'';
+    cel.push('<div class="agenda-dia'+(mesmoDiaAgenda(dia,hoje)?' hoje':st.lotados[k]?' lotado':fer?' feriado':'')+'"'+(fer?' title="'+escAgenda(fer)+'"':'')+'>'
+      +'<div class="agenda-dia-topo"><span class="agenda-num">'+d+'</span>'+(st.lotados[k]?'<span class="agenda-lot">LOTADO</span>':fer?'<span class="agenda-fer">FERIADO</span>':'')+'</div>'
       +evs.map(function(e){return '<span class="agenda-ev '+e.tipo+'" title="'+escAgenda(e.nome+' · '+e.prof+(e.turno?' · '+e.turno:'')+' · '+TIPO_ROTULO_AGENDA[e.tipo])+'">'+escAgenda(nomeCurtoAgenda(e.nome))+'</span>';}).join('')
       +'</div>');
   }
