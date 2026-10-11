@@ -234,7 +234,7 @@ function amanhaAg(){var h=new Date();return new Date(h.getFullYear(),h.getMonth(
 // Núcleo da distribuição (função pura).
 //  cands: [{ix,prof,nome,ult,pri}]  prof = chave do profissional; ult = AAAA-MM-DD; pri 0 = faltoso (vai primeiro)
 //  ocupados: {prof:{AAAA-MM-DD:n}}  vagas já usadas  |  inicio: Date
-//  opt: {cap:function(prof)->{dia,dias}, janela:n}  (janela = nº de dias de atendimento para espalhar; 0 = o menor possível)
+//  opt: {cap:function(prof)->{dia,dias}, janela:n}  (janela = nº mínimo de dias de atendimento para espalhar; 0 = uma semana inteira)
 //  devolve {ix: AAAA-MM-DD}
 function planejarAg(cands,ocupados,inicio,opt){
   opt=opt||{};var capFn=opt.cap||function(){return capAg('');},janela=opt.janela||0;
@@ -247,10 +247,17 @@ function planejarAg(cands,ocupados,inicio,opt){
       if(a.ult!==b.ult)return a.ult<b.ult?-1:1;
       return String(a.nome).localeCompare(String(b.nome),'pt-BR');
     });
-    var N=fila.length,dias=[],livre=0,dia=proxDiaAg(inicio,cap.dias),guard=0;
-    // 1) dias de atendimento com vaga, até caber todo mundo (e pelo menos "janela" dias)
-    while((livre<N||dias.length<janela)&&guard<3000){
-      guard++;
+    var N=fila.length,dias=[],livre=0,vistos=0,dia=proxDiaAg(inicio,cap.dias),guard=0;
+    // Janela mínima: a configurada ou, no automático (0), uma semana inteira de atendimento —
+    // assim poucas pessoas não lotam só o primeiro dia e deixam o resto da semana vazio.
+    var semana=cap.dias.reduce(function(a,x){return a+(x?1:0);},0)||1,janEf=janela>0?janela:semana;
+    // Último dia já com gente (até 8 semanas à frente): os dias vazios antes dele entram na
+    // distribuição, para os buracos da agenda serem preenchidos antes de lotar os dias cheios.
+    var limHoriz=isoAg(somaDiaAg(inicio,56)),ultOc='';
+    Object.keys(oc).forEach(function(k){if(oc[k]>0&&k>=isoAg(inicio)&&k<=limHoriz&&k>ultOc)ultOc=k;});
+    // 1) dias de atendimento com vaga, até caber todo mundo, cobrir a janela e alcançar o último dia ocupado
+    while((livre<N||vistos<janEf||(ultOc&&isoAg(dia)<=ultOc))&&guard<3000){
+      guard++;vistos++;
       var k=isoAg(dia),f=Math.max(0,cap.dia-(oc[k]||0));
       if(f>0){dias.push({k:k,f:f,carga:oc[k]||0,n:0});livre+=f;}
       dia=proxDiaAg(somaDiaAg(dia,1),cap.dias);
