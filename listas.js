@@ -710,13 +710,14 @@ export function pessoasAtendidasParaMeses(monthValues){
     }
   }
   function novaPessoa(nome){
-    return {nome:nome, at:0, part:0, datas:[], profissionais:{}, infoPorProf:{}, ultimaData:null, ultimoTipo:null, ultimoProfissionalPrincipal:null, atEmulti:0, ultAgData:null, ultAgProf:''};
+    return {nome:nome, at:0, part:0, datas:[], profissionais:{}, infoPorProf:{}, ultimaData:null, ultimoTipo:null, ultimoProfissionalPrincipal:null, atEmulti:0, ultAgData:null, ultAgProf:'', ultAgUnid:''};
   }
   var atCached = estadoApp.latestSheets[suffixedName("Atendimentos")];
   if(atCached){
     var iData = colIndex(atCached.headers, "data_hora");
     var iNome = colIndex(atCached.headers, "nome");
     var iProfAt = profissionalColIndex(atCached.headers);
+    var iUnidAt = equipeColIndex(atCached.headers);
     if(iData >= 0 && iNome >= 0){
       atCached.rows.forEach(function(r){
         var nome = String(r[iNome]||"").trim();
@@ -738,6 +739,9 @@ export function pessoasAtendidasParaMeses(monthValues){
             if(d && (!p.ultAgData || d.getTime() > p.ultAgData.getTime()
                 || (d.getTime() === p.ultAgData.getTime() && prioridadeMenor(prof, p.ultAgProf) < 0))){
               p.ultAgData = d; p.ultAgProf = prof;
+              // Unidade (equipe) onde foi esse último atendimento — profissional que atende em 2 unidades.
+              var rawUn = iUnidAt >= 0 ? String(r[iUnidAt]||'').trim() : '';
+              p.ultAgUnid = rawUn ? equipeLabelFromRaw(rawUn) : '';
             }
           }
         }
@@ -840,6 +844,7 @@ export function pessoasAtendidasParaMeses(monthValues){
       // Quem só participou de atividade coletiva (ou só foi atendido por outros profissionais) fica de fora.
       row.agendavel = p.atEmulti > 0;
       row.ultimoProfissionalAgenda = p.ultAgProf || '';
+      row.ultimaUnidadeAgenda = p.ultAgUnid || '';
       row.ultimoAtendimentoAgendaISO = p.ultAgData
         ? p.ultAgData.getFullYear()+'-'+('0'+(p.ultAgData.getMonth()+1)).slice(-2)+'-'+('0'+p.ultAgData.getDate()).slice(-2)
         : '';
