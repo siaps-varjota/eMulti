@@ -1,2041 +1,361 @@
-// ======================================================================
-// listas.js
-// Arquivo consolidado a partir dos módulos de js/ (ver MODULOS.md).
-// Cada seção "=== módulo: ... ===" corresponde a um arquivo original.
-// ======================================================================
-
-import { profissionaisRoster, ehProfissionalComparativoEmulti, EQUIPES, TOTAL_PROF_EMULTI_HEADER, calcularJanelaPeriodo, colIndex, colRespParticipantes, colTotalProfEmulti, createMultiSelect, dateColIndexForList, debounce, displayListName, equipeColIndex, escapeHtml, estadoApp, fmtBRDate, fmtDec, fmtInt, listDatasExpandidas, listDateColIdx, listModel, listMonthFilters, monthOptionLabel, monthOptionValue, monthOptionsForList, monthShortLabel, nomeEhDaEmulti, normalizeText, parseBRDate, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, withinPeriod } from './nucleo.js';
-import { ACAO_M2_FILTER_VALUE, DIAS_SEM_ATENDIMENTO_HEADER, FAIXAS_DIAS_SEM_ATENDIMENTO, PROF_EMULTI_FILTER_VALUE, RISCO_CFG_BUSCA, buscaAtivaCompute, diasBucketLabel, profissionalBadgeHtml, riscoTableHtml, wireRiscoFiltros } from './abas.js';
-import { latestWb } from './app.js';
-
-// ===== módulo: js/pdf/pdf-listas.js =====
-// ======================================================================
-// pdf/pdf-listas.js
-// PDF das listas e helpers de PDF
-// (módulo gerado a partir do app.js original — ver MODULOS.md)
-// ======================================================================
-
-
-// ---------- Exportar lista em PDF ----------
-// Gera um PDF "elegante" (faixa de cabeçalho colorida + tabela) a partir
-// do que está REALMENTE visível na tela: lê o <thead>/<tbody> do próprio
-// card já filtrado (busca + filtros de coluna + filtro de mês), em vez
-// de reconstruir a partir de latestSheets — assim o PDF bate 100% com o
-// que os filtros ativos estão mostrando, sem duplicar a lógica deles.
-function monthValueToLabel(v){
-  var parts = String(v).split('-');
-  return monthOptionLabel(new Date(+parts[0], +parts[1]-1, 1));
-}
-
-export function slugifyFileName(s){
-  return normalizeText(s).replace(/[^A-Z0-9]+/g,'_').replace(/^_+|_+$/g,'');
-}
-
-// ---------- Helpers de PDF: alinhamento das colunas ----------
-// Uma coluna é "numérica" quando TODOS os valores preenchidos têm
-// dígitos e nenhuma letra (depois de tirar sufixos como "dias" e "%" e
-// o "R$"): cobre inteiros, decimais com vírgula, percentuais, datas
-// (12/03/2026), horas e códigos como CPF/CNS. Traços de "vazio" ("-",
-// "—") são ignorados. Colunas de texto (nomes etc.) ficam à esquerda.
-function pdfValorEhNumerico(v){
-  var s = String(v == null ? '' : v).trim();
-  if(!s || /^[-–—]+$/.test(s)) return null; // vazio: não decide nada
-  var t = s.replace(/R\$/g,'').replace(/\s*(dias?|%)\s*$/i,'');
-  return /\d/.test(t) && !/[A-Za-zÀ-ÿ]/.test(t);
-}
-
-// Devolve o columnStyles do autoTable ({indice:{halign:'center'}}) só
-// pras colunas numéricas.
-function pdfColunasNumericasCentralizadas(nCols, linhas){
-  var estilos = {};
-  for(var c = 0; c < nCols; c++){
-    var temNumero = false, soNumeros = true;
-    for(var r = 0; r < linhas.length; r++){
-      var ehNum = pdfValorEhNumerico(linhas[r][c]);
-      if(ehNum === null) continue;
-      if(!ehNum){ soNumeros = false; break; }
-      temNumero = true;
-    }
-    if(soNumeros && temNumero) estilos[c] = {halign:'center'};
-  }
-  return estilos;
-}
-
-// Acrescenta a coluna "Nº" (1, 2, 3...) na frente do cabeçalho e de cada
-// linha, seguindo a ordem em que as linhas aparecem no PDF (a numeração
-// continua entre as páginas). Devolve {head, body, columnStyles}, onde a
-// coluna do número já sai estreita e centralizada.
-export function pdfComNumeracao(head, linhas, larguraNum){
-  var body = linhas.map(function(l, i){ return [String(i+1)].concat(l); });
-  var estilos = pdfColunasNumericasCentralizadas(head.length+1, body);
-  estilos[0] = {halign:'center', cellWidth: larguraNum || 30};
-  return {head:['Nº'].concat(head), body:body, columnStyles:estilos};
-}
-
-// Escreve uma linha em destaque com o(s) profissional(is) selecionado(s),
-// quebrando em várias linhas se a lista for longa. Devolve o novo y.
-export function pdfLinhaProfissional(doc, rotulo, nomes, x, y, larguraMax){
-  if(!nomes || !nomes.length) return y;
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(10.5);
-  doc.setTextColor(21,63,53);
-  var linhas = doc.splitTextToSize(rotulo+': '+nomes.join(', '), larguraMax);
-  doc.text(linhas, x, y);
-  return y + 13*linhas.length;
-}
-
-export function gerarPdfLista(listName, card, btn){
-  if(!card) return;
-  var jspdfNs = window.jspdf;
-  if(!jspdfNs || !jspdfNs.jsPDF){
-    alert('Não foi possível carregar a biblioteca de geração de PDF (verifique a conexão com a internet) — tente novamente.');
-    return;
-  }
-  // Colunas ocultas na tela (ex.: "profissional 1".."5" da lista
-  // "Participantes Ativ. Coletiva", resumidas no selo "AÇÃO M2" — ver
-  // renderListCard) também ficam fora do PDF. headersOriginal preserva a
-  // posição/nome de TODAS as colunas (mesmos índices usados pelos
-  // seletores de filtro, ver filtrosAtivos abaixo); headers/linhasVisiveis
-  // (usados na tabela do PDF) já saem sem essas colunas.
-  var thEls = Array.prototype.slice.call(card.querySelectorAll('thead th'));
-  var headersOriginal = thEls.map(function(th){ return th.textContent.trim(); });
-  var idxsPdfOcultos = [];
-  thEls.forEach(function(th, i){ if(th.classList.contains('part-col-oculta')) idxsPdfOcultos.push(i); });
-  var headers = idxsPdfOcultos.length
-    ? headersOriginal.filter(function(h,i){ return idxsPdfOcultos.indexOf(i) === -1; })
-    : headersOriginal;
-  var listKeyPdf = card.getAttribute('data-state-key') || listName;
-  var mPdf = listModel[listKeyPdf];
-  var todasLinhas = mPdf ? mPdf.rows : [];
-  var linhasVisiveis = (mPdf ? mPdf.view : []).map(function(row){
-      var celulas = row.t.slice();
-      return idxsPdfOcultos.length ? celulas.filter(function(c,i){ return idxsPdfOcultos.indexOf(i) === -1; }) : celulas;
-    });
-  if(!linhasVisiveis.length){
-    alert('Nenhuma linha visível com os filtros atuais dessa lista — ajuste os filtros antes de gerar o PDF.');
-    return;
-  }
-
-  // Monta o resumo dos filtros ativos nesta lista, pra registrar no
-  // cabeçalho do PDF exatamente o que foi aplicado.
-  var filtrosAtivos = [];
-  var profissionaisSel = [];
-  var searchInput = card.querySelector('.list-search');
-  if(searchInput && searchInput.value.trim()) filtrosAtivos.push('Busca: "'+searchInput.value.trim()+'"');
-  var mesesSelecionados = listMonthFilters[listKeyPdf] || [];
-  if(mesesSelecionados.length){
-    filtrosAtivos.push('Mês: '+mesesSelecionados.map(monthValueToLabel).join(', '));
-  }
-  card.querySelectorAll('.filter-pair').forEach(function(pair){
-    var colSelect = pair.querySelector('.filter-col');
-    var valWrap = pair.querySelector('.filter-val-ms');
-    var vals = (valWrap && valWrap._msInstance) ? valWrap._msInstance.getSelected() : [];
-    if(colSelect && colSelect.value !== '' && vals.length){
-      var rotuloColuna = colSelect.options[colSelect.selectedIndex]
-        ? colSelect.options[colSelect.selectedIndex].text
-        : colSelect.value;
-      // Filtro em coluna de profissional ("Profissional", "Profissional da
-      // eMulti", "Profissional 1"...) vira uma linha em destaque logo
-      // abaixo do título, em vez de só mais um item da lista de filtros.
-      if(/PROFISSIONAL/.test(normalizeText(rotuloColuna))){
-        vals.forEach(function(v){ if(profissionaisSel.indexOf(v) === -1) profissionaisSel.push(v); });
-      } else {
-        filtrosAtivos.push(rotuloColuna+': '+vals.join(', '));
-      }
-    }
-  });
-
-  var totalLinhas = todasLinhas.length;
-  var nomeExibicao = displayListName(listName);
-  var equipeLabel = estadoApp.currentEquipes.map(function(e){ return e.label; }).join(' + ');
-
-  var doc = new jspdfNs.jsPDF({orientation: headers.length > 6 ? 'landscape' : 'portrait', unit:'pt', format:'a4'});
-  var pageWidth = doc.internal.pageSize.getWidth();
-  var pageHeight = doc.internal.pageSize.getHeight();
-  var margin = 28;
-
-  // ---- Faixa de cabeçalho ----
-  doc.setFillColor(21,63,53);
-  doc.rect(0,0,pageWidth,64,'F');
-  doc.setTextColor(238,243,234);
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(15);
-  doc.text('Painel eMulti — Indicadores M1 e M2', margin, 26);
-  doc.setFont('helvetica','normal');
-  doc.setFontSize(10);
-  doc.setTextColor(159,192,174);
-  doc.text(equipeLabel, margin, 42);
-  doc.setFontSize(8.5);
-  doc.text('Gerado em '+new Date().toLocaleString('pt-BR'), pageWidth-margin, 26, {align:'right'});
-
-  // ---- Título da lista + resumo dos filtros ----
-  var y = 84;
-  doc.setTextColor(21,63,53);
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(13);
-  doc.text(nomeExibicao, margin, y);
-  y += 16;
-  y = pdfLinhaProfissional(doc, profissionaisSel.length > 1 ? 'Profissionais' : 'Profissional', profissionaisSel, margin, y, pageWidth-margin*2);
-  doc.setFont('helvetica','normal');
-  doc.setFontSize(9);
-  doc.setTextColor(81,96,90);
-  if(filtrosAtivos.length){
-    filtrosAtivos.forEach(function(linha){
-      var quebradas = doc.splitTextToSize('• '+linha, pageWidth-margin*2);
-      doc.text(quebradas, margin, y);
-      y += 12*quebradas.length;
-    });
-  } else {
-    doc.text('Sem filtros aplicados — exibindo todos os registros.', margin, y);
-    y += 12;
-  }
-  doc.text(fmtInt(linhasVisiveis.length)+' de '+fmtInt(totalLinhas)+(totalLinhas===1?' linha no total.':' linhas no total.'), margin, y);
-  y += 10;
-
-  var tabelaPdf = pdfComNumeracao(headers, linhasVisiveis, linhasVisiveis.length > 999 ? 36 : 30);
-  doc.autoTable({
-    startY: y+6,
-    head: [tabelaPdf.head],
-    body: tabelaPdf.body,
-    theme: 'grid',
-    columnStyles: tabelaPdf.columnStyles,
-    margin: {left:margin, right:margin, bottom:34},
-    styles: {font:'helvetica', fontSize: headers.length > 9 ? 7 : (headers.length > 6 ? 7.8 : 8.6), cellPadding:4, overflow:'linebreak', textColor:[19,36,31], lineColor:[220,228,214], lineWidth:0.5},
-    headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold', halign:'center', valign:'middle'},
-    alternateRowStyles: {fillColor:[241,244,238]},
-    didDrawPage: function(){
-      doc.setFontSize(8);
-      doc.setTextColor(150,158,152);
-      doc.text('Página '+doc.internal.getCurrentPageInfo().pageNumber, pageWidth-margin, pageHeight-14, {align:'right'});
-    }
-  });
-
-  var arquivo = slugifyFileName(nomeExibicao)+'__'+slugifyFileName(equipeLabel)+'__'+slugifyFileName(new Date().toLocaleDateString('pt-BR'))+'.pdf';
-  doc.save(arquivo);
-}
-
-// ===== módulo: js/listas/atividade-coletiva.js =====
-// ======================================================================
-// listas/atividade-coletiva.js
-// Listas — participantes e resumo de atividade coletiva (AÇÃO M2 + modal)
-// (módulo gerado a partir do app.js original — ver MODULOS.md)
-// ======================================================================
-
-
-// "Participantes Ativ. Coletiva" não tem uma única coluna "profissional"
-// — tem "Responsavel Atividade" + "profissional 1" a "profissional 5"
-// (até 6 pessoas podem estar envolvidas na mesma atividade; ver
-// iPProfCols em calcularSinteseParaPeriodo, que já usa essas 6 colunas
-// pra filtrar M1). A coluna "Profissional" da tabela "Pessoas
-// atendidas" precisa juntar o valor de TODAS elas — antes usava só
-// profissionalColIndex, que por buscar "PROFISSIONAL" por substring
-// parava na primeira batida ("profissional 1"), então ignorava o
-// Responsável e as colunas 2 a 5.
-export function colsProfissionaisParticipantes(headerRow){
-  var idxs = [colRespParticipantes(headerRow)].concat(
-      ["profissional 1","profissional 2","profissional 3","profissional 4","profissional 5"]
-        .map(function(n){ return colIndex(headerRow, n); })
-    )
-    .filter(function(i){ return i>=0; });
-  if(idxs.length) return idxs;
-  var single = profissionalColIndex(headerRow);
-  return single >= 0 ? [single] : [];
-}
-
-// Só as colunas numeradas ("profissional 1" a "profissional 5"), SEM
-// "Responsavel Atividade" — usado pelo filtro virtual "Profissional da
-// eMulti" da lista "Participantes Ativ. Coletiva" (ver PROF_EMULTI_FILTER_VALUE
-// logo abaixo): o que importa pro indicador é se ALGUM dos profissionais
-// envolvidos na atividade (não necessariamente o responsável) é da
-// eMulti — mesmo quando o responsável não é, a atividade ainda conta
-// como coletiva da eMulti (só não é "compartilhada").
-export function colsProfissionaisNumerados(headerRow){
-  var nomes = ["profissional 1","profissional 2","profissional 3","profissional 4","profissional 5"];
-  return nomes.map(function(n){ return colIndex(headerRow, n); }).filter(function(i){ return i>=0; });
-}
-
-// ---------- "Participantes Ativ. Coletiva": selo AÇÃO M2 + modal Detalhes ----------
-// Em vez de mostrar "Responsavel Atividade" + "profissional 1" a
-// "profissional 5" como 5 colunas soltas, a lista resume tudo num selo
-// "AÇÃO M2" (Compartilhada quando 2+ profissionais estão envolvidos na
-// mesma participação, Específica quando só 1) e um botão "Detalhes" que
-// abre a ficha completa da linha. As colunas originais continuam no DOM
-// (só ficam ocultas via CSS — classe .part-col-oculta), então os filtros
-// já existentes ("Profissional da eMulti", busca, exportar PDF) seguem
-// funcionando sem duplicar lógica (ver ajuste em gerarPdfLista).
-function nomesEnvolvidosParticipacao(headers, row){
-  var envolvidos = [];
-  var iResp = colRespParticipantes(headers);
-  if(iResp >= 0){
-    var vResp = String(row[iResp]||"").trim();
-    if(vResp){
-      var respEhEmulti = nomeEhDaEmulti(vResp);
-      envolvidos.push({rotulo: respEhEmulti ? "Responsável (eMulti)" : "Responsável", nome:vResp});
-    }
-  }
-  var secundarios = [];
-  colsProfissionaisNumerados(headers).forEach(function(ci){
-    var v = String(row[ci]||"").trim();
-    if(v) secundarios.push(v);
-  });
-  secundarios.forEach(function(nome, i){
-    envolvidos.push({
-      rotulo: "Profissional envolvido (secundário)" + (secundarios.length > 1 ? " "+(i+1) : ""),
-      nome: nome
-    });
-  });
-  return envolvidos;
-}
-
-function classificarAcaoM2Participacao(headers, row){
-  var qtd = nomesEnvolvidosParticipacao(headers, row).length;
-  if(qtd >= 2) return {classe:"compartilhada", label:"Compartilhada", qtd:qtd};
-  if(qtd === 1) return {classe:"especifica", label:"Específica", qtd:qtd};
-  return {classe:"semregistro", label:"Sem registro", qtd:qtd};
-}
-
-// ---------- "Resumo Atividade Coletiva": AÇÃO M2 + Detalhes ----------
-// Cada linha desta lista é UMA atividade coletiva. O enquadramento segue
-// a mesma regra que alimenta o numerador do M2 (ver "atividadesCompartilhadasListas"):
-// Compartilhada = pelo menos 1 profissional da eMulti (coluna "Total de
-// Profissionais da EMulti", ligada a Participantes Ativ. Coletiva) E 2 ou
-// mais profissionais no total ("Qtd total de profissionais"). Sem a coluna
-// da eMulti para aquela linha, vale só a regra de 2+ profissionais.
-export function ehListaResumoAtividadeColetiva(name){
-  return displayListName(name) === "Resumo Atividade Coletiva";
-}
-
-function textoCelulaLista(row, idx){
-  if(idx < 0) return '';
-  var v = row[idx];
-  return (v===undefined||v===null) ? '' : String(v).trim();
-}
-
-function classificarAcaoM2Atividade(headers, row){
-  // Reunião (de equipe / outras equipes / intersetorial): só é Compartilhada
-  // quando o tema é "Discussão de caso / Projeto terapêutico singular" — mesma
-  // regra do numerador do M2 (ver calcularIndicadoresDoPeriodo).
-  var iTipoReun = colIndex(headers, "tipo_atividade");
-  if(iTipoReun >= 0 && tipoEhReuniao(textoCelulaLista(row, iTipoReun))){
-    var iTemaReun = colIndex(headers, "temas_reuniao");
-    if(iTemaReun < 0 || !temaEhDiscussaoCasoPts(textoCelulaLista(row, iTemaReun))){
-      return {classe:"especifica", label:"Específica", qtd:0, totalEmulti:null, motivo:"reuniaosemtema"};
-    }
-  }
-  var iTot = colIndex(headers, "qtd_total_profissionais");
-  var iEnv = colIndex(headers, "qtd_profissionais_envolvidos");
-  var iEm = colTotalProfEmulti(headers);
-  if(iTot < 0 && iEnv < 0) return {classe:"semregistro", label:"Sem registro", qtd:0, totalEmulti:null, motivo:"semcolunas"};
-  var vTot = textoCelulaLista(row, iTot);
-  var totalGeral = (vTot !== '') ? toInt(vTot) : 1 + toInt(textoCelulaLista(row, iEnv));
-  var vEm = textoCelulaLista(row, iEm);
-  var totalEmulti = (vEm !== '') ? toInt(vEm) : null;
-  var temEmulti = (totalEmulti === null) ? true : totalEmulti >= 1;
-  if(totalGeral >= 2 && temEmulti) return {classe:"compartilhada", label:"Compartilhada", qtd:totalGeral, totalEmulti:totalEmulti, motivo:"ok"};
-  return {classe:"especifica", label:"Específica", qtd:totalGeral, totalEmulti:totalEmulti,
-          motivo: (totalGeral >= 2 && !temEmulti) ? "sememulti" : "umprofissional"};
-}
-
-// Escolhe o classificador certo conforme a lista (Participantes x Resumo).
-export function classificarAcaoM2Lista(name, headers, row){
-  return ehListaResumoAtividadeColetiva(name)
-    ? classificarAcaoM2Atividade(headers, row)
-    : classificarAcaoM2Participacao(headers, row);
-}
-
-function montarDetalhesAtividadeHTML(headers, row){
-  var classificacao = classificarAcaoM2Atividade(headers, row);
-  var iData = colIndex(headers, "data");
-  var iTipo = colIndex(headers, "tipo_atividade");
-  var iEquipe = colIndex(headers, "equipe_unidade");
-  if(iEquipe < 0 && typeof equipeColIndex === 'function') iEquipe = equipeColIndex(headers);
-  var iTot = colIndex(headers, "qtd_total_profissionais");
-  var iEm = colTotalProfEmulti(headers);
-  var data = textoCelulaLista(row, iData);
-  var tipo = textoCelulaLista(row, iTipo);
-  var equipe = textoCelulaLista(row, iEquipe);
-  var totalGeralTxt = textoCelulaLista(row, iTot);
-  var totalEmultiTxt = textoCelulaLista(row, iEm);
-
-  var camposGrid = [
-    equipe ? {label:'Equipe / Unidade', valor:equipe} : null,
-    tipo ? {label:'Tipo de Atividade', valor:tipo} : null,
-    totalGeralTxt ? {label:'Total de profissionais', valor:totalGeralTxt} : null,
-    totalEmultiTxt ? {label:'Profissionais da eMulti', valor:totalEmultiTxt} : null
-  ].filter(Boolean);
-  var infoBoxes = camposGrid.length
-    ? '<div class="part-modal-grid">' + camposGrid.map(function(c){
-        return '<div><div class="part-modal-label">'+escapeHtml(c.label)+'</div><div class="part-modal-value">'+escapeHtml(c.valor)+'</div></div>';
-      }).join('') + '</div>'
-    : '';
-
-  // Demais colunas da linha (as que ainda não apareceram acima), para a
-  // ficha mostrar a atividade completa sem depender do nome de cada coluna.
-  var jaMostradas = {};
-  [iData, iTipo, iEquipe, iTot, iEm].forEach(function(i){ if(i >= 0) jaMostradas[i] = true; });
-  var outros = [];
-  headers.forEach(function(h, i){
-    if(jaMostradas[i]) return;
-    var v = textoCelulaLista(row, i);
-    if(v !== '') outros.push({label:String(h), valor:v});
-  });
-  var outrosHtml = outros.length
-    ? '<div class="part-modal-section"><div class="part-modal-section-title">Demais informações</div>'
-      + '<div class="part-modal-grid">' + outros.map(function(c){
-          return '<div><div class="part-modal-label">'+escapeHtml(c.label)+'</div><div class="part-modal-value">'+escapeHtml(c.valor)+'</div></div>';
-        }).join('') + '</div></div>'
-    : '';
-
-  var notaClassificacao;
-  if(classificacao.classe === 'compartilhada'){
-    notaClassificacao = classificacao.qtd+' profissionais na atividade, com participação da eMulti — conta como Ação Compartilhada (M2).';
-  } else if(classificacao.motivo === 'reuniaosemtema'){
-    notaClassificacao = 'Reunião sem o tema "Discussão de caso / Projeto terapêutico singular" — não conta como Ação Compartilhada (M2).';
-  } else if(classificacao.motivo === 'sememulti'){
-    notaClassificacao = classificacao.qtd+' profissionais na atividade, mas nenhum da eMulti — não conta como Ação Compartilhada (M2).';
-  } else if(classificacao.classe === 'especifica'){
-    notaClassificacao = 'Apenas 1 profissional na atividade — conta como Ação Específica (individual).';
-  } else {
-    notaClassificacao = 'Não há coluna de quantidade de profissionais nesta lista para classificar a ação.';
-  }
-
-  return '<div class="part-modal-head"><span class="part-modal-eyebrow">Detalhes da Atividade Coletiva</span></div>'
-    + '<h3 class="part-modal-title">'+escapeHtml(tipo || 'Atividade coletiva')+'</h3>'
-    + (data ? '<div class="part-modal-sub">Data: '+escapeHtml(data)+'</div>' : '')
-    + infoBoxes
-    + outrosHtml
-    + '<div class="part-modal-section part-modal-enquadramento">'
-      + '<div class="part-modal-section-title">Enquadramento (AÇÃO M2)</div>'
-      + acaoM2BadgeHTML(classificacao)
-      + '<div class="part-modal-nota">'+escapeHtml(notaClassificacao)+'</div>'
-    + '</div>';
-}
-
-export function acaoM2BadgeHTML(classificacao){
-  var icone = classificacao.classe === "compartilhada"
-    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="12" r="2.5"/><circle cx="17" cy="6" r="2.5"/><circle cx="17" cy="18" r="2.5"/><path d="M8.2 10.8l6.6-3.6M8.2 13.2l6.6 3.6"/></svg>'
-    : classificacao.classe === "especifica"
-      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/></svg>'
-      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>';
-  return '<span class="acao-m2-badge acao-m2-'+classificacao.classe+'">'+icone+'<span>'+escapeHtml(classificacao.label)+'</span></span>';
-}
-
-export function detalhesBtnHTML(listName, rowIdx){
-  return '<button type="button" class="detalhes-part-btn" data-detalhes-part-list="'+escapeHtml(listName)+'" data-detalhes-part-idx="'+rowIdx+'">'
-    + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>'
-    + '<span>Detalhes</span></button>';
-}
-
-function valorColunaParticipacao(headers, row, nomeCol){
-  var idx = colIndex(headers, nomeCol);
-  if(idx < 0) return '';
-  var v = row[idx];
-  return String(v===undefined||v===null?'':v).trim();
-}
-
-function montarDetalhesParticipacaoHTML(headers, row){
-  var participante = valorColunaParticipacao(headers, row, 'participante') || valorColunaParticipacao(headers, row, 'nome');
-  var data = valorColunaParticipacao(headers, row, 'data_hora') || valorColunaParticipacao(headers, row, 'data');
-  var equipe = valorColunaParticipacao(headers, row, 'equipe_unidade');
-  var tipoAtividade = valorColunaParticipacao(headers, row, 'tipo_atividade');
-  var totalProfEmulti = colTotalProfEmulti(headers) >= 0 ? valorColunaParticipacao(headers, row, TOTAL_PROF_EMULTI_HEADER) : '';
-  var classificacao = classificarAcaoM2Participacao(headers, row);
-  var envolvidos = nomesEnvolvidosParticipacao(headers, row);
-
-  var envolvidosHtml = envolvidos.length
-    ? envolvidos.map(function(p){
-        return '<div class="part-modal-prof"><b>'+escapeHtml(p.rotulo)+':</b> '+escapeHtml(p.nome)+'</div>';
-      }).join('')
-    : '<div class="part-modal-prof part-modal-prof-vazio">Nenhum profissional registrado nesta linha.</div>';
-
-  var camposGrid = [
-    equipe ? {label:'Equipe / Unidade', valor:equipe} : null,
-    tipoAtividade ? {label:'Tipo de Atividade', valor:tipoAtividade} : null
-  ].filter(Boolean);
-  var infoBoxes = camposGrid.length
-    ? '<div class="part-modal-grid">' + camposGrid.map(function(c){
-        return '<div><div class="part-modal-label">'+escapeHtml(c.label)+'</div><div class="part-modal-value">'+escapeHtml(c.valor)+'</div></div>';
-      }).join('') + '</div>'
-    : '';
-
-  var notaClassificacao = classificacao.classe === 'compartilhada'
-    ? classificacao.qtd+' profissionais envolvidos — conta como Ação Compartilhada (M2).'
-    : classificacao.classe === 'especifica'
-      ? 'Apenas 1 profissional envolvido — conta como Ação Específica (individual).'
-      : 'Nenhum profissional identificado nesta linha para classificar a ação.';
-
-  return '<div class="part-modal-head"><span class="part-modal-eyebrow">Detalhes da Participação</span></div>'
-    + '<h3 class="part-modal-title">'+escapeHtml(participante || 'Participação em atividade coletiva')+'</h3>'
-    + (data ? '<div class="part-modal-sub">Data: '+escapeHtml(data)+'</div>' : '')
-    + infoBoxes
-    + '<div class="part-modal-section"><div class="part-modal-section-title">Profissionais Envolvidos</div>'+envolvidosHtml+'</div>'
-    + '<div class="part-modal-section part-modal-enquadramento">'
-      + '<div class="part-modal-section-title">Enquadramento (AÇÃO M2)</div>'
-      + acaoM2BadgeHTML(classificacao)
-      + '<div class="part-modal-nota">'+escapeHtml(notaClassificacao)+'</div>'
-      + (totalProfEmulti ? '<div class="part-modal-nota">Total de profissionais da eMulti nesta atividade: '+escapeHtml(totalProfEmulti)+'</div>' : '')
-    + '</div>';
-}
-
-var partModalEl = null;
-
-function partModalGarantirEl(){
-  if(partModalEl) return partModalEl;
-  var el = document.createElement('div');
-  el.className = 'part-modal-overlay';
-  el.id = 'partDetalhesOverlay';
-  el.innerHTML = '<div class="part-modal-card"><button type="button" class="part-modal-close" aria-label="Fechar">&times;</button><div class="part-modal-body"></div></div>';
-  document.body.appendChild(el);
-  el.addEventListener('click', function(ev){ if(ev.target === el) fecharDetalhesParticipacao(); });
-  el.querySelector('.part-modal-close').addEventListener('click', fecharDetalhesParticipacao);
-  partModalEl = el;
-  return el;
-}
-
-function fecharDetalhesParticipacao(){
-  if(partModalEl) partModalEl.classList.remove('is-open');
-}
-
-export function abrirDetalhesParticipacao(headers, row, listName){
-  var el = partModalGarantirEl();
-  el.querySelector('.part-modal-body').innerHTML = (listName && ehListaResumoAtividadeColetiva(listName))
-    ? montarDetalhesAtividadeHTML(headers, row)
-    : montarDetalhesParticipacaoHTML(headers, row);
-  el.classList.add('is-open');
-}
-
-function injectPartModalStyles(){
-  if(document.getElementById('partModalStyles')) return;
-  var css = ''
-    + '.part-col-oculta{display:none}'
-    + '.list-card:not(.pa-datas-expandidas) .pa-data-extra{display:none}'
-    + '.pa-datas-bar{display:flex;justify-content:flex-end;margin:0 0 8px}'
-    + '.pa-toggle-datas{font:inherit;font-size:12.5px;font-weight:600;color:#1C6D53;background:#EAF3EE;border:1px solid #CFE3D8;border-radius:999px;padding:5px 12px;cursor:pointer}'
-    + '.pa-toggle-datas:hover{background:#DCEBE3}'
-    + '.list-card .data-table td.cell-trunc{max-width:var(--cell-max,220px);overflow:hidden;text-overflow:ellipsis}'
-    + '.sortable-th{cursor:pointer;user-select:none;white-space:nowrap}'
-    + '.sortable-th:hover{background:#EEF3EA}'
-    + '.sort-ind{display:inline-block;width:10px;margin-left:3px;opacity:.35;font-size:10px}'
-    + '.sortable-th.sort-asc .sort-ind,.sortable-th.sort-desc .sort-ind{opacity:1}'
-    + '.sortable-th.sort-asc .sort-ind::after{content:"▲"}'
-    + '.sortable-th.sort-desc .sort-ind::after{content:"▼"}'
-    + '.acao-m2-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:12.5px;font-weight:700;white-space:nowrap}'
-    + '.acao-m2-badge svg{width:14px;height:14px;flex:none}'
-    + '.acao-m2-compartilhada{background:#E7EEFB;color:#2F5FCB}'
-    + '.acao-m2-especifica{background:#E3F3E8;color:#1F7A45}'
-    + '.acao-m2-semregistro{background:#F1F1EF;color:#7A7A72}'
-    + '.detalhes-part-btn{display:inline-flex;align-items:center;gap:5px;border:none;background:none;color:#1F8A57;font-weight:700;font-size:12.5px;cursor:pointer;padding:4px 2px;white-space:nowrap}'
-    + '.detalhes-part-btn svg{width:15px;height:15px;flex:none}'
-    + '.detalhes-part-btn:hover{text-decoration:underline}'
-    + '.part-modal-overlay{position:fixed;inset:0;background:rgba(15,25,20,.55);display:flex;align-items:center;justify-content:center;padding:16px;z-index:9999;opacity:0;pointer-events:none;transition:opacity .15s}'
-    + '.part-modal-overlay.is-open{opacity:1;pointer-events:auto}'
-    + '.part-modal-card{position:relative;background:#fff;border-radius:16px;max-width:480px;width:100%;max-height:88vh;overflow:auto;padding:20px 20px 22px;box-shadow:0 20px 60px rgba(0,0,0,.25)}'
-    + '.part-modal-close{position:absolute;top:10px;right:12px;border:none;background:none;font-size:24px;line-height:1;color:#8B978F;cursor:pointer}'
-    + '.part-modal-eyebrow{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#153F35;background:#EEF3EA;padding:4px 9px;border-radius:8px}'
-    + '.part-modal-title{margin:10px 0 2px;font-size:18px;font-weight:800;color:#1B2E27}'
-    + '.part-modal-sub{font-size:13px;color:#8B978F;margin-bottom:12px}'
-    + '.part-modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;background:#F7F9F6;border-radius:12px;padding:12px;margin:10px 0}'
-    + '.part-modal-label{font-size:11px;font-weight:700;text-transform:uppercase;color:#8B978F;margin-bottom:2px}'
-    + '.part-modal-value{font-size:13.5px;font-weight:700;color:#1B2E27}'
-    + '.part-modal-section{margin-top:14px}'
-    + '.part-modal-section-title{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:#153F35;margin-bottom:6px}'
-    + '.part-modal-prof{font-size:13.5px;color:#1B2E27;padding:4px 0;border-bottom:1px dashed #E3E8E1}'
-    + '.part-modal-prof:last-child{border-bottom:none}'
-    + '.part-modal-prof-vazio{color:#8B978F;font-style:italic}'
-    + '.part-modal-enquadramento{background:#F2F7F3;border-radius:12px;padding:12px}'
-    + '.part-modal-nota{font-size:12.5px;color:#4B5850;margin-top:6px;font-style:italic}'
-    + '.prof-mais-btn{display:inline-flex;align-items:center;justify-content:center;margin-left:6px;padding:1px 7px;border-radius:999px;border:1px solid #CFE0D6;background:#EEF3EA;color:#1F7A45;font-size:11px;font-weight:800;cursor:pointer;line-height:1.6;vertical-align:middle}'
-    + '.prof-mais-btn:hover{background:#E3F0E7}'
-    + '.prof-pop{position:fixed;z-index:10000;background:#fff;border:1px solid #E3E8E1;border-radius:10px;box-shadow:0 12px 30px rgba(0,0,0,.18);padding:10px 12px;min-width:220px;max-width:300px;display:none}'
-    + '.prof-pop.is-open{display:block}'
-    + '.prof-pop-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:#8B978F;margin-bottom:6px}'
-    + '.prof-pop-item{font-size:13px;color:#1B2E27;padding:3px 0;border-bottom:1px dashed #E3E8E1}'
-    + '.prof-pop-item:last-child{border-bottom:none}'
-    + '.prof-pop-item-row{display:flex;justify-content:space-between;gap:10px}'
-    + '.prof-pop-item-row span:last-child{color:#5B6B62;white-space:nowrap;font-weight:600}'
-    + '.prof-pop-tipo{margin-top:2px;font-size:11px;color:#5B6B62;font-style:italic}'
-    + '.legend-info-btn{display:inline-flex;align-items:center;justify-content:center;margin-left:5px;width:15px;height:15px;border-radius:999px;border:1px solid #CFE0D6;background:#EEF3EA;color:#1F7A45;font-size:10px;font-weight:800;font-style:normal;cursor:pointer;line-height:1;vertical-align:middle;flex:none;padding:0}'
-    + '.legend-info-btn:hover{background:#E3F0E7}'
-    + '.legend-info-pop{max-width:280px;font-size:12.5px;line-height:1.4;color:#3C4A42}';
-  var el = document.createElement('style');
-  el.id = 'partModalStyles';
-  el.textContent = css;
-  document.head.appendChild(el);
-}
-
-// Código que rodava no carregamento (ordem original preservada pelo main.js)
-export function init_listas_atividade_coletiva(){
-injectPartModalStyles();
-}
-
-// ===== módulo: js/listas/pessoas-atendidas.js =====
-// ======================================================================
-// listas/pessoas-atendidas.js
-// Listas — pessoas atendidas
-// (módulo gerado a partir do app.js original — ver MODULOS.md)
-// ======================================================================
-
-
-// ---------- Listas ----------
-// "Pessoas atendidas" com filtro de mês PRÓPRIO (independente do filtro
-// de Mês do topo): deduplica direto de Atendimentos + Participantes
-// Ativ. Coletiva (já filtradas por equipe no fetch), sem depender de
-// nenhum link/aba externa. monthValues vazio = todos os meses
-// disponíveis (sem filtro); com meses marcados, só entram atendimentos/
-// participações daqueles meses.
-// Rótulo do tipo de evento, usado tanto pra decidir o "responsável" do
-// último evento quanto pro texto exibido no popover "Também atendido por"
-// (ver abrirProfPopover).
-var TIPO_EVENTO_ATENDIMENTO = 'Atendimento';
-
-var TIPO_EVENTO_PARTICIPACAO = 'Participação em Atividade Coletiva';
-
-// Classificação de Fluxo ("Entrada"/"Saída") da tabela "Pessoas
-// Atendidas": SEMPRE calculada sobre o HISTÓRICO COMPLETO da pessoa
-// (Atendimentos + Participantes Ativ. Coletiva — TODAS as datas, sem o
-// filtro de Mês próprio dessa tabela) e sobre a janela móvel de
-// JANELA_MESES (4) meses terminando no ÚLTIMO DIA do mês ATUAL real
-// (hoje), não no mês filtrado no topo da página — mesmo critério de
-// referência temporal já usado pela Busca-Ativa (ver
-// buscaAtivaCompute/calcularJanelaPeriodo).
-// - "Entrada": o PRIMEIRO atendimento/participação de TODO o histórico
-//   da pessoa caiu dentro dessa janela (pessoa nova no indicador).
-// - "Saída": a pessoa NÃO tem nenhum atendimento/participação dentro
-//   dessa janela (mesmo tendo histórico anterior a ela).
-// - Qualquer outro caso (já vinha de antes da janela E também tem
-//   evento dentro dela — segue ativa/estável) fica sem rótulo (célula
-//   vazia) — assim a lista de valores do filtro "Fluxo" mostra só as
-//   duas opções pedidas (Entrada/Saída), sem um 3º valor "no meio".
-function calcularFluxoPorPessoa(){
-  var hoje = new Date();
-  var mesAtual = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-  var janela = calcularJanelaPeriodo(mesAtual);
-  var mapa = {}; // nome maiúsculo -> {primeira:Date|null, temNaJanela:bool}
-  function registrar(nome, d){
-    if(!nome || !d) return;
-    var chave = nome.toUpperCase();
-    if(!mapa[chave]) mapa[chave] = {primeira:null, temNaJanela:false};
-    var info = mapa[chave];
-    if(!info.primeira || d < info.primeira) info.primeira = d;
-    if(withinPeriod(d, janela.inicio, janela.fim)) info.temNaJanela = true;
-  }
-  var atCachedFluxo = estadoApp.latestSheets[suffixedName("Atendimentos")];
-  if(atCachedFluxo){
-    var iDataFluxo = colIndex(atCachedFluxo.headers, "data_hora");
-    var iNomeFluxo = colIndex(atCachedFluxo.headers, "nome");
-    if(iDataFluxo >= 0 && iNomeFluxo >= 0){
-      atCachedFluxo.rows.forEach(function(r){
-        registrar(String(r[iNomeFluxo]||"").trim(), parseBRDate(r[iDataFluxo]));
-      });
-    }
-  }
-  var partCachedFluxo = estadoApp.latestSheets[suffixedName("Participantes Ativ. Coletiva")];
-  if(partCachedFluxo){
-    var iPDataFluxo = colIndex(partCachedFluxo.headers, "data");
-    var iPNomeFluxo = colIndex(partCachedFluxo.headers, "participante");
-    if(iPDataFluxo >= 0 && iPNomeFluxo >= 0){
-      partCachedFluxo.rows.forEach(function(r){
-        var nome = String(r[iPNomeFluxo]||"").trim();
-        if(!nome || nome.indexOf("(sem lista nominal") === 0) return;
-        registrar(nome, parseBRDate(r[iPDataFluxo]));
-      });
-    }
-  }
-  return {mapa: mapa, janela: janela};
-}
-
-function fluxoLabelPara(fluxoInfo, nome){
-  var info = fluxoInfo.mapa[String(nome||"").toUpperCase()];
-  if(!info) return "";
-  if(info.primeira && withinPeriod(info.primeira, fluxoInfo.janela.inicio, fluxoInfo.janela.fim)) return "Entrada";
-  if(!info.temNaJanela) return "Saída";
-  return "";
-}
-
-// Profissional da eMulti: pelo cadastro da aba PROFISSIONAIS; se ele ainda não carregou, cai no critério comparativo.
-function ehEmultiAgenda(nome){
-  return profissionaisRoster.length ? nomeEhDaEmulti(nome) : ehProfissionalComparativoEmulti(nome);
-}
-
-export function pessoasAtendidasParaMeses(monthValues){
-  // nome em maiúsculas -> {nome, at, part, datas:[Date,...],
-  // profissionais:{nome:true} (todo mundo que já atendeu, histórico
-  // completo — usado só em profissionalCol/busca/PDF),
-  // infoPorProf:{nome:{data:Date,tipo:string}} (última ocorrência DE
-  // CADA profissional, com o tipo do evento — alimenta o popover),
-  // ultimaData:Date|null (data do evento mais recente da pessoa, De
-  // QUALQUER tipo), ultimoTipo:string|null, ultimoProfissionalPrincipal:
-  // string|null (o ÚNICO nome que aparece na coluna "Profissional")}
-  var pessoasSet = {};
-  function dentroDoFiltro(d){
-    if(!monthValues || !monthValues.length) return true;
-    return !!d && monthValues.indexOf(monthOptionValue(d)) >= 0;
-  }
-  // Critério de desempate/priorização de nome: profissional da eMulti
-  // primeiro, depois ordem alfabética — mesmo padrão já usado em
-  // listaProf/ultimoArr antes desta função existir.
-  function prioridadeMenor(a, b){
-    var eA = nomeEhDaEmulti(a) ? 0 : 1, eB = nomeEhDaEmulti(b) ? 0 : 1;
-    if(eA !== eB) return eA - eB;
-    return a.localeCompare(b, 'pt-BR');
-  }
-  // Decide QUEM é o profissional responsável pelo evento mais recente da
-  // pessoa (Atendimento ou Participação em Atividade Coletiva) — é esse
-  // único nome (nunca uma lista) que a coluna "Profissional" mostra sem
-  // badge. "principal" já vem escolhido por quem chamou (o profissional
-  // do atendimento, ou o Responsável da atividade coletiva — ver
-  // chamadas abaixo); em caso de empate exato de data entre dois
-  // eventos diferentes, desempata pela mesma prioridade usada no resto
-  // da tela, em vez de juntar os dois nomes.
-  function atualizarUltimoGeral(p, d, tipo, principal){
-    if(!d || !principal) return;
-    if(!p.ultimaData || d.getTime() > p.ultimaData.getTime()){
-      p.ultimaData = d;
-      p.ultimoTipo = tipo;
-      p.ultimoProfissionalPrincipal = principal;
-    } else if(d.getTime() === p.ultimaData.getTime()
-        && prioridadeMenor(principal, p.ultimoProfissionalPrincipal) < 0){
-      p.ultimoTipo = tipo;
-      p.ultimoProfissionalPrincipal = principal;
-    }
-  }
-  // Guarda, POR PROFISSIONAL, a data e o tipo (Atendimento/Participação)
-  // da ocorrência mais recente dele com esta pessoa — alimenta só o
-  // popover "Também atendido por" (histórico completo, além do
-  // responsável do último evento).
-  function registrarProf(p, prof, d, tipo){
-    p.profissionais[prof] = true;
-    if(d && (!p.infoPorProf[prof] || d.getTime() > p.infoPorProf[prof].data.getTime())){
-      p.infoPorProf[prof] = {data:d, tipo:tipo};
-    }
-  }
-  function novaPessoa(nome){
-    return {nome:nome, at:0, part:0, datas:[], profissionais:{}, infoPorProf:{}, ultimaData:null, ultimoTipo:null, ultimoProfissionalPrincipal:null, atEmulti:0, ultAgData:null, ultAgProf:''};
-  }
-  var atCached = estadoApp.latestSheets[suffixedName("Atendimentos")];
-  if(atCached){
-    var iData = colIndex(atCached.headers, "data_hora");
-    var iNome = colIndex(atCached.headers, "nome");
-    var iProfAt = profissionalColIndex(atCached.headers);
-    if(iData >= 0 && iNome >= 0){
-      atCached.rows.forEach(function(r){
-        var nome = String(r[iNome]||"").trim();
-        var d = parseBRDate(r[iData]);
-        if(!nome || !dentroDoFiltro(d)) return;
-        var chave = nome.toUpperCase();
-        if(!pessoasSet[chave]) pessoasSet[chave] = novaPessoa(nome);
-        var p = pessoasSet[chave];
-        p.at++;
-        if(d) p.datas.push(d);
-        var prof = iProfAt >= 0 ? String(r[iProfAt]||"").trim() : '';
-        if(prof){
-          registrarProf(p, prof, d, TIPO_EVENTO_ATENDIMENTO);
-          atualizarUltimoGeral(p, d, TIPO_EVENTO_ATENDIMENTO, prof);
-          // Aba Agendamentos: só conta ATENDIMENTO individual feito por profissional da eMulti
-          // (participação em atividade coletiva não entra).
-          if(ehEmultiAgenda(prof)){
-            p.atEmulti++;
-            if(d && (!p.ultAgData || d.getTime() > p.ultAgData.getTime()
-                || (d.getTime() === p.ultAgData.getTime() && prioridadeMenor(prof, p.ultAgProf) < 0))){
-              p.ultAgData = d; p.ultAgProf = prof;
-            }
-          }
-        }
-      });
-    }
-  }
-  var partCached = estadoApp.latestSheets[suffixedName("Participantes Ativ. Coletiva")];
-  if(partCached){
-    var iPData = colIndex(partCached.headers, "data");
-    var iPNome = colIndex(partCached.headers, "participante");
-    // colsProfissionaisParticipantes traz o Responsável primeiro (quando
-    // preenchido), seguido de profissional 1..5 — profsDoEvento[0] abaixo
-    // é sempre o primeiro NOME NÃO VAZIO nessa ordem, então já é o
-    // Responsável da atividade sempre que a coluna dele estiver
-    // preenchida (mesma prioridade usada em nomesEnvolvidosParticipacao).
-    var iProfPartCols = colsProfissionaisParticipantes(partCached.headers);
-    if(iPData >= 0 && iPNome >= 0){
-      partCached.rows.forEach(function(r){
-        var nome = String(r[iPNome]||"").trim();
-        var d = parseBRDate(r[iPData]);
-        if(!nome || nome.indexOf("(sem lista nominal") === 0 || !dentroDoFiltro(d)) return;
-        var chave = nome.toUpperCase();
-        if(!pessoasSet[chave]) pessoasSet[chave] = novaPessoa(nome);
-        var p = pessoasSet[chave];
-        p.part++;
-        if(d) p.datas.push(d);
-        var profsDoEvento = [];
-        iProfPartCols.forEach(function(idx){
-          var prof = String(r[idx]||"").trim();
-          if(prof){ registrarProf(p, prof, d, TIPO_EVENTO_PARTICIPACAO); profsDoEvento.push(prof); }
-        });
-        if(profsDoEvento.length) atualizarUltimoGeral(p, d, TIPO_EVENTO_PARTICIPACAO, profsDoEvento[0]);
-      });
-    }
-  }
-  var pessoasLista = Object.keys(pessoasSet).map(function(k){ return pessoasSet[k]; })
-    .sort(function(a,b){ return a.nome.localeCompare(b.nome,'pt-BR'); });
-  // Ordena as datas de cada pessoa em ordem cronológica e descobre o
-  // maior número de datas entre todas as pessoas, pra saber quantas
-  // colunas "Data N" a tabela precisa ter (colunas sobrando ficam "—"),
-  // limitado a no máximo 10 colunas (MAX_DATAS_PESSOA_ATENDIDA) — quem
-  // tiver mais de 10 eventos no período só mostra os 10 primeiros.
-  var MAX_DATAS_PESSOA_ATENDIDA = 10;
-  var maxDatas = 0;
-  pessoasLista.forEach(function(p){
-    p.datas.sort(function(a,b){ return a-b; });
-    if(p.datas.length > maxDatas) maxDatas = p.datas.length;
-  });
-  maxDatas = Math.min(maxDatas, MAX_DATAS_PESSOA_ATENDIDA);
-  var dataHeaders = [];
-  for(var i=1;i<=maxDatas;i++){ dataHeaders.push("Data "+i); }
-  // Fluxo: calculado sobre o histórico COMPLETO (não limitado por
-  // monthValues) — ver calcularFluxoPorPessoa acima.
-  var fluxoInfo = calcularFluxoPorPessoa();
-  return {
-    headers: ["Nome","Atendimentos","Participantes Ativ. Coletiva","Total","Fluxo","Profissional"].concat(dataHeaders),
-    rows: pessoasLista.map(function(p){
-      // profissionalCol: lista completa (todo mundo que já atendeu essa
-      // pessoa, histórico inteiro) — continua igual a antes, usada só
-      // por busca/filtro/PDF (ver data-cell-text em
-      // renderListCard/cellFullText), NÃO é o que aparece na tela.
-      // Profissional(is) da eMulti aparece(m) primeiro, resto em ordem
-      // alfabética.
-      var listaProf = Object.keys(p.profissionais).sort(prioridadeMenor);
-      var profissionalCol = listaProf.length ? listaProf.join(', ') : '—';
-      var row = [p.nome, p.at, p.part, p.at+p.part, fluxoLabelPara(fluxoInfo, p.nome), profissionalCol];
-      for(var i=0;i<maxDatas;i++){
-        row.push(p.datas[i] ? fmtBRDate(p.datas[i]) : "—");
-      }
-      // Célula "Profissional" exibida na tela: SEMPRE um único nome — o
-      // profissional responsável pelo evento mais recente da pessoa
-      // (Atendimento ou Participação em Atividade Coletiva; ver
-      // atualizarUltimoGeral) — mais um badge "+N" (só quando há outros
-      // profissionais no histórico) cujo popover mostra cada um deles
-      // com nome, data e o tipo (Atendimento / Participação em
-      // Atividade Coletiva) da última vez em que atendeu essa pessoa
-      // (ver profissionalBadgeHtml/abrirProfPopover).
-      var nomePrincipal = p.ultimoProfissionalPrincipal || listaProf[0] || '—';
-      var extras = listaProf
-        .filter(function(nome){ return nome !== nomePrincipal; })
-        .map(function(nome){
-          var info = p.infoPorProf[nome];
-          return {nome:nome, data: info ? info.data : null, tipo: info ? info.tipo : null};
-        })
-        .sort(function(a,b){
-          var ta = a.data ? a.data.getTime() : 0, tb = b.data ? b.data.getTime() : 0;
-          return tb - ta;
-        });
-      row.profissionalHtml = profissionalBadgeHtml(nomePrincipal, extras);
-      // Nome (texto puro) do profissional do evento mais recente — usado pela
-      // aba Agendamentos pra distribuir as datas por profissional da última consulta.
-      row.ultimoProfissional = (nomePrincipal && nomePrincipal !== '—') ? nomePrincipal : '';
-      // Data do evento mais recente (p.datas já está em ordem cronológica
-      // aqui, sem o corte de 10 colunas) — usada na aba Agendamentos.
-      var ultData = p.datas.length ? p.datas[p.datas.length-1] : null;
-      row.ultimoAtendimentoISO = ultData
-        ? ultData.getFullYear()+'-'+('0'+(ultData.getMonth()+1)).slice(-2)+'-'+('0'+ultData.getDate()).slice(-2)
-        : '';
-      // Aba Agendamentos: elegível = teve atendimento individual com profissional da eMulti.
-      // Quem só participou de atividade coletiva (ou só foi atendido por outros profissionais) fica de fora.
-      row.agendavel = p.atEmulti > 0;
-      row.ultimoProfissionalAgenda = p.ultAgProf || '';
-      row.ultimoAtendimentoAgendaISO = p.ultAgData
-        ? p.ultAgData.getFullYear()+'-'+('0'+(p.ultAgData.getMonth()+1)).slice(-2)+'-'+('0'+p.ultAgData.getDate()).slice(-2)
-        : '';
-      return row;
-    })
-  };
-}
-
-// Meses disponíveis pro filtro de "Pessoas atendidas": união dos meses
-// com dado em Atendimentos e em Participantes Ativ. Coletiva (mais
-// recente primeiro).
-export function monthOptionsParaPessoasAtendidas(){
-  var seen = {}, months = [];
-  function coletar(name, dateHeader){
-    var cached = estadoApp.latestSheets[name];
-    if(!cached) return;
-    var idx = colIndex(cached.headers, dateHeader);
-    if(idx < 0) return;
-    cached.rows.forEach(function(r){
-      var d = parseBRDate(r[idx]);
-      if(!d) return;
-      var v = monthOptionValue(d);
-      if(!seen[v]){ seen[v] = true; months.push(new Date(d.getFullYear(), d.getMonth(), 1)); }
-    });
-  }
-  coletar(suffixedName("Atendimentos"), "data_hora");
-  coletar(suffixedName("Participantes Ativ. Coletiva"), "data");
-  months.sort(function(a,b){ return b-a; });
-  return months.map(function(d){ return {value: monthOptionValue(d), label: monthOptionLabel(d)}; });
-}
-
-// Traduz o valor bruto da coluna "equipe_unidade" (ex.: "EMULTI CENTRO
-// DA CIDADE - Centro") pro rótulo curto da equipe (ex.: "Centro"),
-// usando o mesmo matchKeyword de EQUIPES/filtrarLinhasPorEquipe. Usado
-// pra exibir a equipe na lista de Busca-Ativa quando "Todas" as equipes
-// estão selecionadas ao mesmo tempo.
-export function equipeLabelFromRaw(raw){
-  var valor = normalizeText(raw);
-  for(var i=0;i<EQUIPES.length;i++){
-    var kw = normalizeText(EQUIPES[i].matchKeyword || EQUIPES[i].suffix);
-    if(valor.indexOf(kw) !== -1) return EQUIPES[i].suffix;
-  }
-  return String(raw||"").trim() || "—";
-}
-
-// Acha a coluna de profissional de uma aba bruta, tentando o nome exato
-// "profissional" primeiro e, se não achar, qualquer cabeçalho que
-// contenha "PROFISSIONAL" (mesma estratégia de equipeColIndex).
-export function profissionalColIndex(headerRow){
-  var idx = colIndex(headerRow, "profissional");
-  if(idx >= 0) return idx;
-  for(var i=0;i<headerRow.length;i++){
-    if(normalizeText(headerRow[i]).indexOf("PROFISSIONAL") !== -1) return i;
-  }
-  return -1;
-}
-
-// ===== módulo: js/listas/render-listas.js =====
-// ======================================================================
-// listas/render-listas.js
-// Listas — modelo, cartões e seção de listas
-// (módulo gerado a partir do app.js original — ver MODULOS.md)
-// ======================================================================
-
-
-// Agrupa por paciente e dia e mantém apenas os grupos com dois ou mais
-// profissionais distintos, para identificar atendimentos interprofissionais.
-function atendimentosInterprofissionaisParaLista(){
-  var source = estadoApp.latestSheets[suffixedName("Atendimentos")];
-  var outHeaders = ["Data","Paciente","Idade","Profissionais no dia","Qtd. de atendimentos"];
-  if(!source || !source.headers || !source.rows) return {headers:outHeaders, rows:[]};
-  var headers = source.headers;
-  var iData = colIndex(headers, "data_hora");
-  var iNome = colIndex(headers, "nome");
-  var iProf = colIndex(headers, "profissional");
-  var iId = -1;
-  headers.forEach(function(h, i){
-    var key = normalizeText(h).replace(/[^A-Z0-9]/g, '');
-    if(iId < 0 && (key === 'CNS' || key === 'CPF' || key.indexOf('CARTAONACIONALDESAUDE') >= 0 || key.indexOf('CPF') >= 0)) iId = i;
-  });
-  if(iData < 0 || iNome < 0 || iProf < 0){
-    console.warn('[Atendimentos interprofissionais] faltam colunas de data, nome ou profissional. Cabeçalho:', headers);
-    return {headers:outHeaders, rows:[]};
-  }
-  // Idade do paciente: vem da data de nascimento (calculada na data do
-  // atendimento) ou, se a aba não tiver nascimento, da coluna de idade.
-  var iNasc = -1, iIdade = -1;
-  headers.forEach(function(h, i){
-    var key = normalizeText(h).replace(/[^A-Z0-9]/g, '');
-    if(iNasc < 0 && key.indexOf('NASC') >= 0) iNasc = i;
-    if(iIdade < 0 && key.indexOf('IDADE') === 0 && key.indexOf('GESTAC') < 0) iIdade = i;
-  });
-  if(iNasc < 0 && iIdade < 0){
-    console.warn('[Atendimentos interprofissionais] nenhuma coluna de idade ou data de nascimento encontrada na aba Atendimentos — a coluna Idade fica com "—". Cabeçalho:', headers);
-  }
-  function formatarIdade(anos, meses){
-    if(anos >= 1) return anos + (anos === 1 ? ' ano' : ' anos');
-    return '<1 ano';
-  }
-  function idadeDaLinha(r, dataAtendimento){
-    if(iNasc >= 0){
-      var nasc = parseBRDate(r[iNasc]);
-      if(nasc && nasc <= dataAtendimento){
-        var anos = dataAtendimento.getFullYear() - nasc.getFullYear();
-        var jaFezAniversario = (dataAtendimento.getMonth() > nasc.getMonth())
-          || (dataAtendimento.getMonth() === nasc.getMonth() && dataAtendimento.getDate() >= nasc.getDate());
-        if(!jaFezAniversario) anos--;
-        return formatarIdade(anos);
-      }
-    }
-    if(iIdade >= 0){
-      var bruto = String(r[iIdade] === undefined || r[iIdade] === null ? '' : r[iIdade]).trim();
-      if(/^\d+$/.test(bruto)) return formatarIdade(parseInt(bruto, 10));
-      if(bruto) return bruto;
-    }
-    return '';
-  }
-  var grupos = {};
-  source.rows.forEach(function(r){
-    var nome = String(r[iNome] || '').trim();
-    var data = parseBRDate(r[iData]);
-    var profissional = String(r[iProf] || '').trim();
-    if(!nome || !data || !profissional) return;
-    var id = iId >= 0 ? String(r[iId] || '').trim() : '';
-    var paciente = id ? 'ID:' + normalizeText(id).replace(/[^A-Z0-9]/g, '') : 'NOME:' + normalizeText(nome).trim();
-    var dia = data.getFullYear() + '-' + String(data.getMonth()+1).padStart(2,'0') + '-' + String(data.getDate()).padStart(2,'0');
-    var key = paciente + '|' + dia;
-    if(!grupos[key]) grupos[key] = {data:data, nome:nome, idade:'', profissionais:{}, quantidade:0};
-    if(!grupos[key].idade) grupos[key].idade = idadeDaLinha(r, data);
-    var profKey = normalizeText(profissional).trim();
-    if(!grupos[key].profissionais[profKey]) grupos[key].profissionais[profKey] = profissional;
-    grupos[key].quantidade++;
-  });
-  var rows = Object.keys(grupos).map(function(key){
-    var g = grupos[key];
-    var profissionais = Object.keys(g.profissionais).map(function(k){ return g.profissionais[k]; })
-      .sort(function(a,b){ return a.localeCompare(b, 'pt-BR'); });
-    return profissionais.length >= 2 ? [fmtBRDate(g.data), g.nome, g.idade || '—', profissionais.join('; '), g.quantidade] : null;
-  }).filter(Boolean).sort(function(a,b){
-    return (parseBRDate(b[0]) - parseBRDate(a[0])) || a[1].localeCompare(b[1], 'pt-BR');
-  });
-  return {headers:outHeaders, rows:rows};
-}
-
-// Monta o modelo de dados de uma lista: pra cada linha guarda o HTML de
-// cada <td> (c) e o texto "completo" de cada célula (t) usado por
-// busca/filtro por coluna/ordenação/PDF (o mesmo que cellFullText lia do
-// DOM). Índices de c/t = índices das colunas (colunas extras de
-// "Participantes Ativ. Coletiva" — AÇÃO M2 e Ações — vêm depois).
-// "Pessoas atendidas": mostra só Data 1 a Data 3; Data 4 em diante ficam
-// recolhidas e se expandem ao clicar no botão acima da tabela.
-var PA_DATAS_VISIVEIS = 3;
-
-function idxsDatasExtraPessoasAtendidas(headers){
-  var idxs = [];
-  headers.forEach(function(h, i){
-    var m = /^Data (\d+)$/.exec(String(h));
-    if(m && parseInt(m[1], 10) > PA_DATAS_VISIVEIS) idxs.push(i);
-  });
-  return idxs;
-}
-
-function construirModeloLista(name, cached, anterior, stateKey){
-  var idxsDataExtra = (name === suffixedName("Pessoas atendidas")) ? idxsDatasExtraPessoasAtendidas(cached.headers) : [];
-  var idxsProfNumerados = colsProfissionaisNumerados(cached.headers);
-  var idxProfissionalPessoas = (name === suffixedName("Pessoas atendidas")) ? cached.headers.indexOf('Profissional') : -1;
-  var isParticipantesColetiva = (displayListName(name) === "Participantes Ativ. Coletiva") && idxsProfNumerados.length > 0;
-  // AÇÃO M2 + Ações (Detalhes): Participantes Ativ. Coletiva e Resumo Atividade Coletiva.
-  var temAcaoM2 = isParticipantesColetiva || ehListaResumoAtividadeColetiva(name);
-  var rows = cached.rows.map(function(r, rowIdx){
-    var c = [], t = [];
-    cached.headers.forEach(function(h, i){
-      var v = r[i];
-      var str = (v===undefined||v===null) ? '' : String(v);
-      var oculta = isParticipantesColetiva && idxsProfNumerados.indexOf(i) !== -1;
-      if(i === idxProfissionalPessoas){
-        c.push('<td data-cell-text="'+encodeURIComponent(str)+'">'+(r.profissionalHtml || escapeHtml(str))+'</td>');
-        t.push(str);
-      } else {
-        // Texto longo (responsáveis, participantes, tipo de atividade...) é
-        // abreviado com "…" para a linha caber na largura do container; o
-        // texto completo aparece ao passar o mouse (atributo title).
-        var strTrim = str.trim();
-        var tituloCel = strTrim.length > 14 ? ' title="'+escapeHtml(strTrim).replace(/"/g,'&quot;')+'"' : '';
-        var ehColData = /^Data \d+$/.test(String(h));
-        c.push('<td class="'+(ehColData ? 'cell-data' : 'cell-trunc')+(oculta ? ' part-col-oculta' : '')+(idxsDataExtra.indexOf(i) !== -1 ? ' pa-data-extra' : '')+'"'+tituloCel+'>'+escapeHtml(str)+'</td>');
-        t.push(strTrim);
-      }
-    });
-    if(temAcaoM2){
-      var classificacao = classificarAcaoM2Lista(name, cached.headers, r);
-      c.push('<td>'+acaoM2BadgeHTML(classificacao)+'</td>'); t.push(classificacao.label);
-      c.push('<td>'+detalhesBtnHTML(name, rowIdx)+'</td>'); t.push('Detalhes');
-    }
-    return {c:c, t:t, s:undefined};
-  });
-  var m = {rows:rows, view:rows.slice(), sortCol:-1, sortDir:''};
-  if(anterior && anterior.sortCol >= 0){ m.sortCol = anterior.sortCol; m.sortDir = anterior.sortDir; ordenarModeloLista(stateKey || name, m); }
-  return m;
-}
-
-function ordenarModeloLista(listName, m){
-  if(!m || m.sortCol < 0) return;
-  var colIdx = m.sortCol, dir = m.sortDir;
-  var isDateCol = (colIdx === listDateColIdx[listName]);
-  m.rows.sort(function(a, b){
-    var textoA = String(a.t[colIdx]===undefined ? '' : a.t[colIdx]).trim();
-    var textoB = String(b.t[colIdx]===undefined ? '' : b.t[colIdx]).trim();
-    var cmp;
-    if(isDateCol){
-      var dA = parseBRDate(textoA), dB = parseBRDate(textoB);
-      var tA = dA ? dA.getTime() : (textoA ? Infinity : -Infinity);
-      var tB = dB ? dB.getTime() : (textoB ? Infinity : -Infinity);
-      cmp = tA - tB;
-    } else {
-      cmp = textoA.localeCompare(textoB, 'pt-BR', {numeric:true, sensitivity:'base'});
-    }
-    return dir === 'asc' ? cmp : -cmp;
-  });
-}
-
-function renderListCard(name, containerId){
-  // Como M1 e M2 agora têm as mesmas listas, o estado de cada uma
-  // (modelo/linhas filtradas, filtro de mês, coluna de data) é guardado
-  // por container + nome, para que mexer em uma aba não afete a outra.
-  var sk = (containerId || '') + '::' + name;
-  // "Pessoas atendidas" é uma lista calculada aqui mesmo no navegador
-  // (dedup de Atendimentos + Participantes Ativ. Coletiva) — ver
-  // pessoasAtendidasParaMeses. Tem filtro de mês PRÓPRIO, independente
-  // do filtro de Mês do topo da página.
-  var isInterprofissional = (name === suffixedName("Atendimentos interprofissionais"));
-  var isPessoasAtendidas = (name === suffixedName("Pessoas atendidas"));
-  // "Busca-Ativa" (só na aba M1): outra lista calculada aqui mesmo — ver
-  // buscaAtivaCompute — sem filtro de mês próprio, pois a janela (31 a
-  // 120 dias sem atendimento, contados do fim do mês atual) já é fixa.
-  var isBuscaAtiva = (name === suffixedName("Busca-Ativa"));
-  var cached = isInterprofissional
-    ? estadoApp.latestSheets[name]
-    : isPessoasAtendidas
-      ? pessoasAtendidasParaMeses(listMonthFilters[sk] || [])
-      : isBuscaAtiva
-        ? buscaAtivaCompute()
-        : estadoApp.latestSheets[name];
-  if(isPessoasAtendidas || isBuscaAtiva) estadoApp.latestSheets[name] = cached;
-  var body;
-  var hasTable = false;
-  if(!cached){
-    body = '<div class="list-placeholder">Não encontramos uma aba chamada "'+escapeHtml(name)+'" na planilha publicada.</div>';
-  } else if(!cached.rows.length && isBuscaAtiva){
-    body = '<div class="list-placeholder">Nenhum paciente na janela de busca ativa no momento (mais de 30 e até 120 dias sem atendimento, considerando o fim do mês atual).</div>';
-  } else if(isBuscaAtiva){
-    // Mesmo layout/recursos da lista "Pacientes em risco de abandono"
-    // (filtros por profissional/coluna, busca, ordenação, paginação,
-    // popover "+N", PDF e Excel) — ver riscoTableHtml/wireRiscoFiltros.
-    // Não usa a classe .list-card pra não cair nos tratadores genéricos
-    // das listas da planilha (que dependem de listModel).
-    return '<div class="card risco-list-card" data-list-card="'+escapeHtml(name)+'" data-state-key="'+escapeHtml(sk)+'">'
-      + '<div class="list-card-head"><h4>'+escapeHtml(displayListName(name))+'</h4></div>'
-      + '<p class="footnote" style="margin:0 0 10px;line-height:1.5;">Pacientes com mais de 30 e até 120 dias sem atendimento, contados do fim do mês atual (quem está prestes a sair da janela do M1). "Consultas" conta só os atendimentos dos últimos 4 meses; "Dias restantes" é o que falta para completar 120 dias sem atendimento.</p>'
-      + riscoTableHtml(cached.registros || [], RISCO_CFG_BUSCA)
-      + '</div>';
-  } else if(!cached.rows.length && !isPessoasAtendidas){
-    body = '<div class="list-placeholder">Esta lista está vazia.</div>';
-  } else {
-    hasTable = true;
-    var dateColIdx = dateColIndexForList(cached.headers);
-    listDateColIdx[sk] = dateColIdx;
-    var idxsProfNumerados = colsProfissionaisNumerados(cached.headers);
-    // Coluna "Profissional" de "Pessoas Atendidas" (isPessoasAtendidas):
-    // a célula mostra só o profissional responsável (evento mais
-    // recente) + badge "+N" com popover pros demais (ver
-    // pessoasAtendidasParaMeses/profissionalBadgeHtml), mas o VALOR de
-    // busca/filtro/PDF continua sendo a lista completa de nomes
-    // (cached.rows[i][idxProfissionalPessoas], igual sempre foi) — ela
-    // vai guardada em data-cell-text (URI-encoded) pra buscas/filtros/
-    // PDF lerem em vez do texto realmente renderizado na tela (ver
-    // cellFullText, applyFilters e gerarPdfLista).
-    var idxProfissionalPessoas = isPessoasAtendidas ? cached.headers.indexOf('Profissional') : -1;
-    // Só a lista "Participantes Ativ. Coletiva" ganha o resumo em selo —
-    // as 5 colunas "profissional 1".."profissional 5" ficam ocultas
-    // (classe .part-col-oculta) e no lugar delas entram "AÇÃO M2" e
-    // "Ações" (botão "Detalhes"). Os índices das colunas não mudam —
-    // só a exibição — pra não quebrar filtros/PDF que dependem deles.
-    var isParticipantesColetiva = (displayListName(name) === "Participantes Ativ. Coletiva") && idxsProfNumerados.length > 0;
-    var idxsDataExtra = isPessoasAtendidas ? idxsDatasExtraPessoasAtendidas(cached.headers) : [];
-    var theadHtml = '<tr>'+cached.headers.map(function(h,i){
-        var oculta = isParticipantesColetiva && idxsProfNumerados.indexOf(i) !== -1;
-        if(oculta) return '<th class="part-col-oculta">'+escapeHtml(h)+'</th>';
-        return '<th class="sortable-th'+(idxsDataExtra.indexOf(i) !== -1 ? ' pa-data-extra' : '')+'" data-col-idx="'+i+'">'+escapeHtml(h)+'<span class="sort-ind"></span></th>';
-      }).join('')
-      + ((isParticipantesColetiva || ehListaResumoAtividadeColetiva(name))
-          ? '<th class="sortable-th" data-col-idx="'+cached.headers.length+'">AÇÃO M2<span class="sort-ind"></span></th><th>Ações</th>'
-          : '')
-      + '</tr>';
-    listModel[sk] = construirModeloLista(name, cached, null, sk);
-    // Nas colunas normais (índice numérico), pula "profissional 1" a
-    // "profissional 5" — elas viram UMA opção só ("Profissional da
-    // eMulti"), inserida na posição da primeira delas.
-    var colOptionsHtml = '<option value="">Filtrar por coluna…</option>'
-      + cached.headers.map(function(h,i){
-        if(idxsProfNumerados.indexOf(i) !== -1){
-          return (i === idxsProfNumerados[0])
-            ? '<option value="'+PROF_EMULTI_FILTER_VALUE+'">Profissional da eMulti</option>'
-            : '';
-        }
-        return '<option value="'+i+'">'+escapeHtml(h)+'</option>';
-      }).join('')
-      + ((isParticipantesColetiva || ehListaResumoAtividadeColetiva(name)) ? '<option value="'+ACAO_M2_FILTER_VALUE+'">AÇÃO M2</option>' : '');
-    var filterPairsHtml = [0,1,2].map(function(idx){
-      return '<div class="filter-pair">'
-        + '<select class="filter-col">'+colOptionsHtml+'</select>'
-        + '<div class="ms-wrap filter-val-ms ms-disabled" data-pair-idx="'+idx+'"></div>'
-        + '</div>';
-    }).join('');
-    // Filtro de mês (multisseleção) — aparece quando a lista tem uma
-    // coluna de data reconhecível ("data" ou "data_hora"), ou é a
-    // "Pessoas atendidas" calculada (filtro próprio, ver acima). Fica
-    // na MESMA linha dos filtros de coluna (dentro de .list-filters),
-    // como o primeiro item da fileira.
-    var monthFilterHtml = (dateColIdx >= 0 || isPessoasAtendidas)
-      ? '<div class="list-month-filter"><label class="list-month-filter-label">Mês</label>'
-        + '<div class="ms-wrap" data-month-filter="'+escapeHtml(name)+'" data-state-key="'+escapeHtml(sk)+'"'+(isPessoasAtendidas ? ' data-computed-months="1"' : '')+'></div></div>'
-      : '';
-    body = '<p class="list-meta">'+fmtInt(cached.rows.length)+(cached.rows.length===1?' linha':' linhas')+'</p>'
-      + '<div class="list-filters" data-list-filters="'+escapeHtml(name)+'">'+monthFilterHtml+filterPairsHtml+'</div>'
-      + '<input class="list-search" type="text" placeholder="Filtrar nesta lista…" data-filter-key="'+escapeHtml(name)+'">'
-      + (idxsDataExtra.length
-          ? '<div class="pa-datas-bar"><button type="button" class="pa-toggle-datas" data-pa-toggle-datas="'+idxsDataExtra.length+'" aria-expanded="'+(listDatasExpandidas[sk] ? 'true' : 'false')+'">'
-            + (listDatasExpandidas[sk] ? 'Recolher datas ▴' : 'Mostrar mais datas (+'+idxsDataExtra.length+') ▾')
-            + '</button></div>'
-          : '')
-      + '<div class="table-wrap"><table class="data-table"><thead>'+theadHtml+'</thead><tbody></tbody></table></div>'
-      + '<div class="risco-pager" data-list-pager="'+escapeHtml(name)+'"></div>';
-  }
-  var pdfBtnHtml = hasTable
-    ? '<button type="button" class="pdf-btn" data-pdf-btn="'+escapeHtml(name)+'">'
-      + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h1a1.5 1.5 0 0 0 0-3H9v5"/><path d="M13 12v5h1a2 2 0 0 0 0-5z"/><path d="M18.5 12H17v5"/><path d="M17 14.5h1.3"/></svg>'
-      + '<span>Gerar PDF</span></button>'
-    : '';
-  return '<div class="card list-card'+(listDatasExpandidas[sk] ? ' pa-datas-expandidas' : '')+'" data-list-card="'+escapeHtml(name)+'" data-state-key="'+escapeHtml(sk)+'">'
-    + '<div class="list-card-head"><h4>'+escapeHtml(displayListName(name))+'</h4>'+pdfBtnHtml+'</div>'
-    + body + '</div>';
-}
-
-// Aba ativa (nome da lista) por container de listas relacionadas
-// (listsM1/listsM2) — default é a primeira lista de cada aba.
-var listActiveTab = {};
-
-function relatedListsPillsHtml(containerId, names){
-  var active = listActiveTab[containerId] || names[0];
-  if(names.indexOf(active) < 0) active = names[0];
-  listActiveTab[containerId] = active;
-  var pills = names.map(function(name){
-    var isActive = name === active;
-    var cached = estadoApp.latestSheets[name];
-    var count = cached ? fmtInt(cached.rows.length) : '';
-    var bg = isActive ? '#153F35' : '#FFFFFF';
-    var border = isActive ? '#153F35' : '#D9E1D6';
-    var nameColor = isActive ? '#EEF3EA' : '#1B2E27';
-    var countColor = isActive ? '#9FC0AE' : '#8B978F';
-    return '<button type="button" class="related-list-pill" data-list-pill="'+escapeHtml(name)+'" data-container="'+escapeHtml(containerId)+'"'
-      + ' style="display:inline-flex;align-items:center;gap:5px;padding:7px 11px;border-radius:999px;border:1px solid '+border+';background:'+bg+';cursor:pointer;font-family:inherit;white-space:nowrap;flex:0 0 auto;">'
-      + '<span style="font-size:12.5px;font-weight:600;color:'+nameColor+';">'+escapeHtml(displayListName(name))+'</span>'
-      + (count ? '<span style="font-size:12px;color:'+countColor+';">'+count+'</span>' : '')
-      + '</button>';
-  }).join('');
-  return '<div class="related-lists-bar" style="margin-bottom:14px;">'
-    + '<div style="font-size:11px;font-weight:700;letter-spacing:0.06em;color:#5C6B62;text-transform:uppercase;margin-bottom:8px;">Listas relacionadas</div>'
-    + '<div class="related-lists-pills" style="position:relative;display:flex;flex-wrap:nowrap;gap:6px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin;-webkit-overflow-scrolling:touch;">'+pills+'</div>'
-    + '</div>';
-}
-
-// wb (latestWb) já usado pra montar cada container de listas relacionadas
-// (listsM1/listsM2) da última vez — ver renderListsSection logo abaixo.
-var listsRenderedForWb = {};
-
-// Último estado FILTRADO da lista "Pessoas atendidas" (a que o usuário mexeu
-// por último, em M1 ou M2): quem aparece nela depois de Mês, filtros de coluna
-// e busca. A aba Agendamentos lê isto pra mostrar exatamente as mesmas pessoas.
-var pessoasFiltroAtual = null;
-window.__emultiPessoasAtendidasFiltradas = function(){ return pessoasFiltroAtual; };
-
-export function renderListsSection(containerId, names){
-  var el = document.getElementById(containerId);
-  if(!el) return;
-  // As tabelas brutas (Atendimentos, Participantes Ativ. Coletiva etc.)
-  // só mudam de conteúdo quando os DADOS da planilha mudam (nova leitura
-  // ou troca de equipe, que sempre gera um wb novo em fetchAndLoad) —
-  // filtros do topo (Mês, Quadrimestre, Tipo de Cálculo) só afetam os
-  // cards de M1/M2 (já atualizados à parte, antes desta chamada), não o
-  // conteúdo dessas listas. Reconstruir milhares de <tr> via innerHTML
-  // (com escapeHtml linha a linha) a cada clique nesses filtros era a
-  // maior causa de travamento do painel ao "aplicar filtros" — agora só
-  // refaz o HTML quando o workbook realmente mudou. Como bônus, isso
-  // também para de apagar a busca/filtros de coluna que o usuário tinha
-  // digitado dentro de uma lista sempre que ele mexia em outro filtro.
-  if(listsRenderedForWb[containerId] === latestWb && el.children.length){
-    return;
-  }
-  listsRenderedForWb[containerId] = latestWb;
-  var interprofissionalName = suffixedName("Atendimentos interprofissionais");
-  if(names.indexOf(interprofissionalName) >= 0){
-    estadoApp.latestSheets[interprofissionalName] = atendimentosInterprofissionaisParaLista();
-  }
-  // "Pessoas atendidas" e "Busca-Ativa" são calculadas no navegador (não
-  // vêm prontas da planilha) e só ficavam em latestSheets depois que
-  // renderListCard rodava pra cada uma — como isso só acontece DEPOIS
-  // de relatedListsPillsHtml montar os pills (linha abaixo), o
-  // quantitativo dessas duas ficava faltando no pill na PRIMEIRA aba
-  // renderizada (M1) e só aparecia certo na aba seguinte (M2, que já
-  // reaproveitava o cache deixado pela passada de M1). Calculando aqui
-  // antes dos pills, as duas abas saem iguais.
-  var pessoasAtendidasName = suffixedName("Pessoas atendidas");
-  if(names.indexOf(pessoasAtendidasName) >= 0){
-    var skPessoas = containerId + '::' + pessoasAtendidasName;
-    estadoApp.latestSheets[pessoasAtendidasName] = pessoasAtendidasParaMeses(listMonthFilters[skPessoas] || []);
-  }
-  var buscaAtivaName = suffixedName("Busca-Ativa");
-  if(names.indexOf(buscaAtivaName) >= 0){
-    estadoApp.latestSheets[buscaAtivaName] = buscaAtivaCompute();
-  }
-  el.innerHTML = relatedListsPillsHtml(containerId, names) + names.map(function(n){ return renderListCard(n, containerId); }).join('');
-  // Liga filtros/ordenação/PDF/Excel da Busca-Ativa (tabela no formato da
-  // lista de risco de abandono).
-  if(names.indexOf(buscaAtivaName) >= 0){
-    var regsBusca = (estadoApp.latestSheets[buscaAtivaName] || {}).registros || [];
-    if(regsBusca.length) wireRiscoFiltros(regsBusca, [], false, regsBusca, RISCO_CFG_BUSCA);
-  }
-
-  // Só o card da lista ativa (pill selecionada) fica visível — os
-  // outros continuam no DOM (com seus próprios filtros já montados),
-  // só escondidos, pra alternar de lista sem perder filtro/estado.
-  function aplicarAbaAtiva(){
-    var active = listActiveTab[containerId];
-    el.querySelectorAll('[data-list-card]').forEach(function(card){
-      card.style.display = (card.getAttribute('data-list-card') === active) ? '' : 'none';
-    });
-    el.querySelectorAll('[data-list-pill]').forEach(function(btn){
-      var isActive = btn.getAttribute('data-list-pill') === active;
-      var nameEl = btn.querySelector('span:first-child');
-      var countEl = btn.querySelector('span:last-child');
-      btn.style.background = isActive ? '#153F35' : '#FFFFFF';
-      btn.style.borderColor = isActive ? '#153F35' : '#D9E1D6';
-      if(nameEl) nameEl.style.color = isActive ? '#EEF3EA' : '#1B2E27';
-      if(countEl && countEl !== nameEl) countEl.style.color = isActive ? '#9FC0AE' : '#8B978F';
-    });
-  }
-  aplicarAbaAtiva();
-  el.querySelectorAll('[data-list-pill]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      listActiveTab[containerId] = btn.getAttribute('data-list-pill');
-      aplicarAbaAtiva();
-      var faixa = btn.parentNode;
-      if(faixa && faixa.scrollWidth > faixa.clientWidth){
-        var alvo = btn.offsetLeft - (faixa.clientWidth - btn.offsetWidth) / 2;
-        faixa.scrollTo({left: Math.max(0, alvo), behavior: 'smooth'});
-      }
-    });
-  });
-
-  // ---- Paginação das listas (100 por página) ----
-  // As linhas fora da página recebem a classe .pg-hidden (display:none
-  // !important) — NÃO mexem em tr.style.display, que continua sendo só o
-  // resultado dos filtros (usado pela recontagem por pessoa e pelo PDF,
-  // que por isso seguem enxergando TODAS as linhas filtradas).
-  var LISTA_POR_PAGINA = 100;
-  var listaPagina = {};
-  if(!document.getElementById('listPagerStyles')){
-    var stLp = document.createElement('style');
-    stLp.id = 'listPagerStyles';
-    stLp.textContent = '.risco-pager{display:flex;align-items:center;justify-content:center;gap:14px;margin:10px 0 4px;font-size:13px;color:var(--ink-soft)}'
-      + '.risco-pager button{border:1px solid var(--line);background:var(--paper,#fff);border-radius:999px;padding:6px 14px;font:inherit;font-weight:600;color:var(--ink);cursor:pointer}'
-      + '.risco-pager button:disabled{opacity:.4;cursor:default}';
-    document.head.appendChild(stLp);
-  }
-  // Abrevia (com "…") as células de texto longo até a linha caber na
-  // largura do container: tenta limites de 220px, 180px, ... 64px por
-  // célula e para no primeiro em que a tabela não estoura a largura.
-  // Não faz nada enquanto a lista está escondida (largura 0).
-  var TRUNC_PASSOS = [220, 180, 150, 120, 100, 80, 64];
-  function ajustarTruncamentoLista(card){
-    var wrap = card.querySelector('.table-wrap');
-    var tbl = card.querySelector('table.data-table');
-    if(!wrap || !tbl) return;
-    // Datas expandidas (Pessoas atendidas): a linha aparece inteira, sem
-    // "…" em nenhuma célula; se passar da largura, a tabela rola na horizontal.
-    if(card.classList.contains('pa-datas-expandidas')){
-      tbl.style.setProperty('--cell-max', 'none');
-      return;
-    }
-    if(!wrap.clientWidth) return;
-    for(var i = 0; i < TRUNC_PASSOS.length; i++){
-      tbl.style.setProperty('--cell-max', TRUNC_PASSOS[i] + 'px');
-      if(tbl.offsetWidth <= wrap.clientWidth + 1) break;
-    }
-  }
-  function observarTruncamentoLista(card){
-    var wrap = card.querySelector('.table-wrap');
-    if(!wrap || wrap._truncObs) return;
-    var ultima = -1;
-    var refazer = function(){
-      var w = wrap.clientWidth;
-      if(w === ultima) return;
-      ultima = w;
-      ajustarTruncamentoLista(card);
-    };
-    if(typeof ResizeObserver === 'function'){
-      wrap._truncObs = new ResizeObserver(refazer);
-      wrap._truncObs.observe(wrap);
-    } else {
-      wrap._truncObs = true;
-      window.addEventListener('resize', refazer);
-    }
-  }
-  function paginarLista(card){
-    var listName = card.getAttribute('data-list-card');
-    var pagerEl = card.querySelector('[data-list-pager]');
-    var tbody = card.querySelector('tbody');
-    var m = listModel[card.getAttribute('data-state-key')];
-    if(!tbody || !m) return;
-    var total = m.view.length;
-    var totalPaginas = Math.max(1, Math.ceil(total / LISTA_POR_PAGINA));
-    var pg = listaPagina[listName] || 1;
-    if(pg > totalPaginas) pg = totalPaginas;
-    if(pg < 1) pg = 1;
-    listaPagina[listName] = pg;
-    var ini = (pg - 1) * LISTA_POR_PAGINA, fim = ini + LISTA_POR_PAGINA;
-    var visiveis = m.view.slice(ini, fim);
-    var nCols = card.querySelectorAll('thead th').length || 1;
-    tbody.innerHTML = visiveis.length
-      ? visiveis.map(function(row){ return '<tr>'+row.c.join('')+'</tr>'; }).join('')
-      : '<tr><td colspan="'+nCols+'" class="footnote" style="padding:14px 12px;">Nenhuma linha encontrada com esse filtro.</td></tr>';
-    if(pagerEl){
-      pagerEl.innerHTML = total <= LISTA_POR_PAGINA ? '' : ''
-        + '<button type="button" data-pg="prev"'+(pg<=1?' disabled':'')+'>‹ Anterior</button>'
-        + '<span>Página '+fmtInt(pg)+' de '+fmtInt(totalPaginas)
-        +   ' · mostrando '+fmtInt(ini+1)+'–'+fmtInt(Math.min(fim,total))+' de '+fmtInt(total)+'</span>'
-        + '<button type="button" data-pg="next"'+(pg>=totalPaginas?' disabled':'')+'>Próxima ›</button>';
-    }
-    ajustarTruncamentoLista(card);
-    observarTruncamentoLista(card);
-  }
-  el.querySelectorAll('[data-list-pager]').forEach(function(pagerEl){
-    pagerEl.addEventListener('click', function(ev){
-      var b = ev.target.closest ? ev.target.closest('button[data-pg]') : null;
-      if(!b || b.disabled) return;
-      var card = pagerEl.closest('.list-card');
-      var nome = card.getAttribute('data-list-card');
-      listaPagina[nome] = (listaPagina[nome] || 1) + (b.getAttribute('data-pg') === 'next' ? 1 : -1);
-      paginarLista(card);
-      var wrap = card.querySelector('.table-wrap');
-      if(wrap) wrap.scrollTop = 0;
-    });
-  });
-
-  function applyFilters(card){
-    var listName = card.getAttribute('data-list-card');
-    var listKey = card.getAttribute('data-state-key');
-    var cached = estadoApp.latestSheets[listName];
-    var dateColIdx = listDateColIdx[listKey];
-    var selectedMonths = listMonthFilters[listKey] || [];
-    var textInput = card.querySelector('.list-search');
-    var term = textInput ? textInput.value.trim().toLowerCase() : '';
-    var activeFilters = [];
-    var idxsProfNumeradosFiltro = colsProfissionaisNumerados(cached ? cached.headers : []);
-    card.querySelectorAll('.filter-pair').forEach(function(pair){
-      var colSelect = pair.querySelector('.filter-col');
-      var valWrap = pair.querySelector('.filter-val-ms');
-      var isProfEmulti = colSelect && colSelect.value === PROF_EMULTI_FILTER_VALUE;
-      var isAcaoM2 = colSelect && colSelect.value === ACAO_M2_FILTER_VALUE;
-      var colIdx = (colSelect && !isProfEmulti && !isAcaoM2 && colSelect.value !== '') ? parseInt(colSelect.value, 10) : null;
-      var vals = (valWrap && valWrap._msInstance) ? valWrap._msInstance.getSelected() : [];
-      if(!vals.length) return;
-      if(isProfEmulti){ activeFilters.push({profEmulti:true, colIdxs:idxsProfNumeradosFiltro, vals:vals}); }
-      // A célula do selo "AÇÃO M2" é sempre a primeira coluna acrescentada
-      // depois das colunas originais da planilha (ver renderListCard) —
-      // por isso a posição é sempre cached.headers.length, sem precisar
-      // de um índice fixo guardado em outro lugar.
-      else if(isAcaoM2){ activeFilters.push({colIdx: cached ? cached.headers.length : -1, vals:vals}); }
-      else if(colIdx !== null){ activeFilters.push({colIdx:colIdx, vals:vals}); }
-    });
-    var m = listModel[listKey];
-    if(!m) return;
-    var view = [];
-    m.rows.forEach(function(row){
-      var matchesText = true;
-      if(term){
-        if(row.s === undefined) row.s = row.t.join(' ').toLowerCase();
-        matchesText = row.s.indexOf(term) !== -1;
-      }
-      var matchesCols = activeFilters.every(function(f){
-        if(f.profEmulti){
-          // Bate se QUALQUER uma das 5 colunas "profissional N" desta
-          // linha tiver um dos nomes marcados no filtro.
-          return f.colIdxs.some(function(ci){
-            return row.t[ci] !== undefined && f.vals.indexOf(row.t[ci]) >= 0;
-          });
-        }
-        var texto = row.t[f.colIdx];
-        if(texto === undefined) return false;
-        var headerName = (cached && cached.headers) ? cached.headers[f.colIdx] : '';
-        if(headerName === DIAS_SEM_ATENDIMENTO_HEADER){
-          var bucket = diasBucketLabel(texto);
-          return !!bucket && f.vals.indexOf(bucket) >= 0;
-        }
-        return f.vals.indexOf(texto) >= 0;
-      });
-      var matchesMonth = true;
-      if(selectedMonths.length && dateColIdx != null && dateColIdx >= 0){
-        var raw = row.t[dateColIdx];
-        var d = parseBRDate(raw===undefined ? null : String(raw).trim());
-        var mv = d ? monthOptionValue(d) : null;
-        matchesMonth = !!mv && selectedMonths.indexOf(mv) >= 0;
-      }
-      if(matchesText && matchesCols && matchesMonth) view.push(row);
-    });
-    m.view = view;
-    if(listName === suffixedName("Pessoas atendidas")){
-      pessoasFiltroAtual = {
-        origem: listKey.indexOf('listsM1') === 0 ? 'M1' : (listKey.indexOf('listsM2') === 0 ? 'M2' : listKey),
-        nomes: view.map(function(row){ return String(row.t[0] === undefined ? '' : row.t[0]).trim(); }),
-        meses: selectedMonths.slice()
-      };
-      try{ window.dispatchEvent(new CustomEvent('emulti:pessoas-filtro')); }catch(e){}
-    }
-    var visibleCount = view.length;
-    // Contagem de linhas mostrada acima da lista: reflete o resultado
-    // depois de aplicar TODOS os filtros ativos (mês, colunas e busca),
-    // não o total bruto da lista.
-    var metaEl = card.querySelector('.list-meta');
-    if(metaEl) metaEl.textContent = fmtInt(visibleCount) + (visibleCount === 1 ? ' linha' : ' linhas');
-
-    // Recalcula colunas de quantidade "por período" (ex.:
-    // "qtd_atendimentos_periodo") pra baterem com o período (mês/meses)
-    // e demais filtros ATUALMENTE aplicados nesta lista, em vez de usar
-    // o valor bruto e fixo que já vem pronto da planilha de origem (que
-    // reflete o total da pessoa na aba inteira, não do período
-    // filtrado). Vale pra qualquer lista das abas M1/M2 que tenha uma
-    // coluna "nome" e uma coluna "qtd_..._per..." (ex.: Atendimentos).
-    var headersForQtd = cached ? cached.headers : [];
-    var nomeIdxQtd = -1;
-    headersForQtd.forEach(function(h, i){
-      // "NOME" cobre a tabela Atendimentos; "PARTICIPANTE" cobre a
-      // tabela "Participantes Ativ. Coletiva" (mesma lógica de
-      // recontagem por nome, só muda o nome da coluna-chave).
-      if(nomeIdxQtd < 0 && (normalizeText(h) === 'NOME' || normalizeText(h) === 'PARTICIPANTE')) nomeIdxQtd = i;
-    });
-    var qtdColIdxs = [];
-    headersForQtd.forEach(function(h, i){
-      var hn = normalizeText(h);
-      var ehPeriodoPattern = hn.indexOf('QTD_') === 0 && hn.indexOf('PER') !== -1;
-      // "Qtd de atendimentos"/"qtd_atendimentos"/"Quantidade de
-      // atendimentos" (ex.: coluna homônima na lista "Atendimentos") e
-      // "Qtd de participações"/"qtd_participacoes"/"Quantidade de
-      // participações" (ex.: coluna homônima na lista "Participantes
-      // Ativ. Coletiva") também entram no recálculo por filtro — sem
-      // isso a coluna fica sempre com o valor bruto (ou vazio) da
-      // planilha, em vez de refletir o período/filtros ativos na lista.
-      var chaveQtd = hn.replace(/[-\s]+/g, '_');
-      var ehQtdAtendimentos = ['QTD_ATENDIMENTOS','QTD_DE_ATENDIMENTOS','QUANTIDADE_DE_ATENDIMENTOS'].indexOf(chaveQtd) !== -1;
-      var ehQtdParticipacoes = ['QTD_PARTICIPACOES','QTD_DE_PARTICIPACOES','QUANTIDADE_DE_PARTICIPACOES','QTD_PARTICIPACAO','QTD_DE_PARTICIPACAO','QUANTIDADE_DE_PARTICIPACAO'].indexOf(chaveQtd) !== -1;
-      if(ehPeriodoPattern || ehQtdAtendimentos || ehQtdParticipacoes) qtdColIdxs.push(i);
-    });
-    if(nomeIdxQtd >= 0 && qtdColIdxs.length){
-      var countsPorNomeQtd = {};
-      view.forEach(function(row){
-        var nomeVal = String(row.t[nomeIdxQtd]===undefined ? '' : row.t[nomeIdxQtd]).trim().toUpperCase();
-        if(!nomeVal) return;
-        countsPorNomeQtd[nomeVal] = (countsPorNomeQtd[nomeVal] || 0) + 1;
-      });
-      view.forEach(function(row){
-        var nomeVal = String(row.t[nomeIdxQtd]===undefined ? '' : row.t[nomeIdxQtd]).trim().toUpperCase();
-        var txt = fmtInt(nomeVal ? (countsPorNomeQtd[nomeVal] || 0) : 0);
-        qtdColIdxs.forEach(function(ci){
-          if(ci >= row.c.length || row.t[ci] === txt) return;
-          row.t[ci] = txt;
-          row.c[ci] = '<td>'+txt+'</td>';
-          row.s = undefined;
-        });
-      });
-    }
-    // Filtro/busca/ordenação novos sempre voltam pra página 1.
-    listaPagina[listName] = 1;
-    paginarLista(card);
-  }
-
-  el.querySelectorAll('[data-month-filter]').forEach(function(container){
-    var name = container.getAttribute('data-month-filter');
-    var key = container.getAttribute('data-state-key');
-    if(container.getAttribute('data-computed-months') === '1'){
-      // "Pessoas atendidas": filtro de mês próprio — recalcula a
-      // dedup (Atendimentos + Participantes Ativ. Coletiva) na hora,
-      // em vez de só esconder/mostrar linhas de uma tabela fixa.
-      var optsCalc = monthOptionsParaPessoasAtendidas();
-      var validCalc = optsCalc.map(function(o){ return o.value; });
-      listMonthFilters[key] = (listMonthFilters[key] || []).filter(function(v){
-        return validCalc.indexOf(v) >= 0;
-      });
-      var calcMs = createMultiSelect(container, {
-        placeholder: 'Todos os meses', multi: true, search: optsCalc.length > 8, showTags: true,
-        onChange: function(keys){
-          listMonthFilters[key] = keys;
-          var card = container.closest('.list-card');
-          var novoCached = pessoasAtendidasParaMeses(keys);
-          estadoApp.latestSheets[name] = novoCached;
-          listModel[key] = construirModeloLista(name, novoCached, listModel[key], key);
-          applyFilters(card);
-        }
-      });
-      calcMs.setOptions(optsCalc);
-      calcMs.setSelected(listMonthFilters[key]);
-      applyFilters(container.closest('.list-card'));
-      return;
-    }
-    var cached = estadoApp.latestSheets[name];
-    var dateColIdx = listDateColIdx[key];
-    if(!cached || dateColIdx == null || dateColIdx < 0) return;
-    var opts = monthOptionsForList(cached, dateColIdx);
-    var validValues = opts.map(function(o){ return o.value; });
-    // Mantém só a seleção anterior que ainda faz sentido (evita "mês
-    // fantasma" depois que os dados são atualizados).
-    listMonthFilters[key] = (listMonthFilters[key] || []).filter(function(v){
-      return validValues.indexOf(v) >= 0;
-    });
-    var monthMs = createMultiSelect(container, {
-      placeholder: 'Todos os meses', multi: true, search: opts.length > 8, showTags: true,
-      onChange: function(keys){
-        listMonthFilters[key] = keys;
-        applyFilters(container.closest('.list-card'));
-      }
-    });
-    monthMs.setOptions(opts);
-    monthMs.setSelected(listMonthFilters[key]);
-    applyFilters(container.closest('.list-card'));
-  });
-
-  el.querySelectorAll('[data-filter-key]').forEach(function(input){
-    var debouncedApply = debounce(function(){ applyFilters(input.closest('.list-card')); }, 200);
-    input.addEventListener('input', debouncedApply);
-  });
-
-  el.querySelectorAll('.list-card .filter-pair').forEach(function(pair){
-    var colSelect = pair.querySelector('.filter-col');
-    var valWrap = pair.querySelector('.filter-val-ms');
-    // Multisseleção de valores ("Todos os valores"): fica desabilitada
-    // (opacidade + sem clique, via .ms-disabled) até uma coluna ser
-    // escolhida no select ao lado. A instância fica pendurada no
-    // próprio elemento (._msInstance) pra applyFilters conseguir ler
-    // os valores marcados sem precisar de um estado global à parte.
-    var msInst = createMultiSelect(valWrap, {
-      placeholder: 'Todos os valores', multi: true, search: true, showTags: true,
-      onChange: function(){ applyFilters(pair.closest('.list-card')); }
-    });
-    valWrap._msInstance = msInst;
-
-    colSelect.addEventListener('change', function(){
-      var card = colSelect.closest('.list-card');
-      var listName = card.querySelector('[data-list-filters]').getAttribute('data-list-filters');
-      var cached = estadoApp.latestSheets[listName];
-      var isProfEmulti = colSelect.value === PROF_EMULTI_FILTER_VALUE;
-      var isAcaoM2 = colSelect.value === ACAO_M2_FILTER_VALUE;
-      var colIdx = (!isProfEmulti && !isAcaoM2 && colSelect.value !== '') ? parseInt(colSelect.value, 10) : null;
-      if(colIdx === null && !isProfEmulti && !isAcaoM2){
-        msInst.setOptions([]);
-        msInst.setSelected([]);
-        valWrap.classList.add('ms-disabled');
-      } else if(isAcaoM2){
-        // Valores fixos do selo (não vêm de uma coluna da planilha, são
-        // calculados linha a linha — ver classificarAcaoM2Participacao).
-        var seenAcao = {};
-        var valuesAcao = [];
-        (cached ? cached.rows : []).forEach(function(r){
-          var label = classificarAcaoM2Lista(listName, cached.headers, r).label;
-          if(!seenAcao[label]){ seenAcao[label] = true; valuesAcao.push(label); }
-        });
-        valuesAcao.sort(function(a,b){ return a.localeCompare(b, 'pt-BR'); });
-        msInst.setOptions(valuesAcao.map(function(v){ return {value:v, label:v}; }));
-        msInst.setSelected([]);
-        valWrap.classList.remove('ms-disabled');
-      } else if(isProfEmulti){
-        // Junta os valores distintos das 5 colunas "profissional N",
-        // mas só os nomes cadastrados na aba PROFISSIONAIS (roster da
-        // eMulti) — é isso que interessa pro indicador, não qualquer
-        // nome que apareça em alguma dessas colunas.
-        var idxsProf = colsProfissionaisNumerados(cached ? cached.headers : []);
-        var seenProf = {};
-        var valuesProf = [];
-        (cached ? cached.rows : []).forEach(function(r){
-          idxsProf.forEach(function(ci){
-            var v = r[ci];
-            v = (v===undefined||v===null) ? '' : String(v).trim();
-            if(!v || !nomeEhDaEmulti(v) || seenProf[v]) return;
-            seenProf[v] = true;
-            valuesProf.push(v);
-          });
-        });
-        valuesProf.sort(function(a,b){ return a.localeCompare(b, 'pt-BR'); });
-        msInst.setOptions(valuesProf.map(function(v){ return {value:v, label:v}; }));
-        msInst.setSelected([]);
-        valWrap.classList.remove('ms-disabled');
-      } else {
-        var headerName = (cached && cached.headers) ? cached.headers[colIdx] : '';
-        var isDiasCol = (headerName === DIAS_SEM_ATENDIMENTO_HEADER);
-        var seen = {};
-        var values = [];
-        (cached ? cached.rows : []).forEach(function(r){
-          var v = r[colIdx];
-          v = (v===undefined||v===null) ? '' : String(v).trim();
-          if(!v) return;
-          if(isDiasCol){
-            // Filtro por FAIXA de dias, não valor a valor (31, 32, 33…):
-            // agrupa em "31–60", "61–90" e "> 90".
-            var bucket = diasBucketLabel(v);
-            if(bucket && !seen[bucket]){ seen[bucket] = true; values.push(bucket); }
-          } else if(!seen[v]){ seen[v] = true; values.push(v); }
-        });
-        if(isDiasCol){
-          values.sort(function(a,b){
-            return FAIXAS_DIAS_SEM_ATENDIMENTO.indexOf(a) - FAIXAS_DIAS_SEM_ATENDIMENTO.indexOf(b);
-          });
-        } else if(values.length && values.every(function(v){ return v !== '' && isFinite(Number(v.replace(',', '.'))); })){
-          // Coluna só com números: ordena crescente NUMERICAMENTE, não
-          // alfabeticamente (que colocaria "10" antes de "2").
-          values.sort(function(a,b){ return Number(a.replace(',', '.')) - Number(b.replace(',', '.')); });
-        } else {
-          values.sort(function(a,b){ return a.localeCompare(b, 'pt-BR'); });
-        }
-        msInst.setOptions(values.map(function(v){ return {value:v, label:v}; }));
-        msInst.setSelected([]);
-        valWrap.classList.remove('ms-disabled');
-      }
-      applyFilters(card);
-    });
-  });
-
-  el.querySelectorAll('[data-pdf-btn]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      gerarPdfLista(btn.getAttribute('data-pdf-btn'), btn.closest('.list-card'), btn);
-    });
-  });
-
-  // Delegado no card: os botões "Detalhes" são recriados a cada página.
-  el.querySelectorAll('.list-card').forEach(function(card){
-    card.addEventListener('click', function(ev){
-      var btn = ev.target.closest ? ev.target.closest('[data-detalhes-part-idx]') : null;
-      if(!btn) return;
-      var listName = btn.getAttribute('data-detalhes-part-list');
-      var idx = parseInt(btn.getAttribute('data-detalhes-part-idx'), 10);
-      var cachedLista = estadoApp.latestSheets[listName];
-      if(!cachedLista || !cachedLista.rows[idx]) return;
-      abrirDetalhesParticipacao(cachedLista.headers, cachedLista.rows[idx], listName);
-    });
-  });
-
-  // "Pessoas atendidas": botão que expande/recolhe as colunas Data 4 em diante.
-  el.querySelectorAll('.list-card').forEach(function(card){
-    var btnDatas = card.querySelector('[data-pa-toggle-datas]');
-    if(!btnDatas) return;
-    btnDatas.addEventListener('click', function(){
-      var sk = card.getAttribute('data-state-key');
-      var expandir = !card.classList.contains('pa-datas-expandidas');
-      listDatasExpandidas[sk] = expandir;
-      card.classList.toggle('pa-datas-expandidas', expandir);
-      btnDatas.setAttribute('aria-expanded', expandir ? 'true' : 'false');
-      btnDatas.textContent = expandir
-        ? 'Recolher datas ▴'
-        : 'Mostrar mais datas (+' + btnDatas.getAttribute('data-pa-toggle-datas') + ') ▾';
-      ajustarTruncamentoLista(card);
-    });
-  });
-
-  // Ordenação alfanumérica ao clicar no cabeçalho — vale pra QUALQUER
-  // coluna visível de QUALQUER lista (inclusive o selo "AÇÃO M2"), sem
-  // duplicar dado nenhum: só reordena os <tr> já existentes no <tbody> e
-  // reaplica os filtros/busca já ativos (applyFilters lê tudo direto do
-  // DOM, então continua batendo certinho depois da reordenação).
-  function ordenarTabelaPorColuna(th){
-    var card = th.closest('.list-card');
-    var table = th.closest('table');
-    var tbody = table ? table.querySelector('tbody') : null;
-    if(!card || !tbody) return;
-    var listName = card.getAttribute('data-list-card');
-    var colIdx = parseInt(th.getAttribute('data-col-idx'), 10);
-    var novaDir = th.getAttribute('data-sort-dir') === 'asc' ? 'desc' : 'asc';
-    table.querySelectorAll('.sortable-th').forEach(function(h){
-      if(h !== th){ h.removeAttribute('data-sort-dir'); h.classList.remove('sort-asc','sort-desc'); }
-    });
-    th.setAttribute('data-sort-dir', novaDir);
-    th.classList.remove('sort-asc','sort-desc');
-    th.classList.add(novaDir === 'asc' ? 'sort-asc' : 'sort-desc');
-    var listKey = card.getAttribute('data-state-key');
-    var m = listModel[listKey];
-    if(!m) return;
-    m.sortCol = colIdx;
-    m.sortDir = novaDir;
-    ordenarModeloLista(listKey, m);
-    applyFilters(card);
-  }
-  el.querySelectorAll('.list-card .sortable-th').forEach(function(th){
-    th.addEventListener('click', function(){ ordenarTabelaPorColuna(th); });
-  });
-  el.querySelectorAll('.list-card').forEach(function(card){
-    if(card.querySelector('tbody')) paginarLista(card);
-  });
-}
-
-// ===== módulo: js/pdf/pdf-divergencia.js =====
-// ======================================================================
-// pdf/pdf-divergencia.js
-// PDF de divergência: calculado (painel) vs. oficial
-// (módulo gerado a partir do app.js original — ver MODULOS.md)
-// ======================================================================
-
-
-// ---------- PDF de divergência: calculado (painel) vs. oficial (Q2-26) ----------
-// Compara, mês a mês, o valor que o painel calcularia a partir dos
-// dados brutos (numeradorXCalculado/denominadorXCalculado/xCalculado —
-// guardados em aplicarOverrideOficial ANTES da substituição) com o
-// valor oficial que efetivamente está sendo exibido (numeradorX/
-// denominadorX/x, já com o override aplicado). Só entram no relatório
-// os meses/indicadores em que existe dado oficial (m1Oficial/m2Oficial).
-export function gerarPdfDivergenciaOficial(serieTendencia){
-  var jspdfNs = window.jspdf;
-  if(!jspdfNs || !jspdfNs.jsPDF){
-    alert('Não foi possível carregar a biblioteca de geração de PDF (verifique a conexão com a internet) — tente novamente.');
-    return;
-  }
-  var linhas = [];
-  // Estatísticas de divergência por indicador — usadas no comentário
-  // logo abaixo da tabela (qual indicador diverge mais vezes, a
-  // divergência média de cada um, e o detalhamento de quantas dessas
-  // divergências foram "para mais" — oficial acima do calculado — e
-  // quantas foram "para menos"). Um mês só conta como "divergente" se a
-  // diferença (oficial - calculado), já arredondada nas 2 casas
-  // exibidas na tabela, for diferente de zero — assim o comentário bate
-  // exatamente com o que a coluna "Diferença" mostra.
-  function novoStat(){ return {meses:0, divergentes:0, somaAbs:0, paraMais:{n:0,soma:0}, paraMenos:{n:0,soma:0}, itensPareto:[]}; }
-  var statM1 = novoStat();
-  var statM2 = novoStat();
-  function registrarDivergencia(stat, dif, mesLabel){
-    if(dif==null) return;
-    stat.meses++;
-    stat.somaAbs += Math.abs(dif);
-    if(fmtDec(Math.abs(dif),2) === fmtDec(0,2)) return; // sem divergência (bateu na 2ª casa exibida)
-    stat.divergentes++;
-    stat.itensPareto.push({label:mesLabel, valor:Math.abs(dif)});
-    if(dif > 0){ stat.paraMais.n++; stat.paraMais.soma += dif; }
-    else { stat.paraMenos.n++; stat.paraMenos.soma += Math.abs(dif); }
-  }
-  // Mais recente primeiro, mesma ordem da tabela de Série histórica.
-  serieTendencia.slice().reverse().forEach(function(p){
-    var mesLabel = monthShortLabel(p.mes);
-    // Diferença de numerador/denominador (oficial - calculado): mostra
-    // ONDE está a divergência de valor (M1/M2), não só o tamanho dela.
-    function fmtDif(v){ return v!=null ? (v>=0?'+':'')+fmtInt(v) : '—'; }
-    if(p.m1Oficial){
-      var difM1 = (p.m1!=null && p.m1Calculado!=null) ? (p.m1 - p.m1Calculado) : null;
-      registrarDivergencia(statM1, difM1, mesLabel);
-      var difNumM1 = (p.numeradorM1!=null && p.numeradorM1Calculado!=null) ? (p.numeradorM1 - p.numeradorM1Calculado) : null;
-      var difDenM1 = (p.denominadorM1!=null && p.denominadorM1Calculado!=null) ? (p.denominadorM1 - p.denominadorM1Calculado) : null;
-      linhas.push([
-        mesLabel, 'M1',
-        fmtInt(p.numeradorM1Calculado)+' / '+fmtInt(p.denominadorM1Calculado), p.m1Calculado!=null ? fmtDec(p.m1Calculado,2) : '—',
-        fmtInt(p.numeradorM1)+' / '+fmtInt(p.denominadorM1), p.m1!=null ? fmtDec(p.m1,2) : '—',
-        fmtDif(difNumM1), fmtDif(difDenM1),
-        difM1!=null ? (difM1>=0?'+':'')+fmtDec(difM1,2) : '—'
-      ]);
-    }
-    if(p.m2Oficial){
-      var difM2 = (p.m2!=null && p.m2Calculado!=null) ? (p.m2 - p.m2Calculado) : null;
-      registrarDivergencia(statM2, difM2, mesLabel);
-      var difNumM2 = (p.numeradorM2!=null && p.numeradorM2Calculado!=null) ? (p.numeradorM2 - p.numeradorM2Calculado) : null;
-      var difDenM2 = (p.denominadorM2!=null && p.denominadorM2Calculado!=null) ? (p.denominadorM2 - p.denominadorM2Calculado) : null;
-      linhas.push([
-        mesLabel, 'M2',
-        fmtInt(p.numeradorM2Calculado)+' / '+fmtInt(p.denominadorM2Calculado), p.m2Calculado!=null ? fmtDec(p.m2Calculado,2)+'%' : '—',
-        fmtInt(p.numeradorM2)+' / '+fmtInt(p.denominadorM2), p.m2!=null ? fmtDec(p.m2,2)+'%' : '—',
-        fmtDif(difNumM2), fmtDif(difDenM2),
-        difM2!=null ? (difM2>=0?'+':'')+fmtDec(difM2,2)+'%' : '—'
-      ]);
-    }
-  });
-  if(!linhas.length){
-    alert('Não há meses com dado oficial (aba Q2-26) carregado pra esta equipe — nada pra comparar.');
-    return;
-  }
-
-  var equipeLabel = estadoApp.currentEquipes.map(function(e){ return e.label; }).join(' + ');
-  var doc = new jspdfNs.jsPDF({orientation:'landscape', unit:'pt', format:'a4'});
-  var pageWidth = doc.internal.pageSize.getWidth();
-  var pageHeight = doc.internal.pageSize.getHeight();
-  var margin = 28;
-
-  doc.setFillColor(21,63,53);
-  doc.rect(0,0,pageWidth,64,'F');
-  doc.setTextColor(238,243,234);
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(15);
-  doc.text('Painel eMulti — Divergência: calculado × oficial', margin, 26);
-  doc.setFont('helvetica','normal');
-  doc.setFontSize(10);
-  doc.setTextColor(159,192,174);
-  doc.text(equipeLabel, margin, 42);
-  doc.setFontSize(8.5);
-  doc.text('Gerado em '+new Date().toLocaleString('pt-BR'), pageWidth-margin, 26, {align:'right'});
-
-  var y = 84;
-  doc.setTextColor(21,63,53);
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(13);
-  doc.text('Calculado pelo painel × Oficial (aba Q2-26)', margin, y);
-  y += 16;
-  doc.setFont('helvetica','normal');
-  doc.setFontSize(9);
-  doc.setTextColor(81,96,90);
-  doc.text('M1 = atendimentos por pessoa (numerador ÷ denominador). M2 = % de ações compartilhadas (numerador ÷ denominador × 100). Todas as diferenças = oficial - calculado.', margin, y);
-  y += 14;
-
-  doc.autoTable({
-    startY: y,
-    head: [['Mês','Indicador','Numerador/Denominador (calculado)','Valor (calculado)','Numerador/Denominador (oficial)','Valor (oficial)','Dif. numerador','Dif. denominador','Diferença']],
-    body: linhas,
-    theme: 'grid',
-    margin: {left:margin, right:margin, bottom:34},
-    styles: {font:'helvetica', fontSize:8.6, cellPadding:4, overflow:'linebreak', textColor:[19,36,31], lineColor:[220,228,214], lineWidth:0.5},
-    headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold'},
-    alternateRowStyles: {fillColor:[241,244,238]},
-    didDrawPage: function(){
-      doc.setFontSize(8);
-      doc.setTextColor(150,158,152);
-      doc.text('Página '+doc.internal.getCurrentPageInfo().pageNumber, pageWidth-margin, pageHeight-14, {align:'right'});
-    }
-  });
-
-  // ---- Comentário: indicador com mais divergência + médias + detalhe "para mais"/"para menos" ----
-  var mediaM1 = statM1.meses ? (statM1.somaAbs/statM1.meses) : null;
-  var mediaM2 = statM2.meses ? (statM2.somaAbs/statM2.meses) : null;
-  var comentario;
-  if(statM1.divergentes === 0 && statM2.divergentes === 0){
-    comentario = 'Nenhum mês apresentou divergência entre o valor calculado pelo painel e o valor oficial — M1 e M2 bateram em todos os meses comparados.';
-  } else if(statM1.divergentes > statM2.divergentes){
-    comentario = 'M1 é o indicador com maior número de divergências ('+statM1.divergentes+' de '+statM1.meses+' meses, contra '+statM2.divergentes+' de '+statM2.meses+' em M2).';
-  } else if(statM2.divergentes > statM1.divergentes){
-    comentario = 'M2 é o indicador com maior número de divergências ('+statM2.divergentes+' de '+statM2.meses+' meses, contra '+statM1.divergentes+' de '+statM1.meses+' em M1).';
-  } else {
-    comentario = 'M1 e M2 empatam no número de meses com divergência ('+statM1.divergentes+' de '+statM1.meses+' meses cada).';
-  }
-  comentario += ' Divergência média (oficial - calculado, em módulo) — M1: '+(mediaM1!=null ? fmtDec(mediaM1,2) : '—')
-    +' | M2: '+(mediaM2!=null ? fmtDec(mediaM2,2)+'%' : '—')+'.';
-
-  // "Para mais" = valor oficial ACIMA do calculado pelo painel (oficial
-  // > calculado); "para menos" = oficial ABAIXO do calculado. A média
-  // de cada lado usa só os meses daquele lado (não conta os meses sem
-  // divergência).
-  function detalheDirecao(stat, sufixo){
-    var mediaMais = stat.paraMais.n ? (stat.paraMais.soma/stat.paraMais.n) : null;
-    var mediaMenos = stat.paraMenos.n ? (stat.paraMenos.soma/stat.paraMenos.n) : null;
-    return 'para mais: '+stat.paraMais.n+' mês(es)'+(mediaMais!=null ? ' (média +'+fmtDec(mediaMais,2)+sufixo+')' : '')
-      +'; para menos: '+stat.paraMenos.n+' mês(es)'+(mediaMenos!=null ? ' (média -'+fmtDec(mediaMenos,2)+sufixo+')' : '');
-  }
-  comentario += ' Detalhamento M1 — '+detalheDirecao(statM1, '')+'.';
-  comentario += ' Detalhamento M2 — '+detalheDirecao(statM2, '%')+'.';
-
-  var yComentario = (doc.lastAutoTable ? doc.lastAutoTable.finalY : y) + 22;
-  var linhasComentario = doc.splitTextToSize(comentario, pageWidth-margin*2);
-  var alturaComentario = 14 + 12*linhasComentario.length;
-  if(yComentario + alturaComentario > pageHeight - margin){
-    doc.addPage();
-    yComentario = margin + 10;
-  }
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(9.5);
-  doc.setTextColor(21,63,53);
-  doc.text('Resumo da divergência', margin, yComentario);
-  yComentario += 14;
-  doc.setFont('helvetica','normal');
-  doc.setFontSize(8.8);
-  doc.setTextColor(81,96,90);
-  doc.text(linhasComentario, margin, yComentario);
-
-  // ---- Gráfico de Pareto: uma página por indicador, com todos os meses ----
-  // divergentes ordenados do maior pro menor desvio, mais a curva de %
-  // acumulado (regra 80/20). Só desenha a página do indicador que teve
-  // pelo menos 1 mês divergente.
-  function desenharPareto(doc, opts){
-    var x = opts.x, yTop = opts.y, w = opts.w, h = opts.h;
-    var itens = opts.itens.slice().sort(function(a,b){ return b.valor - a.valor; });
-    var total = itens.reduce(function(s,it){ return s + it.valor; }, 0);
-    var n = itens.length;
-
-    var labelH = 26;   // espaço pro rótulo do mês, abaixo do eixo
-    var topPad = 16;   // espaço acima da maior barra pro rótulo do valor
-    var plotY = yTop + topPad;
-    var plotH = h - labelH - topPad;
-    var baseY = plotY + plotH;
-
-    var maxValor = itens[0] ? itens[0].valor : 0;
-    if(maxValor <= 0) maxValor = 1;
-
-    doc.setDrawColor(150,158,152);
-    doc.setLineWidth(0.75);
-    doc.line(x, plotY, x, baseY);
-    doc.line(x, baseY, x+w, baseY);
-    doc.line(x+w, plotY, x+w, baseY);
-
-    doc.setFontSize(7.5);
-    [0,20,40,60,80,100].forEach(function(p){
-      var gy = baseY - plotH*(p/100);
-      if(p===80){ doc.setDrawColor(200,120,60); doc.setLineWidth(0.9); doc.setLineDashPattern([3,2],0); }
-      else { doc.setDrawColor(230,232,228); doc.setLineWidth(0.5); doc.setLineDashPattern([],0); }
-      doc.line(x, gy, x+w, gy);
-      doc.setLineDashPattern([],0);
-      if(p===80) doc.setTextColor(200,120,60); else doc.setTextColor(150,158,152);
-      doc.text(p+'%', x+w+4, gy+2);
-    });
-
-    var slot = w / n;
-    var barW = Math.min(slot*0.55, 34);
-    var pontos = [];
-    var acumulado = 0;
-    itens.forEach(function(it, i){
-      var cx = x + slot*i + slot/2;
-      var barH = plotH * (it.valor / maxValor);
-      var by = baseY - barH;
-      doc.setFillColor(opts.corBarra[0], opts.corBarra[1], opts.corBarra[2]);
-      doc.rect(cx - barW/2, by, barW, barH, 'F');
-
-      doc.setFontSize(7.6);
-      doc.setTextColor(81,96,90);
-      doc.text(it.label, cx, baseY + 12, {align:'center'});
-
-      acumulado += it.valor;
-      var pct = total>0 ? (acumulado/total*100) : 0;
-      pontos.push({x:cx, y: baseY - plotH*(pct/100), valorLabel: opts.fmtValor(it.valor), yTopoBarra: by});
-    });
-
-    doc.setDrawColor(190,70,50);
-    doc.setLineWidth(1.1);
-    for(var i=0;i<pontos.length-1;i++){
-      doc.line(pontos[i].x, pontos[i].y, pontos[i+1].x, pontos[i+1].y);
-    }
-    doc.setFillColor(190,70,50);
-    pontos.forEach(function(p){ doc.circle(p.x, p.y, 1.9, 'F'); });
-
-    // Rótulos de valor no topo de cada barra — desenhados por último pra
-    // ficarem por cima da linha/marcador do acumulado (evita que o ponto
-    // vermelho cubra o número quando a curva passa perto do topo da barra).
-    doc.setFontSize(7.2);
-    pontos.forEach(function(p){
-      // "respiro" branco atrás do texto, só o suficiente pra não ficar
-      // ilegível em cima da linha vermelha.
-      var tw = doc.getTextWidth(p.valorLabel);
-      doc.setFillColor(255,255,255);
-      doc.rect(p.x - tw/2 - 1.5, p.yTopoBarra - 4 - 6.5, tw+3, 8, 'F');
-      doc.setTextColor(60,70,66);
-      doc.text(p.valorLabel, p.x, p.yTopoBarra - 4, {align:'center'});
-    });
-
-    return baseY;
-  }
-
-  function paginaParetoIndicador(indicadorNome, stat, corBarra, fmtValor){
-    if(!stat.itensPareto.length) return;
-    doc.addPage();
-    doc.setFillColor(21,63,53);
-    doc.rect(0,0,pageWidth,64,'F');
-    doc.setTextColor(238,243,234);
-    doc.setFont('helvetica','bold');
-    doc.setFontSize(15);
-    doc.text('Painel eMulti — Pareto de divergências ('+indicadorNome+')', margin, 26);
-    doc.setFont('helvetica','normal');
-    doc.setFontSize(10);
-    doc.setTextColor(159,192,174);
-    doc.text(equipeLabel, margin, 42);
-    doc.setFontSize(8.5);
-    doc.text('Gerado em '+new Date().toLocaleString('pt-BR'), pageWidth-margin, 26, {align:'right'});
-
-    var yy = 92;
-    doc.setFont('helvetica','bold');
-    doc.setFontSize(11.5);
-    doc.setTextColor(21,63,53);
-    doc.text('Meses ordenados da maior pra menor divergência, com % acumulado (linha) e referência de 80% (regra 80/20)', margin, yy);
-
-    desenharPareto(doc, {
-      x: margin, y: yy+18, w: pageWidth-margin*2, h: pageHeight-yy-18-margin-16,
-      itens: stat.itensPareto, corBarra: corBarra, fmtValor: fmtValor
-    });
-
-    doc.setFontSize(8);
-    doc.setTextColor(150,158,152);
-    doc.text('Página '+doc.internal.getCurrentPageInfo().pageNumber, pageWidth-margin, pageHeight-14, {align:'right'});
-  }
-
-  paginaParetoIndicador('M1', statM1, [58,120,102], function(v){ return fmtDec(v,2); });
-  paginaParetoIndicador('M2', statM2, [58,120,102], function(v){ return fmtDec(v,2)+'%'; });
-
-  var arquivo = 'divergencia_oficial__'+slugifyFileName(equipeLabel)+'__'+slugifyFileName(new Date().toLocaleDateString('pt-BR'))+'.pdf';
-  doc.save(arquivo);
-}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<script type="text/javascript">window.NREUM||(NREUM={});NREUM.info={"beacon":"bam.nr-data.net","errorBeacon":"bam.nr-data.net","licenseKey":"NRBR-79c55be788cf6d20c36","applicationID":"552100530","transactionName":"el0NTBAMDVxdSxoFSVAdFQlNAAlRTBZUFk1QVAJbFhBOU1dXQQFXTQ==","queueTime":0,"applicationTime":173,"agent":""}</script>
+<script type="text/javascript">(window.NREUM||(NREUM={})).init={privacy:{cookies_enabled:true},ajax:{deny_list:["bam.nr-data.net"]},distributed_tracing:{enabled:true}};(window.NREUM||(NREUM={})).loader_config={agentID:"653425545",accountID:"4473699",trustKey:"4473699",xpid:"UAIAUlBaARAFUVNTBwECVVQ=",licenseKey:"NRBR-79c55be788cf6d20c36",applicationID:"552100530",browserID:"653425545"};;/*! For license information please see nr-loader-spa-1.322.0.min.js.LICENSE.txt */
+(()=>{var e={8122(e,t,r){"use strict";r.d(t,{a:()=>i});var n=r(944);function i(e,t){try{if(!e||"object"!=typeof e)return(0,n.R)(3);if(!t||"object"!=typeof t)return(0,n.R)(4);const r=Object.create(Object.getPrototypeOf(t),Object.getOwnPropertyDescriptors(t)),s=0===Object.keys(r).length?e:r;for(let a in s)if(void 0!==e[a])try{if(null===e[a]){r[a]=null;continue}Array.isArray(e[a])&&Array.isArray(t[a])?r[a]=Array.from(new Set([...e[a],...t[a]])):e[a]instanceof Map||e[a]instanceof Set||e[a]instanceof Date||e[a]instanceof RegExp?r[a]=e[a]:"object"==typeof e[a]&&null!==t[a]&&"object"==typeof t[a]?r[a]=i(e[a],t[a]):r[a]=e[a]}catch(e){r[a]||(0,n.R)(1,e)}return r}catch(e){(0,n.R)(2,e)}}},2555(e,t,r){"use strict";r.d(t,{f:()=>a});var n=r(384),i=r(8122);const s={beacon:n.NT.beacon,errorBeacon:n.NT.errorBeacon,licenseKey:void 0,applicationID:void 0,sa:void 0,queueTime:void 0,applicationTime:void 0,ttGuid:void 0,user:void 0,account:void 0,product:void 0,extra:void 0,jsAttributes:{},userAttributes:void 0,atts:void 0,transactionName:void 0,tNamePlain:void 0};function a(e){try{return!!e.licenseKey&&!!e.errorBeacon&&!!e.applicationID}catch(e){return!1}}r.d(t,["D",0,e=>(0,i.a)(e,s)])},7699(e,t,r){"use strict";var n=r(860);const i={[n.K7.logging]:!0,[n.K7.genericEvents]:!0,[n.K7.jserrors]:!0,[n.K7.ajax]:!0};r.d(t,["It",0,1e6,"KC",0,i,"qh",0,"SESSION_ERROR"])},9324(e,t,r){"use strict";r.d(t,["A",0,"@newrelic/rrweb","x",0,"1.322.0"])},981(e,t,r){"use strict";r.d(t,["R",0,{AJAX:"AjaxRequest",PA:"PageAction",UA:"UserAction",BP:"BrowserPerformance",WS:"WebSocket",SPV:"SecurityPolicyViolation",JSE:"JavaScriptError",LOG:"Log",PVE:"PageView",PVT:"PageViewTiming",SR:"SessionReplay",ST:"SessionTrace",BI:"BrowserInteraction"}])},9752(e,t,r){"use strict";const n="newrelic-iframe-",i=n+"timing-update",s=n+"api",a=n+"api-response",o=n+"vitals-update",c=n+"ajax";r.d(t,["$8",0,o,"Gi",0,a,"KU",0,c,"Pl",0,n,"cS",0,s,"cr",0,i])},6154(e,t,r){"use strict";var n=r(1863);const i="undefined"!=typeof window&&!!window.document,s="undefined"!=typeof WorkerGlobalScope&&("undefined"!=typeof self&&self instanceof WorkerGlobalScope&&self.navigator instanceof WorkerNavigator||"undefined"!=typeof globalThis&&globalThis instanceof WorkerGlobalScope&&globalThis.navigator instanceof WorkerNavigator),a=i?window:"undefined"!=typeof WorkerGlobalScope&&("undefined"!=typeof self&&self instanceof WorkerGlobalScope&&self||"undefined"!=typeof globalThis&&globalThis instanceof WorkerGlobalScope&&globalThis),o=Boolean("hidden"===a?.document?.visibilityState),c=""+a?.location,d=/iPad|iPhone|iPod/.test(a.navigator?.userAgent),u=d&&"undefined"==typeof SharedWorker,l=(()=>{const e=a.navigator?.userAgent?.match(/Firefox[/\s](\d+\.\d+)/);return Array.isArray(e)&&e.length>=2?+e[1]:0})(),f=Date.now()-(0,n.t)();r.d(t,["OF",0,d,"RI",0,i,"WN",0,f,"bv",0,s,"gm",0,a,"lR",0,l,"m",0,c,"mw",0,o,"sb",0,u,"zk",0,()=>{const e=a?.performance?.getEntriesByType?.("navigation")?.[0];if(e&&e.responseStart>0&&e.responseStart<a.performance.now())return e}])},7295(e,t,r){"use strict";r.d(t,{Xv:()=>a,gX:()=>i,iW:()=>s});var n=[];function i(e){if(!e||s(e))return!1;if(0===n.length)return!0;if("*"===n[0].hostname)return!1;for(var t=0;t<n.length;t++){var r=n[t];if(r.hostname.test(e.hostname)&&r.pathname.test(e.pathname))return!1}return!0}function s(e){return void 0===e.hostname}function a(e){if(n=[],e&&e.length)for(var t=0;t<e.length;t++){let r=e[t];if(!r)continue;if("*"===r)return void(n=[{hostname:"*"}]);0===r.indexOf("http://")?r=r.substring(7):0===r.indexOf("https://")&&(r=r.substring(8));const i=r.indexOf("/");let s,a;i>0?(s=r.substring(0,i),a=r.substring(i)):(s=r,a="*");let[c]=s.split(":");n.push({hostname:o(c),pathname:o(a,!0)})}}function o(e,t=!1){const r=e.replace(/[.+?^${}()|[\]\\]/g,e=>"\\"+e).replace(/\*/g,".*?");return new RegExp((t?"^":"")+r+"$")}},3241(e,t,r){"use strict";r.d(t,{W:()=>i});var n=r(6154);function i(e={}){try{n.gm.dispatchEvent(new CustomEvent("newrelic",{detail:e}))}catch(e){}}},1687(e,t,r){"use strict";r.d(t,{Ak:()=>o,Ze:()=>d,x3:()=>c});var n=r(3241),i=r(3606),s=r(860),a=r(2646);function o(e,t){if(!e)return;const r={staged:!1,priority:s.P3[t]||0};e.runtime.drainRegistry.get(t)||e.runtime.drainRegistry.set(t,r)}function c(e,t){if(!e)return;const r=e.runtime.drainRegistry;r&&(r.get(t)&&r.delete(t),l(e,t,!1),r.size&&u(e))}function d(e,t="feature",r=!1){if(e){if(!e.runtime.drainRegistry.get(t)||r)return l(e,t);e.runtime.drainRegistry.get(t).staged=!0,u(e)}}function u(e){if(!e)return;const t=Array.from(e.runtime.drainRegistry);t.every(([e,t])=>t.staged)&&(t.sort((e,t)=>e[1].priority-t[1].priority),t.forEach(([t])=>{e.runtime.drainRegistry.delete(t),l(e,t)}))}function l(e,t,r=!0){if(!e)return;const s=e.ee,o=i.i.handlers;if(s&&!s.aborted&&s.backlog&&o){if((0,n.W)({type:"lifecycle",name:"drain",feature:t}),r){const e=s.backlog[t],r=o[t];if(r){for(let t=0;e&&t<e.length;++t)f(e[t],r);Object.entries(r).forEach(([e,t])=>{Object.values(t||{}).forEach(t=>{t[0]?.on&&t[0].context()instanceof a.y&&!t[0].listeners(e).includes(t[1])&&t[0].on(e,t[1])})})}}s.isolatedBacklog||delete o[t],s.backlog[t]=null,s.emit("drain-"+t,[])}}function f(e,t){var r=e[1];Object.values(t[r]||{}).forEach(t=>{var r=e[0];if(t[0]===r){var n=t[1],i=e[3],s=e[2];n.apply(i,s)}})}},7836(e,t,r){"use strict";var n=r(384),i=r(8990),s=r(2646),a=r(5607);const o="nr@context:".concat(a.W),c=function e(t,r){var n={},a={},u={},l=!1;try{l=16===r.length&&d.initializedAgents?.[r]?.runtime.isolatedBacklog}catch(e){}var f={on:p,addEventListener:p,removeEventListener:function(e,t){var r=n[e];if(!r)return;for(var i=0;i<r.length;i++)r[i]===t&&r.splice(i,1)},emit:function(e,r,n,i,s){!1!==s&&(s=!0);if(c.aborted&&!i)return;t&&s&&t.emit(e,r,n);var o=h(n);g(e).forEach(e=>{e.apply(o,r)});var d=v()[a[e]];d&&d.push([f,e,r,o]);return o},get:m,listeners:g,context:h,buffer:function(e,t){const r=v();if(t=t||"feature",f.aborted)return;Object.entries(e||{}).forEach(([e,n])=>{a[n]=t,t in r||(r[t]=[])})},abort:function(){f._aborted=!0,Object.keys(f.backlog).forEach(e=>{delete f.backlog[e]})},isBuffering:function(e){return!!v()[a[e]]},debugId:r,backlog:l?{}:t&&"object"==typeof t.backlog?t.backlog:{},isolatedBacklog:l};return Object.defineProperty(f,"aborted",{get:()=>{let e=f._aborted||!1;return e||(t&&(e=t.aborted),e)}}),f;function h(e){return e&&e instanceof s.y?e:e?(0,i.I)(e,o,()=>new s.y(o)):new s.y(o)}function p(e,t){n[e]=g(e).concat(t)}function g(e){return n[e]||[]}function m(t){return u[t]=u[t]||e(f,t)}function v(){return f.backlog}}(void 0,"globalEE"),d=(0,n.Zm)();d.ee||(d.ee=c),r.d(t,["P",0,o,"ee",0,c])},2646(e,t,r){"use strict";r.d(t,{y:()=>n});class n{constructor(e){this.contextId=e}}},9908(e,t,r){"use strict";r.d(t,{d:()=>n,p:()=>i});var n=r(7836).ee.get("handle");function i(e,t,r,i,s){s?(s.buffer([e],i),s.emit(e,t,r)):(n.buffer([e],i),n.emit(e,t,r))}},3606(e,t,r){"use strict";r.d(t,{i:()=>s});var n=r(9908);s.on=a;var i=s.handlers={};function s(e,t,r,s){a(s||n.d,i,e,t,r)}function a(e,t,r,i,s){s||(s="feature"),e||(e=n.d);var a=t[s]=t[s]||{};(a[r]=a[r]||[]).push([e,i])}},3878(e,t,r){"use strict";function n(e,t){return{capture:e,passive:!1,signal:t}}function i(e,t,r=!1,i){window.addEventListener(e,t,n(r,i))}function s(e,t,r=!1,i){document.addEventListener(e,t,n(r,i))}r.d(t,{DD:()=>s,jT:()=>n,sp:()=>i})},5607(e,t,r){"use strict";const n=(0,r(9566).bz)();r.d(t,["W",0,n])},9566(e,t,r){"use strict";r.d(t,{LA:()=>a,ZF:()=>o,bz:()=>s,el:()=>c});var n=r(6154);function i(e,t){return e?15&e[t]:16*Math.random()|0}function s(){const e=n.gm?.crypto||n.gm?.msCrypto;let t,r=0;return e&&e.getRandomValues&&(t=e.getRandomValues(new Uint8Array(30))),"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".split("").map(e=>"x"===e?i(t,r++).toString(16):"y"===e?(3&i()|8).toString(16):e).join("")}function a(e){const t=n.gm?.crypto||n.gm?.msCrypto;let r,s=0;t&&t.getRandomValues&&(r=t.getRandomValues(new Uint8Array(e)));const a=[];for(var o=0;o<e;o++)a.push(i(r,s++).toString(16));return a.join("")}function o(){return a(16)}function c(){return a(32)}},2614(e,t,r){"use strict";r.d(t,["BB",0,18e5,"Wt",0,"NRBA_SESSION::","g",0,{OFF:0,FULL:1,ERROR:2},"iL",0,{SAME_TAB:"same-tab",CROSS_TAB:"cross-tab"},"tS",0,{STARTED:"session-started",PAUSE:"session-pause",RESET:"session-reset",RESUME:"session-resume",UPDATE:"session-update"},"wk",0,144e5])},733(e,t,r){"use strict";function n(e,t){return function(e){let t=2166136261;for(let r=0;r<e.length;r++)t^=e.charCodeAt(r),t=Math.imul(t,16777619);return(t>>>0).toString(16).padStart(8,"0")}("".concat(String(e),":").concat(String(t)))}r.d(t,{Y:()=>n})},1863(e,t,r){"use strict";function n(){return Math.floor(performance.now())}r.d(t,{t:()=>n})},9119(e,t,r){"use strict";r.d(t,{L:()=>s});var n=/([^?#]*)[^#]*(#[^?]*|$).*/,i=/([^?#]*)().*/;function s(e,t){return e?e.replace(t?n:i,"$1$2"):e}},7485(e,t,r){"use strict";r.d(t,{D:()=>i});var n=r(6154);function i(e){if(0===(e||"").indexOf("data:"))return{protocol:"data"};try{const t=new URL(e,location.href),r={port:t.port,hostname:t.hostname,pathname:t.pathname,search:t.search,protocol:t.protocol.slice(0,t.protocol.indexOf(":")),sameOrigin:t.protocol===n.gm?.location?.protocol&&t.host===n.gm?.location?.host};return r.port&&""!==r.port||("http:"===t.protocol&&(r.port="80"),"https:"===t.protocol&&(r.port="443")),r.pathname&&""!==r.pathname?r.pathname.startsWith("/")||(r.pathname="/".concat(r.pathname)):r.pathname="/",r}catch(e){return{}}}},7866(e,t,r){"use strict";r.d(t,["Nc",0,/^\s*at Function code \(Function code:\d+:\d+\)\s*/i,"cn",0,/^\s*(?:([^@]*)(?:\(.*?\))?@)?((?:file|http|https|chrome|safari-extension).*?):(\d+)(?::(\d+))?\s*$/i,"fL",0,/^\s*at .+ \(eval at \S+ \((?:(?:file|http|https):[^)]+)?\)(?:, [^:]*:\d+:\d+)?\)$/i,"h3",0,/function (.+?)\s*\(/,"hB",0,/^\s*at (?:((?:\[object object\])?(?:[^(]*\([^)]*\))*[^()]*(?: \[as \S+\])?) )?\(?((?:file|http|https|chrome-extension):.*?)?:(\d+)(?::(\d+))?\)?\s*$/i])},944(e,t,r){"use strict";r.d(t,{R:()=>i});var n=r(3241);function i(e,t){"function"==typeof console.debug&&(console.debug("New Relic Warning: https://github.com/newrelic/newrelic-browser-agent/blob/main/docs/warning-codes.md#".concat(e),t),(0,n.W)({drained:null,type:"data",name:"warn",feature:"warn",data:{code:e,secondary:t}}))}},8990(e,t,r){"use strict";r.d(t,{I:()=>i});var n=Object.prototype.hasOwnProperty;function i(e,t,r){if(n.call(e,t))return e[t];var i=r();if(Object.defineProperty&&Object.keys)try{return Object.defineProperty(e,t,{value:i,writable:!0,enumerable:!1}),i}catch(e){}return e[t]=i,i}},6389(e,t,r){"use strict";function n(e,t=500,r={}){const n=r?.leading||!1;let i;return(...r)=>{n&&void 0===i&&(e.apply(this,r),i=setTimeout(()=>{i=clearTimeout(i)},t)),n||(clearTimeout(i),i=setTimeout(()=>{e.apply(this,r)},t))}}function i(e){let t=!1;return(...r)=>{t||(t=!0,e.apply(this,r))}}r.d(t,{J:()=>i,s:()=>n})},1910(e,t,r){"use strict";r.d(t,{i:()=>s});var n=r(944);const i=new Map;function s(...e){return e.every(e=>{if(i.has(e))return i.get(e);const t="function"==typeof e?e.toString():"",r=t.includes("[native code]"),s=t.includes("nrWrapper");return r||s||(0,n.R)(64,e?.name||t),i.set(e,r),r})}},3304(e,t,r){"use strict";r.d(t,{A:()=>i});var n=r(7836);function i(e){try{return JSON.stringify(e,(()=>{const e=new WeakSet;return(t,r)=>{if("object"==typeof r&&null!==r){if(e.has(r))return;e.add(r)}return r}})())??""}catch(e){try{n.ee.emit("internal-error",[e])}catch(e){}return""}}},9232(e,t,r){"use strict";r.d(t,["f",0,{MFE:"MFE",BA:"BA"}])},7560(e,t,r){"use strict";r.d(t,{N:()=>a,j:()=>c});var n=r(9119),i=r(944);const s=(0,r(6389).J)(e=>(0,i.R)(80,e));function a(e){if(!Array.isArray(e?.assets)||!e.assets.length)return;const t=e.assets.map(o).filter(Boolean);return t.length?{assets:t,scripts:t.filter(e=>e.isScript)}:void 0}function o(e){if(!e||"object"!=typeof e)return;const{matcher:t,type:r}=e;let i="string"==typeof t&&t.endsWith(".js");return void 0!==r&&(!function(e){return"script"===e||"asset"===e}(r)?s(r):i=function(e){return"script"===e}(r)),a=t,"[object RegExp]"===Object.prototype.toString.call(a)?{pattern:t,test:e=>(t.lastIndex=0,t.test((0,n.L)(e))),isScript:i}:"string"==typeof t&&t.length>0?{pattern:t,test:e=>(0,n.L)(e).includes(t),isScript:i}:void s(t);var a}function c(e,t,{scriptsOnly:r=!1}={}){if(!e||!t)return!1;return(r?e.scripts:e.assets).some(e=>e.test(t))}},5718(e,t,r){"use strict";r.d(t,{xo:()=>T,AZ:()=>v,cI:()=>g,Qr:()=>A,QL:()=>y});var n=r(6154),i=r(1863),s=r(9119),a=r(7866);class o{dom=new c;performance=new c;constructor(e){this.url=e,this.claimedBy=new Set}get script(){const e=Math.max(this.dom.start,this.performance.end);return{start:e,end:Math.max(this.dom.end,this.performance.end,e)}}}class c{start=0;end=0;value=void 0}function d(e=()=>{},t){return{get:()=>void 0!==t?t:e(),set:e=>{t=e}}}let u;try{u=v(y())[0]}catch(e){u=v(e)[0]}const l=new Map;let f=[];const h=new WeakMap;function p(e){let t=h.get(e);return t||(t={weighedAssetUrls:new Set,recordManifestScriptWindow:(t,r)=>{t&&(e.scriptStart=e.scriptStart>0?Math.min(e.scriptStart,t):t),r&&(e.scriptEnd=e.scriptEnd>0?Math.max(e.scriptEnd,r):r)}},h.set(e,t)),t}function g(e){return l.get(e)}function m(e){const t=g(e);if(t)return t;const r=new o(e);if(l.set(e,r),l.size>1e3){const e=l.keys().next().value;l.delete(e)}return r}if(n.gm.MutationObserver&&n.gm.document){new MutationObserver(e=>{e.forEach(e=>{e.addedNodes.forEach(e=>{if("SCRIPT"===e.nodeName&&e.src){const t=m((0,s.L)(e.src));t.dom.start=(0,i.t)(),t.dom.value=e;const r=()=>{t.dom.end=(0,i.t)()};["load","error"].forEach(t=>e.addEventListener(t,r,{once:!0}))}})})}).observe(n.gm.document,{childList:!0,subtree:!0})}if(n.gm.PerformanceObserver?.supportedEntryTypes.includes("resource")){new PerformanceObserver(e=>{e.getEntries().forEach(e=>{if((e=>"script"===e.initiatorType||["link","fetch"].includes(e.initiatorType)&&(0,s.L)(e.name).endsWith(".js"))(e)){const t=m((0,s.L)(e.name));t.performance.start=Math.floor(e.startTime),t.performance.end=Math.floor(e.responseEnd),t.performance.value=e}if(!f.length)return;const t=[];f.forEach(({test:r,addedAt:n},s)=>{(r(e)||(0,i.t)()-n>1e4)&&t.push(s)}),f=f.filter((e,r)=>!t.includes(r))})}).observe({type:"resource",buffered:!0})}function v(e){if(!e||"string"!=typeof e)return[];const t=new Set,r=e.split("\n");for(const e of r){const r=e.match(a.cn)||e.match(a.hB)||e.match(a.fL);if(r&&r[2])t.add((0,s.L)(r[2]));else{const r=e.match(/\(([^)]+\.js):\d+:\d+\)/)||e.match(/^\s+at\s+([^\s(]+\.js):\d+:\d+/);r&&r[1]&&t.add((0,s.L)(r[1]))}}return[...t]}function y(){let e;try{const t=Error.stackTraceLimit;Error.stackTraceLimit=50,e=(new Error).stack,Error.stackTraceLimit=t}catch(t){e=(new Error).stack}return e}function b(e,t){return(0,s.L)(e.name)===t}function E(e,t){e.fetchStart=Math.floor(t.startTime),e.fetchEnd=Math.floor(t.responseEnd),e.asset=t.name,e.type=t.initiatorType,w(e,t)}function w(e,t){const r=(0,s.L)(t.name),{weighedAssetUrls:n}=p(e);n.has(r)||(n.add(r),e.totalWeight=(e.totalWeight||0)+(t.transferSize||0),"blocking"===t.renderBlockingStatus?e.renderBlocking=!0:"non-blocking"===t.renderBlockingStatus&&!0!==e.renderBlocking&&(e.renderBlocking=!1))}function R(e,t,r,n,i){if(w(e,t),"scripts"!==i&&"all"!==i)return;if("all"===i||r.isScript){const r=Math.floor(t.startTime),n=Math.floor(t.responseEnd);e.fetchStart=e.fetchStart>0?Math.min(e.fetchStart,r):r,e.fetchEnd=e.fetchEnd>0?Math.max(e.fetchEnd,n):n}if(r.isScript){const r=g((0,s.L)(t.name));if(r){const t=()=>{const{start:t,end:n}=r.script;p(e).recordManifestScriptWindow(t,n)};t(),!r.dom.end&&r.dom.value&&["load","error"].forEach(e=>r.dom.value.addEventListener(e,t,{once:!0}))}n.resolved||(e.asset=t.name,e.type=t.initiatorType,n.resolved=!0)}}function T(e,t){const r=t?.manifest;if(!r||!r.assets.length)return;const s={resolved:!1},a=new Set(r.assets);(n.gm.performance?.getEntriesByType("resource")||[]).forEach(r=>{const n=[...a].find(e=>e.test(r.name));n&&(R(e,r,n,s,t.timingMethod),a.delete(n))}),a.size&&function(e,t,r,s){n.gm.PerformanceObserver?.supportedEntryTypes?.includes("resource")&&f.push({addedAt:(0,i.t)(),test:n=>{const i=[...t].find(e=>e.test(n.name));return i&&(R(e,n,i,r,s),t.delete(i)),0===t.size}})}(e,a,s,t.timingMethod)}function A(e){const t=e?.id,r={registeredAt:(0,i.t)(),reportedAt:void 0,fetchStart:0,fetchEnd:0,scriptStart:0,scriptEnd:0,asset:void 0,type:"unknown",totalWeight:0,renderBlocking:void 0},a=y();if(!a)return r;const o=n.gm.performance?.getEntriesByType("navigation")?.[0]?.name||"";try{const e=v(a),c=(e.length>1?e.filter(e=>u!==e):e)[0];if(!c)return r;if(o.includes(c))return r.asset=(0,s.L)(o),r.type="inline",r;r.correlation=g(c);const l=r.correlation?.performance.value||n.gm.performance?.getEntriesByType("resource")?.find(e=>b(e,c));if(l)E(r,l);else{(function(e){if(!e||!n.gm.document)return!1;try{const t=n.gm.document.querySelectorAll('link[rel="preload"][as="script"]');for(const r of t)if((0,s.L)(r.href)===e)return!0}catch(e){}return!1})(c)&&(r.asset=c,r.type="preload"),function(e,t){n.gm.PerformanceObserver?.supportedEntryTypes?.includes("resource")&&f.push({addedAt:(0,i.t)(),test:r=>!!b(r,t)&&(E(e,r),!0)})}(r,c)}const h=r.correlation,m=!!t&&!!h?.claimedBy.has(t);h&&t&&h.claimedBy.add(t);const y=()=>{const e=h?.script.start;if(!m||!e)return!1;return r.registeredAt-e>1e4};let w=0,R=0;p(r).recordManifestScriptWindow=(e,t)=>{e&&(w=w>0?Math.min(w,e):e),t&&(R=R>0?Math.max(R,t):t)},Object.defineProperty(r,"scriptStart",d(()=>{const e=y()?r.registeredAt:h?.script.start??r.fetchEnd;return w>0?Math.min(e,w):e})),Object.defineProperty(r,"scriptEnd",d(()=>{const e=y()?r.registeredAt:h?.script.end??r.registeredAt;return R>0?Math.max(e,R):e}))}catch(e){}return r}},5732(e,t,r){"use strict";r.d(t,{$5:()=>m,B5:()=>g,K6:()=>u,M$:()=>o,Ms:()=>d,NG:()=>c,Ux:()=>h,YA:()=>p,yx:()=>l});var n=r(5718),i=r(7560),s=r(9119),a=r(9232);function o(e){return e?.type===a.f.MFE}function c(e,t){if(!y(e,t))return;const r=t.runtime.registeredEntities;return r?.find(t=>t.metadata.target.iframeInterfaceId===e)}function d(e,t){if(!y(e,t))return[];const r=t.runtime.registeredEntities;return r?.filter(t=>String(t.metadata.target.id)===String(e)).map(e=>e.metadata.target)||[]}function u(e,t){if(!y(e,t))return[];const r=t.runtime.registeredEntities,n=(0,s.L)(e),a=r?.filter(t=>{const r=t.metadata.target?.manifest;return r?(0,i.j)(r,e,{scriptsOnly:!1}):!!t.metadata.timings?.asset&&(0,s.L)(t.metadata.timings.asset)===n});return f(a).map(e=>e.metadata.target)}function l(e,t){if(!y(e,t))return[];const r=t.runtime.registeredEntities,n=r?.filter(t=>{const r=t.metadata.target?.manifest;return r?(0,i.j)(r,e,{scriptsOnly:!0}):!!t.metadata.timings?.asset?.endsWith(e)});return f(n).map(e=>e.metadata.target)}function f(e){if(!e?.length)return e||[];const t=new Map,r=[];for(const n of e){const e=n.metadata?.timings?.asset;if(!e){r.push(n);continue}const i="".concat(e,"::").concat(n.metadata?.target?.id),s=t.get(i);if(s){if(s.metadata.target?.blocked&&!n.metadata.target?.blocked){const e=r.indexOf(s);-1!==e&&(r[e]=n),t.set(i,n)}}else t.set(i,n),r.push(n)}return r}function h(e,t){return v(t)?o(e)?e.attributes:t.agentRef.runtime.v2Target.attributes:{}}function p(e,t){return g(e,t)?{"child.id":e.id,"child.type":e.type,...h(void 0,t)}:{}}function g(e,t){return o(e)&&!!v(t)&&t.agentRef.init.api.register.duplicate_data_to_container}function m(e){if(!e?.runtime)return[];if(!y(!0,e)||!e.runtime.registeredEntities?.length)return[e.runtime.v2Target];const t=[];try{var r=(0,n.AZ)((0,n.QL)());let i=r.length-1;for(;r[i];)t.push(...l(r[i--],e))}catch(e){}const i=function(e){const t=new Set,r=[];for(const n of e){const e=n?.instance;t.has(e)||(t.add(e),r.push(n))}return r}(t);return i.length||i.push(e.runtime.v2Target),i}function v(e){return 2===e?.harvestEndpointVersion}function y(e,t){return!!e&&!!t?.init.api.register.enabled}},5289(e,t,r){"use strict";r.d(t,{GG:()=>a,Qr:()=>c,sB:()=>o});var n=r(3878),i=r(6389);function s(){return"undefined"==typeof document||"complete"===document.readyState}function a(e,t){if(s())return e();const r=(0,i.J)(e),a=setInterval(()=>{s()&&(clearInterval(a),r())},500);(0,n.sp)("load",r,t)}function o(e){if(s())return e();(0,n.DD)("DOMContentLoaded",e)}function c(e){if(s())return e();(0,n.sp)("popstate",e)}},384(e,t,r){"use strict";r.d(t,{Zm:()=>c,bQ:()=>u,dV:()=>d,pV:()=>l});var n=r(6154),i=r(1863),s=r(944),a=r(1910);const o={beacon:"bam.nr-data.net",errorBeacon:"bam.nr-data.net"};function c(){return n.gm.NREUM||(n.gm.NREUM={}),void 0===n.gm.newrelic&&(n.gm.newrelic=n.gm.NREUM),n.gm.NREUM}function d(){let e=c();return e.o||(e.o={ST:n.gm.setTimeout,SI:n.gm.setImmediate||n.gm.setInterval,CT:n.gm.clearTimeout,XHR:n.gm.XMLHttpRequest,REQ:n.gm.Request,EV:n.gm.Event,PR:n.gm.Promise,MO:n.gm.MutationObserver,FETCH:n.gm.fetch,WS:n.gm.WebSocket},(0,a.i)(...Object.values(e.o))),e}function u(e,t){let r=c();r.initializedAgents??={},t.initializedAt={ms:(0,i.t)(),date:new Date},r.initializedAgents[e]=t,2===Object.keys(r.initializedAgents).length&&(0,s.R)(69)}function l(){return function(){let e=c();const t=e.info||{};e.info={beacon:o.beacon,errorBeacon:o.errorBeacon,...t}}(),function(){let e=c();const t=e.init||{};e.init={...t}}(),d(),function(){let e=c();const t=e.loader_config||{};e.loader_config={...t}}(),c()}r.d(t,["NT",0,o])},2843(e,t,r){"use strict";r.d(t,{G:()=>s,u:()=>i});var n=r(3878);function i(e,t=!1,r,i){(0,n.DD)("visibilitychange",function(){if(t)return void("hidden"===document.visibilityState&&e());e(document.visibilityState)},r,i)}function s(e,t,r){(0,n.sp)("pagehide",e,t,r)}},8139(e,t,r){"use strict";r.d(t,{u:()=>f});var n=r(7836),i=r(3434),s=r(8990),a=r(6154);const o={},c=a.gm.XMLHttpRequest,d="addEventListener",u="removeEventListener",l="nr@wrapped:".concat(n.P);function f(e,t){var r=function(e){return(e||n.ee).get("events")}(e);if(o[r.debugId]++)return r;o[r.debugId]=1;var f=(0,i.YM)(r,!0,t);function p(e){f.inPlace(e,[d,u],"-",g)}function g(e,t){return e[1]}return"getPrototypeOf"in Object&&(a.RI&&h(document,p),c&&h(c.prototype,p),h(a.gm,p)),r.on(d+"-start",function(e,t){var r=e[1];if(null!==r&&("function"==typeof r||"object"==typeof r)&&"newrelic"!==e[0]){var n=(0,s.I)(r,l,function(){var e={object:function(){if("function"!=typeof r.handleEvent)return;return r.handleEvent.apply(r,arguments)},function:r}[typeof r];return e?f(e,"fn-",null,e.name||"anonymous"):r});this.wrapped=e[1]=n}}),r.on(u+"-start",function(e){e[1]=this.wrapped||e[1]}),r}function h(e,t,...r){let n=e;for(;"object"==typeof n&&!Object.prototype.hasOwnProperty.call(n,d);)n=Object.getPrototypeOf(n);n&&t(n,...r)}},3434(e,t,r){"use strict";r.d(t,{YM:()=>d});var n=r(7836),i=r(5607),s=r(5732);const a="nr@original:".concat(i.W);var o=Object.prototype.hasOwnProperty,c=!1;function d(e,t,r){return e||(e=n.ee),i.inPlace=function(e,t,r,n,s,a){r||(r="");const o="-"===r.charAt(0);for(let c=0;c<t.length;c++){const d=t[c],u=e[d];l(u)||(e[d]=i(u,o?d+r:r,n,d,s,a))}},i.flag=a,i;function i(t,n,i,c,f,h){return l(t)?t:(n||(n=""),nrWrapper[a]=t,function(e,t,r){if(Object.defineProperty&&Object.keys)try{return Object.keys(e).forEach(function(r){Object.defineProperty(t,r,{get:function(){return e[r]},set:function(t){return e[r]=t,t}})}),t}catch(e){u([e],r)}for(var n in e)o.call(e,n)&&(t[n]=e[n])}(t,nrWrapper,e),nrWrapper);function nrWrapper(){var a,o,l,p;let g,m;try{o=this,a=[...arguments],m=h?(0,s.$5)(r):[r?.runtime?.v2Target],l="function"==typeof i?i(a,o):i||{}}catch(t){u([t,"",[a,o,c],l],e)}d(n+"start",[a,o,c,m],l,f);const v=performance.now();let y;try{return p=t.apply(o,a),y=performance.now(),p}catch(e){throw y=performance.now(),d(n+"err",[a,o,e,m],l,f),g=e,g}finally{const e=y-v,t={start:v,end:y,duration:e,isLongTask:e>=50,methodName:c,thrownError:g};t.isLongTask&&d("long-task",[t,o,m],l,f),d(n+"end",[a,o,p,m],l,f)}}}function d(r,n,i,s){if(!c||t){var a=c;c=!0;try{e.emit(r,n,i,t,s)}catch(t){u([t,r,n,i],e)}c=a}}}function u(e,t){t||(t=n.ee);try{t.emit("internal-error",e)}catch(e){}}function l(e){return!(e&&"function"==typeof e&&e.apply&&!e[a])}r.d(t,["Jt",0,a])},9300(e,t,r){"use strict";const n=r(860).K7.ajax;r.d(t,["TZ",0,n,"f5",0,"ajaxRequest.id","mo",0,{NONE:"none",FAILURES:"failures",ALL:"all"}])},3333(e,t,r){"use strict";var n=r(981);const i=r(860).K7.genericEvents,s=[n.R.PA,n.R.UA,n.R.BP];r.d(t,["$v",0,{RESOURCES:"experimental.resources",REGISTER:"register"},"TZ",0,i,"Zp",0,["auxclick","click","copy","keydown","paste","scrollend"],"kd",0,s,"qN",0,["focus","blur"]])},6774(e,t,r){"use strict";const n=r(860).K7.jserrors;r.d(t,["T",0,n])},993(e,t,r){"use strict";const n=r(860).K7.logging;r.d(t,["A$",0,{OFF:0,ERROR:1,WARN:2,INFO:3,DEBUG:4,TRACE:5},"TZ",0,n,"p_",0,{ERROR:"ERROR",WARN:"WARN",INFO:"INFO",DEBUG:"DEBUG",TRACE:"TRACE"}])},3785(e,t,r){"use strict";r.d(t,{R:()=>c,b:()=>d});var n=r(9908),i=r(1863),s=r(860),a=r(3969),o=r(993);function c(e,t,r={},c=o.p_.INFO,d=!0,u,l=(0,i.t)()){(0,n.p)(a.xV,["API/logging/".concat(c.toLowerCase(),"/called")],void 0,s.K7.metrics,e),(0,n.p)("log",[l,t,r,c,d,u],void 0,s.K7.logging,e)}function d(e){return"string"==typeof e&&Object.values(o.p_).some(t=>t===e.toUpperCase().trim())}},3969(e,t,r){"use strict";const n=r(860).K7.metrics;r.d(t,["TZ",0,n,"XG",0,"storeEventMetrics","xV",0,"storeSupportabilityMetrics"])},6630(e,t,r){"use strict";const n=r(860).K7.pageViewEvent;r.d(t,["T",0,n])},782(e,t,r){"use strict";const n=r(860).K7.pageViewTiming;r.d(t,["T",0,n])},6344(e,t,r){"use strict";var n=r(2614);const i=r(860).K7.sessionReplay,s={[n.g.ERROR]:15e3,[n.g.FULL]:3e5,[n.g.OFF]:0};r.d(t,["Qb",0,{API:"api",RESUME:"resume",SWITCH_TO_FULL:"switchToFull",INITIALIZE:"initialize",PRELOAD:"preload"},"TZ",0,i,"Vh",0,"errorDuringReplay","_s",0,{DomContentLoaded:0,Load:1,FullSnapshot:2,IncrementalSnapshot:3,Meta:4,Custom:5},"bc",0,{RESET:{message:"Session was reset",sm:"Reset"},IMPORT:{message:"Recorder failed to import",sm:"Import"},TOO_MANY:{message:"429: Too Many Requests",sm:"Too-Many"},TOO_BIG:{message:"Payload was too large",sm:"Too-Big"},CROSS_TAB:{message:"Session Entity was set to OFF on another tab",sm:"Cross-Tab"},ENTITLEMENTS:{message:"Session Replay is not allowed and will not be started",sm:"Entitlement"}},"yP",0,s])},5270(e,t,r){"use strict";r.d(t,{Aw:()=>a,SR:()=>s,rF:()=>o});var n=r(384),i=r(7767);function s(e){return!!(0,n.dV)().o.MO&&(0,i.V)(e)&&!0===e?.session_trace.enabled}function a(e){return!0===e?.session_replay.preload&&s(e)}function o(e,t){try{if("string"==typeof t?.type&&"password"===t.type.toLowerCase())return"*".repeat(e?.length||0);if(void 0!==t?.dataset?.nrUnmask||t?.classList?.contains("nr-unmask"))return e}catch(e){}return"string"==typeof e?e.replace(/[\S]/g,"*"):"*".repeat(e?.length||0)}},3738(e,t,r){"use strict";const n=r(860).K7.sessionTrace,i="-start",s="-end",a="fn"+i,o="fn"+s;r.d(t,["He",0,"bstResource","Kp",0,s,"Lc",0,o,"Rz",0,"pushState","TZ",0,n,"bD",0,"resource","bc",0,{CROSS_TAB:{message:"Session Entity was set to OFF on another tab"},ENTITLEMENTS:{message:"Session Trace is not allowed and will not be started"},RESET:{message:"Session was reset"},SESSION_CHANGED:{message:"Session identifier changed unexpectedly"}},"d3",0,i,"uP",0,a])},3962(e,t,r){"use strict";const n=r(860).K7.softNav;r.d(t,["O2",0,{INITIAL_PAGE_LOAD:"",ROUTE_CHANGE:1,UNSPECIFIED:2},"OV",0,"popstate","Qu",0,{INTERACTION:1,AJAX:2,CUSTOM_END:3,CUSTOM_TRACER:4},"TZ",0,n,"ih",0,{IP:"in progress",PF:"pending finish",FIN:"finished",CAN:"cancelled"},"pP",0,"initialPageLoad","tC",0,["click","keydown","submit"]])},4234(e,t,r){"use strict";r.d(t,{W:()=>i});var n=r(1687);class i{constructor(e,t){this.agentRef=e,this.ee=e?.ee,this.featureName=t,this.blocked=!1}deregisterDrain(){(0,n.x3)(this.agentRef,this.featureName)}}},7767(e,t,r){"use strict";var n=r(6154);r.d(t,["V",0,e=>n.RI&&!0===e?.privacy.cookies_enabled])},8362(e,t,r){"use strict";r.d(t,{d:()=>s});var n=r(9566),i=r(1741);class s extends i.W{agentIdentifier=(0,n.LA)(16)}},1741(e,t,r){"use strict";r.d(t,{W:()=>s});var n=r(944),i=r(4261);class s{#e(e,...t){if(this[e]!==s.prototype[e])return this[e](...t);(0,n.R)(35,e)}addPageAction(e,t){return this.#e(i.hG,e,t)}register(e){return this.#e(i.eY,e)}recordCustomEvent(e,t){return this.#e(i.fF,e,t)}setPageViewName(e,t){return this.#e(i.Fw,e,t)}setCustomAttribute(e,t,r){return this.#e(i.cD,e,t,r)}noticeError(e,t){return this.#e(i.o5,e,t)}setUserId(e,t=!1){return this.#e(i.Dl,e,t)}setApplicationVersion(e){return this.#e(i.nb,e)}setErrorHandler(e){return this.#e(i.bt,e)}addRelease(e,t){return this.#e(i.k6,e,t)}log(e,t){return this.#e("log",e,t)}start(){return this.#e("start")}finished(e){return this.#e(i.BL,e)}recordReplay(){return this.#e(i.CH)}pauseReplay(){return this.#e(i.Tb)}addToTrace(e){return this.#e(i.U2,e)}setCurrentRouteName(e){return this.#e(i.PA,e)}interaction(e){return this.#e(i.dT,e)}wrapLogger(e,t,r){return this.#e(i.Wb,e,t,r)}measure(e,t){return this.#e(i.V1,e,t)}consent(e){return this.#e(i.Pv,e)}}},4261(e,t,r){"use strict";r.d(t,["BL",0,"finished","CH",0,"recordReplay","Dl",0,"setUserId","Fw",0,"setPageViewName","PA",0,"setCurrentRouteName","Pv",0,"consent","Tb",0,"pauseReplay","U2",0,"addToTrace","V1",0,"measure","Wb",0,"wrapLogger","bt",0,"setErrorHandler","cD",0,"setCustomAttribute","dT",0,"interaction","eY",0,"register","fF",0,"recordCustomEvent","hG",0,"addPageAction","hw",0,"api-ixn-","k6",0,"addRelease","nb",0,"setApplicationVersion","o5",0,"noticeError"])},1738(e,t,r){"use strict";r.d(t,{U:()=>l,Y:()=>u});var n=r(3241),i=r(9908),s=r(1863),a=r(944),o=r(3969),c=r(8362),d=r(860);function u(e,t,r,s){const u=s||r;!u||u[e]&&u[e]!==c.d.prototype[e]||(u[e]=function(){(0,i.p)(o.xV,["API/"+e+"/called"],void 0,d.K7.metrics,r.ee),(0,n.W)({drained:!!r.runtime?.activatedFeatures,type:"data",name:"api",feature:"api-"+e,data:{}});try{return t.apply(this,arguments)}catch(e){(0,a.R)(23,e)}})}function l(e,t,r,n,a){const o=e.info;null===r?delete o.jsAttributes[t]:o.jsAttributes[t]=r,(a||null===r)&&(0,i.p)("api-"+n,[(0,s.t)(),t,r],void 0,"session",e.ee)}},8374(e,t,r){r.nc=(()=>{try{return document?.currentScript?.nonce}catch(e){}return""})()},860(e,t,r){"use strict";const n="events",i="jserrors",s="browser/blobs",a="browser/logs",o={ajax:"ajax",genericEvents:"generic_events",jserrors:i,logging:"logging",metrics:"metrics",pageAction:"page_action",pageViewEvent:"page_view_event",pageViewTiming:"page_view_timing",sessionReplay:"session_replay",sessionTrace:"session_trace",softNav:"soft_navigations"},c={[o.pageViewEvent]:1,[o.pageViewTiming]:2,[o.metrics]:3,[o.jserrors]:4,[o.softNav]:5,[o.ajax]:6,[o.sessionTrace]:7,[o.sessionReplay]:8,[o.logging]:9,[o.genericEvents]:10},d={[o.pageViewEvent]:"rum",[o.pageViewTiming]:n,[o.ajax]:n,[o.softNav]:n,[o.metrics]:i,[o.jserrors]:i,[o.sessionTrace]:s,[o.sessionReplay]:s,[o.logging]:a,[o.genericEvents]:"ins"};r.d(t,["$J",0,d,"K7",0,o,"P3",0,c,"XX",0,i,"Yy",0,a,"df",0,s,"hg",0,"connect"])}};const t={};function r(n){const i=t[n];if(void 0!==i)return i.exports;const s=t[n]={exports:{}};return e[n](s,s.exports,r),s.exports}r.m=e,r.d=(e,t)=>{if(Array.isArray(t))for(var n=0;n<t.length;){var i=t[n++],s=t[n++];r.o(e,i)?0===s&&n++:0===s?Object.defineProperty(e,i,{enumerable:!0,value:t[n++]}):Object.defineProperty(e,i,{enumerable:!0,get:s})}else for(var i in t)r.o(t,i)&&!r.o(e,i)&&Object.defineProperty(e,i,{enumerable:!0,get:t[i]})},r.f={},r.e=e=>Promise.all(Object.keys(r.f).reduce((t,n)=>(r.f[n](e,t),t),[])),r.u=e=>({212:"nr-spa-compressor",238:"nr-spa-iframe-message-handler",249:"nr-spa-recorder",478:"nr-spa"}[e]+"-1.322.0.min.js"),r.o=(e,t)=>Object.prototype.hasOwnProperty.call(e,t),(()=>{const e={},t="NRBA-1.322.0.PROD:";r.l=(n,i,s,a)=>{if(e[n])return void e[n].push(i);let o,c;if(void 0!==s){const e=document.getElementsByTagName("script");for(var d=0;d<e.length;d++){const r=e[d];if(r.getAttribute("src")==n||r.getAttribute("data-webpack")==t+s){o=r;break}}}if(!o){c=!0;var u={478:"sha512-SARROoir04gFygxlr/+mTI+PyMeFL+epi1vnUA2G5mTQ7s3G44ItQBJKbOaIMdIE5OBzuaKhb4k5JYta0NICxg==",249:"sha512-6DKQo5WP7YlpzX6l9UfYkgGLGK2oITdoaYTcZtgl5Foa22NY63lED/0z1hBBLeD7qZCz/YdlY19/r8drlol1tg==",212:"sha512-CYxuvSpDx6ErqWJwAvpoHn54eY37YdMcFao/axOumlw3BsSL7yioOeB2LWViY/Njs818sQG10dSglUhYCMfLPw==",238:"sha512-mvbMILWa3ohYst+u6TLfNrmtY2swUIB3rbJFN/uzt3W62KhgvUVwB81UEZ1R0/it5bfrQ5EVz864pi/CAmucNQ=="};o=document.createElement("script"),o.charset="utf-8",r.nc&&o.setAttribute("nonce",r.nc),o.setAttribute("data-webpack",t+s),o.src=n,0!==o.src.indexOf(window.location.origin+"/")&&(o.crossOrigin="anonymous"),u[a]&&(o.integrity=u[a])}e[n]=[i];const l=(t,r)=>{o.onerror=o.onload=null,clearTimeout(f);const i=e[n];if(delete e[n],o.parentNode?.removeChild(o),i?.forEach(e=>e(r)),t)return t(r)},f=setTimeout(l.bind(null,void 0,{type:"timeout",target:o}),12e4);o.onerror=l.bind(null,o.onerror),o.onload=l.bind(null,o.onload),c&&document.head.appendChild(o)}})(),r.r=e=>{Symbol.toStringTag&&Object.defineProperty(e,Symbol.toStringTag,{value:"Module"}),Object.defineProperty(e,"__esModule",{value:!0})},r.p="https://js-agent.newrelic.com/",(()=>{const e={38:0,788:0};r.f.j=(t,n)=>{let i=r.o(e,t)?e[t]:void 0;if(0!==i)if(i)n.push(i[2]);else{const s=new Promise((r,n)=>i=e[t]=[r,n]);n.push(i[2]=s);const a=r.p+r.u(t),o=new Error,c=n=>{if(r.o(e,t)&&(i=e[t],0!==i&&(e[t]=void 0),i)){const e=n&&("load"===n.type?"missing":n.type),r=n&&n.target&&n.target.src;o.message="Loading chunk "+t+" failed: ("+e+": "+r+")",o.name="ChunkLoadError",o.type=e,o.request=r,i[1](o)}};r.l(a,c,"chunk-"+t,t)}};const t=(t,n)=>{let[i,s,a]=n;var o,c,d=0;if(i.some(t=>0!==e[t])){for(o in s)r.o(s,o)&&(r.m[o]=s[o]);if(a)a(r)}for(t&&t(n);d<i.length;d++)c=i[d],r.o(e,c)&&e[c]&&e[c][0](),e[c]=0},n=self["webpackChunk:NRBA-1.322.0.PROD"]=self["webpackChunk:NRBA-1.322.0.PROD"]||[];n.forEach(t.bind(null,0)),n.push=t.bind(null,n.push.bind(n))})(),(()=>{"use strict";r(8374);var e=r(8362),t=r(860);const n=Object.values(t.K7);var i=r(384),s=r(1741);var a=r(2555),o=r(3333),c=r(9300);const d=e=>{if(!e||"string"!=typeof e)return!1;try{document.createDocumentFragment().querySelector(e)}catch{return!1}return!0};var u=r(2614),l=r(944),f=r(8122);const h="[data-nr-mask]",p=e=>(0,f.a)(e,(()=>{const e={feature_flags:[],experimental:{register:!1,resources:!1,iframe_bridge:!1,iframe_domains:[]},mask_selector:"*",block_selector:"[data-nr-block]",mask_input_options:{color:!1,date:!1,"datetime-local":!1,email:!1,month:!1,number:!1,range:!1,search:!1,tel:!1,text:!1,time:!1,url:!1,week:!1,textarea:!1,select:!1,password:!0}};return{ajax:{deny_list:void 0,block_internal:!0,enabled:!0,autoStart:!0,capture_payloads:c.mo.NONE},api:{register:{get enabled(){return e.feature_flags.includes(o.$v.REGISTER)||e.experimental.register},set enabled(t){e.experimental.register=t},duplicate_data_to_container:!1,get allow_iframe_bridge(){return e.feature_flags.includes(o.$v.IFRAME_BRIDGE)||e.experimental.iframe_bridge},set allow_iframe_bridge(t){e.experimental.iframe_bridge=t},get iframe_domains(){return e.experimental.iframe_domains},set iframe_domains(t){Array.isArray(t)?e.experimental.iframe_domains=t:(0,l.R)(1,t)}}},browser_consent_mode:{enabled:!1},distributed_tracing:{enabled:void 0,exclude_newrelic_header:void 0,cors_use_newrelic_header:void 0,cors_use_tracecontext_headers:void 0,allowed_origins:void 0},get feature_flags(){return e.feature_flags},set feature_flags(t){e.feature_flags=t},generic_events:{enabled:!0,autoStart:!0},harvest:{interval:30},jserrors:{enabled:!0,autoStart:!0},logging:{enabled:!0,autoStart:!0},metrics:{enabled:!0,autoStart:!0},obfuscate:void 0,page_action:{enabled:!0},page_view_event:{enabled:!0,autoStart:!0},page_view_timing:{enabled:!0,autoStart:!0},performance:{capture_marks:!1,capture_measures:!1,capture_detail:!0,resources:{get enabled(){return e.feature_flags.includes(o.$v.RESOURCES)||e.experimental.resources},set enabled(t){e.experimental.resources=t},asset_types:[],first_party_domains:[],ignore_newrelic:!0}},privacy:{cookies_enabled:!0},proxy:{assets:void 0,beacon:void 0},session:{expiresMs:u.wk,inactiveMs:u.BB},session_replay:{autoStart:!0,enabled:!1,preload:!1,sampling_rate:10,error_sampling_rate:100,collect_fonts:!1,inline_images:!1,fix_stylesheets:!0,mask_all_inputs:!0,get mask_text_selector(){return e.mask_selector},set mask_text_selector(t){d(t)?e.mask_selector="".concat(t,",").concat(h):""===t||null===t?e.mask_selector=h:(0,l.R)(5,t)},get block_class(){return"nr-block"},get ignore_class(){return"nr-ignore"},get mask_text_class(){return"nr-mask"},get block_selector(){return e.block_selector},set block_selector(t){d(t)?e.block_selector+=",".concat(t):""!==t&&(0,l.R)(6,t)},get mask_input_options(){return e.mask_input_options},set mask_input_options(t){t&&"object"==typeof t?e.mask_input_options={...t,password:!0}:(0,l.R)(7,t)}},session_trace:{enabled:!0,autoStart:!0},soft_navigations:{enabled:!0,autoStart:!0},ssl:void 0,user_actions:{enabled:!0,elementAttributes:["id","className","tagName","type"]},web_sockets:{enabled:!1}}})());var g=r(6154),m=r(9324);let v=0;const y={buildEnv:"PROD",distMethod:"CDN",version:m.x,originTime:g.WN},b={consented:!1},E={activatedFeatures:void 0,appMetadata:{},configured:!1,get consented(){return this.session?.state?.consent||b.consented},set consented(e){b.consented=e},customTransaction:void 0,denyList:[],disabled:!1,drainRegistry:new Map,connector:void 0,harvester:void 0,v2Target:void 0,isolatedBacklog:!1,isRecording:!1,loaderType:void 0,maxBytes:3e4,obfuscator:void 0,onerror:void 0,ptid:void 0,releaseIds:{},session:void 0,timeKeeper:void 0,registeredEntities:[],jsAttributesMetadata:{bytes:0},get harvestCount(){return++v},listeningForIframeMessages:!1};var w=r(9232);var R=r(7836),T=r(3241);const A={accountID:void 0,trustKey:void 0,agentID:void 0,licenseKey:void 0,applicationID:void 0,xpid:void 0};var S=r(9908),x=r(9752);function O(e,t={},n,o){let{init:c,info:d,loader_config:u,runtime:l={},exposed:h=!0}=t;if(!d){const e=(0,i.pV)();c=e.init,d=e.info,u=e.loader_config}var m;e.init=p(c||{}),e.loader_config=(m=u||{},(0,f.a)(m,A)),d.jsAttributes??={},g.bv&&(d.jsAttributes.isWorker=!0),e.info=(0,a.D)(d);const v=e.init;e.runtime??=(e=>{const t=(0,f.a)(e,E),r=Object.keys(y).reduce((e,t)=>(e[t]={value:y[t],writable:!1,configurable:!0,enumerable:!0},e),{});return Object.defineProperties(t,r)})(l),e.runtime.v2Target??={type:w.f.BA,instance:e.agentIdentifier,get id(){return e.runtime.appMetadata?.agents?.[0]?.entityGuid},get attributes(){return{"entity.guid":this.id,appId:e.info.applicationID}}},v.proxy.assets&&(e=>{const t=e.startsWith("http");e+="/",r.p=t?e:"https://"+e})(v.proxy.assets),e.runtime.configured||(Object.defineProperty(e,"beacons",{get:()=>[e.info.beacon,e.info.errorBeacon,e.init.proxy.assets,e.init.proxy.beacon].filter(Boolean)}),Object.defineProperty(e.runtime,"denyList",{get:()=>[...e.init.ajax.deny_list||[],...e.init.ajax.block_internal?e.beacons:[]]}),e.runtime.ptid=e.agentIdentifier,function(e){const t=(0,i.pV)();Object.getOwnPropertyNames(s.W.prototype).forEach(r=>{const n=s.W.prototype[r];if("function"!=typeof n||"constructor"===n)return;let i=t[r];e[r]&&!1!==e.exposed&&"micro-agent"!==e.runtime?.loaderType&&(t[r]=(...t)=>{const n=e[r](...t);return i?i(...t):n})})}(e),e.runtime.loaderType=n,e.ee=R.ee.get(e.agentIdentifier),e.exposed=h,(0,T.W)({drained:!!e.runtime.activatedFeatures,type:"lifecycle",name:"initialize",feature:void 0,data:e.config}),e.init.api.register.allow_iframe_bridge&&g.gm.addEventListener("message",t=>{"string"==typeof t.data?.type&&t.data.type.startsWith(x.Pl)&&(0,S.p)("iframe-message",[t],void 0,"IFRAME",e.ee)}),e.runtime.configured=!0)}var _=r(1863),k=r(4261),N=r(1738);var L=r(1687),M=r(4234),P=r(5289),I=r(5270),j=r(7767),C=r(6389),D=r(7699);const B=new WeakSet,H=new WeakMap;class W extends M.W{constructor(e,t){super(e,t),this.abortHandler=void 0,this.featAggregate=void 0,this.loadedSuccessfully=void 0,this.onAggregateImported=new Promise(e=>{this.loadedSuccessfully=e}),this.deferred=Promise.resolve(),!1===e.init[this.featureName].autoStart?this.deferred=new Promise((t,r)=>{this.ee.on("manual-start-all",(0,C.J)(()=>{(0,L.Ak)(e,this.featureName),t()}))}):(0,L.Ak)(e,t)}importAggregator(e,t,n={}){if(this.featAggregate)return;const i=async()=>{if(await this.deferred,this.#t(e),!(0,a.f)(e.info))return(0,l.R)(43),e.ee.abort(),void this.loadedSuccessfully(!1);try{await async function(e,t,n){if(H.has(e))return H.get(e);const i=(async()=>{if((0,j.V)(e.init))try{const{setupAgentSession:t}=await r.e(478).then(r.bind(r,8766));t(e)}catch(e){(0,l.R)(20,e),t.emit("internal-error",[e]),(0,S.p)(D.qh,[e],void 0,n,t)}if(e.init.api.register.allow_iframe_bridge)try{const{setupIframeMFEMessageListener:t}=await r.e(238).then(r.bind(r,6417));t(e)}catch(e){(0,l.R)(23,e)}const[{Connector:i},{Harvester:s}]=await Promise.all([r.e(478).then(r.bind(r,6589)),r.e(478).then(r.bind(r,5237))]);e.runtime.connector=new i(e),e.runtime.harvester=new s(e);const a=Object.values(e.features).filter(t=>e.runtime.drainRegistry.has(t.featureName));Promise.all(a.map(e=>e.onAggregateImported)).then(()=>e.runtime.harvester.startTimer())})();H.set(e,i),await i}(e,this.ee,this.featureName)}catch(e){return(0,l.R)(79,e),this.ee.abort(),void this.loadedSuccessfully(!1)}try{if(!this.#r(this.featureName,e.runtime.session,e.init))return this.abortHandler?.(),(0,L.Ze)(this.agentRef,this.featureName),void this.loadedSuccessfully(!1);const{Aggregate:r}=await t();this.featAggregate=new r(e,n),e.runtime.harvester.initializedAggregates.push(this.featAggregate),this.loadedSuccessfully(!0)}catch(e){(0,l.R)(34,e),this.abortHandler?.(),(0,L.Ze)(this.agentRef,this.featureName,!0),this.loadedSuccessfully(!1)}};g.RI?(0,P.GG)(()=>i(),!0):i()}#r(e,r,n){if(this.blocked)return!1;switch(e){case t.K7.sessionReplay:return(0,I.SR)(n)&&!!r;case t.K7.sessionTrace:return!!r;default:return!0}}#t(e){if(!B.has(e)&&(B.add(e),!(0,a.f)(e.info))){const t=(0,i.pV)();let r={...t.info?.jsAttributes};try{r={...r,...e.info?.jsAttributes}}catch(e){}O(e,{...t,info:{...t.info,jsAttributes:r},runtime:e.runtime},e.runtime.loaderType)}}}var U=r(6630);class K extends W{static featureName=U.T;constructor(e){var t;super(e,U.T),this.setupInspectionEvents(),t=e,(0,N.Y)(k.Fw,function(e,r){"string"==typeof e&&("/"!==e.charAt(0)&&(e="/"+e),t.runtime.customTransaction=(r||"http://custom.transaction")+e,(0,S.p)("api-"+k.Fw,[(0,_.t)()],void 0,void 0,t.ee))},t),this.importAggregator(e,()=>e.init.feature_flags.includes("rum_v2")?r.e(478).then(r.bind(r,908)):r.e(478).then(r.bind(r,7927)))}setupInspectionEvents(){const e=(e,t)=>{e&&(0,T.W)({timeStamp:e.timeStamp,loaded:"complete"===e.target.readyState,type:"window",name:t,data:e.target.location+""})};(0,P.sB)(t=>{e(t,"DOMContentLoaded")}),(0,P.GG)(t=>{e(t,"load")}),(0,P.Qr)(t=>{e(t,"navigate")}),this.ee.on(u.tS.UPDATE,(e,t)=>{(0,T.W)({type:"lifecycle",name:"session",data:t})})}}class F extends e.d{constructor(e){var t;(super(),g.gm)?(this.features={},(0,i.bQ)(this.agentIdentifier,this),this.desiredFeatures=new Set(e.features||[]),this.desiredFeatures.add(K),O(this,e,e.loaderType||"agent"),t=this,(0,N.Y)(k.cD,function(e,r,n=!1){if("string"==typeof e){if(["string","number","boolean"].includes(typeof r)||null===r)return(0,N.U)(t,e,r,k.cD,n);(0,l.R)(40,typeof r)}else(0,l.R)(39,typeof e)},t),function(e){(0,N.Y)(k.Dl,function(t,r=!1){if("string"!=typeof t&&null!==t)return void(0,l.R)(41,typeof t);const n=e.info.jsAttributes["enduser.id"];r&&null!=n&&n!==t?(0,S.p)("api-setUserIdAndResetSession",[t],void 0,"session",e.ee):(0,N.U)(e,"enduser.id",t,k.Dl,!0)},e)}(this),function(e){(0,N.Y)(k.nb,function(t){if("string"==typeof t||null===t)return(0,N.U)(e,"application.version",t,k.nb,!1);(0,l.R)(42,typeof t)},e)}(this),function(e){(0,N.Y)("start",function(){e.ee.emit("manual-start-all")},e)}(this),function(e){(0,N.Y)(k.Pv,function(t=!0){if("boolean"==typeof t){if((0,S.p)("api-"+k.Pv,[t],void 0,"session",e.ee),e.runtime.consented=t,t){const t=e.features.page_view_event;t.onAggregateImported.then(e=>{const r=t.featAggregate;e&&!r.sentRum&&r.sendRum?.()})}}else(0,l.R)(65,typeof t)},e)}(this),this.run()):(0,l.R)(21)}get config(){return{info:this.info,init:this.init,loader_config:this.loader_config,runtime:this.runtime}}get api(){return this}run(){try{const e=function(e){const t={};return n.forEach(r=>{t[r]=!!e[r]?.enabled}),t}(this.init),r=[...this.desiredFeatures],i=this.init.feature_flags.includes("rum_v2");r.sort((e,r)=>t.P3[e.featureName]-t.P3[r.featureName]),r.forEach(r=>{if(!e[r.featureName]&&(i||r.featureName!==t.K7.pageViewEvent))return;const n=function(e){switch(e){case t.K7.ajax:return[t.K7.jserrors];case t.K7.sessionTrace:return[t.K7.ajax,t.K7.pageViewEvent];case t.K7.sessionReplay:return[t.K7.sessionTrace];case t.K7.pageViewTiming:return[t.K7.pageViewEvent];default:return[]}}(r.featureName).filter(e=>!(e in this.features));n.length>0&&(0,l.R)(36,{targetFeature:r.featureName,missingDependencies:n}),this.features[r.featureName]=new r(this)})}catch(e){(0,l.R)(22,e);for(const e in this.features)this.features[e].abortHandler?.();const t=(0,i.Zm)();delete t.initializedAgents[this.agentIdentifier]?.features,delete this.sharedAggregator;return t.ee.get(this.agentIdentifier).abort(),!1}}}var V=r(2843),z=r(782);class G extends W{static featureName=z.T;constructor(e){super(e,z.T),g.RI&&((0,V.u)(()=>(0,S.p)("docHidden",[(0,_.t)()],void 0,z.T,this.ee),!0),(0,V.G)(()=>(0,S.p)("winPagehide",[(0,_.t)()],void 0,z.T,this.ee)),this.importAggregator(e,()=>r.e(478).then(r.bind(r,9917))))}}var q=r(3969);class Y extends W{static featureName=q.TZ;constructor(e){super(e,q.TZ),this.importAggregator(e,()=>r.e(478).then(r.bind(r,6555)))}}var Z=r(6774),J=r(3878),X=r(3304);class Q{constructor(e,t,r,n,i){this.name="UncaughtError",this.message="string"==typeof e?e:(0,X.A)(e),this.sourceURL=t,this.line=r,this.column=n,this.__newrelic=i}}function ee(e){return ne(e)?e:new Q(void 0!==e?.message?e.message:e,e?.filename||e?.sourceURL,e?.lineno||e?.line,e?.colno||e?.col,e?.__newrelic,e?.cause)}function te(e){const t="Unhandled Promise Rejection: ";if(!e?.reason)return;if(ne(e.reason)){try{e.reason.message.startsWith(t)||(e.reason.message=t+e.reason.message)}catch(e){}return ee(e.reason)}const r=ee(e.reason);return(r.message||"").startsWith(t)||(r.message=t+r.message),r}function re(e){if(e.error instanceof SyntaxError&&!/:\d+$/.test(e.error.stack?.trim())){const t=new Q(e.message,e.filename,e.lineno,e.colno,e.error.__newrelic,e.cause);return t.name=SyntaxError.name,t}return ne(e.error)?e.error:ee(e)}function ne(e){return e instanceof Error&&!!e.stack}function ie(e,r,n,i,s=(0,_.t)()){"string"==typeof e&&(e=new Error(e)),(0,S.p)("err",[e,s,!1,r,n.runtime.isRecording,void 0,i],void 0,t.K7.jserrors,n.ee),(0,S.p)("uaErr",[],void 0,t.K7.genericEvents,n.ee)}var se=r(993),ae=r(3785);function oe(e,{customAttributes:t={},level:r=se.p_.INFO}={},n,i,s=(0,_.t)()){(0,ae.R)(n.ee,e,t,r,!1,i,s)}function ce(e,r,n,i,s=(0,_.t)()){(0,S.p)("api-"+k.hG,[s,e,r,i],void 0,t.K7.genericEvents,n.ee)}function de(e,r,n,i,s=(0,_.t)()){const{start:a,end:o,customAttributes:c}=r||{},d={customAttributes:c||{}};if("object"!=typeof d.customAttributes||"string"!=typeof e||0===e.length)return void(0,l.R)(57);const u=(e,t)=>null==e?t:"number"==typeof e?e:e instanceof PerformanceMark?e.startTime:Number.NaN;if(d.start=u(a,0),d.end=u(o,s),Number.isNaN(d.start)||Number.isNaN(d.end))(0,l.R)(57);else{if(d.duration=d.end-d.start,!(d.duration<0))return(0,S.p)("api-"+k.V1,[d,e,i],void 0,t.K7.genericEvents,n.ee),d;(0,l.R)(58)}}function ue(e,r={},n,i,s=(0,_.t)()){(0,S.p)("api-"+k.fF,[s,e,r,i],void 0,t.K7.genericEvents,n.ee)}var le=r(5718);const fe=(e,t)=>e?.nrMfeId===t.id&&(!e?.nrMfeObserved||e?.nrMfeObserved===t.instance),he=e=>{try{return g.gm.CSS.escape(e)}catch(t){return e}},pe=(e,t={})=>{const r=t.id,n=t.instance;if(!e||!r||!n)return!1;try{let r=1===e.nodeType?e:e.parentElement;for(;r?.tagName;){if(fe(r.dataset,t))return r.dataset.nrMfeObserved=n,!0;r=r.parentNode}}catch(e){}return!1},ge=(e,t)=>{const r=g.gm.document?.querySelectorAll('[data-nr-mfe-id="'.concat(he(e.id),'"]')),n=(Array.from(r)||[]).find(t=>fe(t.dataset,e));let i=!!n;i&&(n.dataset.nrMfeObserved??=e.instance);const s=new g.gm.MutationObserver(r=>{r.forEach(r=>{r.addedNodes.forEach(r=>{const n=1===r.nodeType?r:null;!i&&fe(n?.dataset,e)&&(s.disconnect(),s.observe(n,{childList:!0,subtree:!0}),i=!0,n.dataset.nrMfeObserved=e.instance),(e=>{try{return e?.textContent?.trim()||["img","video","canvas","svg"].includes(e?.nodeName?.toLowerCase())}catch(e){return!1}})(r)&&(i||pe(r,e))&&t(r,s)})})});return s.observe(n||g.gm.document,{childList:!0,subtree:!0}),s},me=(e,t,r)=>{try{const n=new g.gm.PerformanceObserver(e=>{e.getEntries().forEach(r)});return n.observe(t),e.push(n),n}catch(e){return null}};function ve(e,t){let r,n,i=!1;const s=e=>null==e?e:e-(t?.scriptStart||t?.registeredAt||0),a={fcp:{get value(){const e=s(r);return e>1e4?void 0:e},set value(e){i||(r=e)}},lcp:{get value(){if(void 0!==a.fcp.value)return s(n)},set value(e){i||(n=e)}},cls:{value:void 0},inp:{value:void 0},disconnect:()=>{}};if(!(e&&g.RI&&g.gm.MutationObserver&&g.gm.PerformanceObserver))return a;const o=[];setTimeout(()=>{r||a.disconnect()},1e4);const c=()=>{if(!i){if(null==r){const e=(0,_.t)();if(s(e)>1e4)return void a.disconnect();r=e}n??=(0,_.t)(),a.cls.value??=0}},d=ge(e,(e,t)=>{c(),t.disconnect()});o.push(d);let u=0,l=null;const f=new Set;try{l=new g.gm.ResizeObserver(e=>{i||e.forEach(e=>{try{const t=e.contentRect.width*e.contentRect.height;t>u&&(u=t,a.lcp.value=(0,_.t)()),l.unobserve(e.target)}catch(e){}})})}catch(e){}const h=ge(e,e=>{if(c(),l)try{const t=1===e.nodeType?e:e.parentElement;t&&!f.has(t)&&(f.add(t),"IMG"===t.tagName?t.complete?l.observe(t):t.addEventListener("load",()=>{l.observe(t)},{once:!0}):"VIDEO"===t.tagName?t.readyState>=2?l.observe(t):t.addEventListener("loadeddata",()=>{l.observe(t)},{once:!0}):l.observe(t))}catch(e){}});l&&o.push(l),o.push(h),me(o,{type:"layout-shift",buffered:!0},t=>{i||t.hadRecentInput||(t.sources||[]).some(r=>!!pe(r.node,e)&&(c(),a.cls.value+=t.value,!0))}),me(o,{type:"event",buffered:!0,durationThreshold:40},t=>{!i&&t.interactionId&&pe(t.target,e)&&(void 0===a.inp.value||t.duration>a.inp.value)&&(c(),a.inp.value=t.duration)});const p=["pointerdown","keydown"],m=()=>{p.forEach(e=>{g.gm.removeEventListener(e,v,{passive:!0})})};a.disconnect=()=>{i=!0,o.forEach(e=>{try{e?.disconnect()}catch(e){}}),m(),["visibilitychange","pagehide"].forEach(e=>{g.gm.removeEventListener(e,a.disconnect,{once:!0,passive:!0})})};const v=t=>{pe(t?.target,e)&&((()=>{try{h?.disconnect(),l?.disconnect()}catch(e){}})(),m())};p.forEach(e=>{g.gm.addEventListener(e,v,{passive:!0})}),["visibilitychange","pagehide"].forEach(e=>{g.gm.addEventListener(e,a.disconnect,{once:!0,passive:!0})});const y=g.gm.document?.querySelectorAll('[data-nr-mfe-id="'.concat(he(e.id),'"]'));return Array.from(y||[]).some(t=>fe(t.dataset,e))&&c(),a}var ye=r(9566),be=r(7560),Ee=r(9119);const we=["entry","scripts","all"],Re=["name","id","type"],Te=new Map([[ce,"addPageAction"],[oe,"log"],[de,"measure"],[ie,"noticeError"],[ue,"recordCustomEvent"]]),Ae={experimental:(0,C.J)(()=>(0,l.R)(54,"newrelic.register")),disabled:(0,C.J)(()=>(0,l.R)(55)),invalidTarget:(0,C.J)(e=>(0,l.R)(48,e)),deregistered:(0,C.J)(()=>(0,l.R)(68)),invalidTimingMethod:(0,C.J)(e=>(0,l.R)(80,e)),duplicateName:(0,C.J)(e=>(0,l.R)(81,e)),duplicateId:(0,C.J)(e=>(0,l.R)(82,e))};function Se(e){(0,N.Y)(k.eY,function(t){return xe(e,t)},e)}function xe(e,r){Ae.experimental(),r||={},r.instance=(0,ye.LA)(8),r.type=w.f.MFE,r.licenseKey||=e.info.licenseKey,r.blocked=!1,("object"!=typeof r.tags||null===r.tags||Array.isArray(r.tags))&&(r.tags={}),r.parent??={get id(){return e.runtime.appMetadata.agents?.[0].entityGuid},type:w.f.BA},r.manifest=(0,be.N)(r.manifest),void 0===r.timingMethod||we.includes(r.timingMethod)||(Ae.invalidTimingMethod(r.timingMethod),r.timingMethod=void 0);const n=(0,le.Qr)(r);r.manifest&&(0,le.xo)(n,r);const i=ve(r,n),s=(0,Ee.L)(""+location),a={};Object.prototype.hasOwnProperty.call(r,"attributes")||Object.defineProperty(r,"attributes",{get:()=>({...a,"source.id":r.id,"source.name":r.name,"source.type":r.type,"parent.type":r.parent?.type||w.f.BA,"parent.id":r.parent?.id})}),Object.entries(r.tags).forEach(([e,t])=>{Re.includes(e)||(a["source.".concat(e)]=t)});let o=()=>{};const c=e.runtime.registeredEntities,d=e=>{r.blocked=!0,o=e};function u(e){return"string"==typeof e&&!!e.trim()&&e.trim().length<501}e.init.api.register.enabled||d(Ae.disabled),u(r.id)&&u(r.name)||d(()=>Ae.invalidTarget(r)),c.forEach(e=>{try{const{name:t,id:n}=e.metadata.target;t===r.name&&n!==r.id&&Ae.duplicateName(r),n===r.id&&t!==r.name&&Ae.duplicateId(r)}catch(e){}});const f={addPageAction:(t,n={})=>m(ce,[t,{...a,...n},e],r),deregister:()=>{p(),d(Ae.deregistered)},log:(t,n={})=>m(oe,[t,{...n,customAttributes:{...a,...n.customAttributes||{}}},e],r),measure:(t,n={})=>m(de,[t,{...n,customAttributes:{...a,...n.customAttributes||{}}},e],r),noticeError:(t,n={})=>m(ie,[t,{...a,...n},e],r),recordCustomEvent:(t,n={})=>m(ue,[t,{...a,...n},e],r),setApplicationVersion:e=>g("application.version",e),setCustomAttribute:(e,t)=>g(e,t),setUserId:e=>g("enduser.id",e),metadata:{get customAttributes(){return a},target:r,timings:n,vitals:i,events:{latestTimestamp:void 0}}},h=()=>(r.blocked&&o(),r.blocked);function p(){if(n.reportedAt)return;n.reportedAt=(0,_.t)(),i.disconnect(),n.fcp=i.fcp,n.lcp=i.lcp,n.cls=i.cls,n.inp=i.inp;const e=n.fetchEnd-n.fetchStart,t=n.scriptEnd-n.scriptStart,r={assetUrl:n.asset,assetType:n.type,registerUrl:s,deregisterUrl:(0,Ee.L)(""+location),pageUrl:void 0,currentUrl:void 0,timeAlive:n.reportedAt-n.registeredAt,timeToBeRequested:n.fetchStart,timeToExecute:t,timeToFetch:e,timeToLoad:e+t,timeToRegister:n.registeredAt,totalWeight:n.totalWeight,...void 0!==n.renderBlocking&&{renderBlocking:n.renderBlocking},...i.fcp.value>=0&&{"vitals.fcp.value":i.fcp.value},...i.lcp.value>=0&&{"vitals.lcp.value":i.lcp.value},...i.cls.value>=0&&{"vitals.cls.value":i.cls.value},...i.inp.value>=0&&{"vitals.inp.value":i.inp.value}};f.recordCustomEvent("MicroFrontEndTiming",r)}h()||(c.push(f),(0,V.G)(p));const g=(e,t)=>{h()||(a[e]=t)},m=(r,n,i)=>{if(h()&&r!==xe)return;const s=f.metadata.events.latestTimestamp??(0,_.t)();f.metadata.events.latestTimestamp=void 0;const a=Te.get(r)||"unknown";(0,S.p)(q.xV,["API/register/".concat(a,"/called")],void 0,t.K7.metrics,e.ee);try{return r(...n,i,s)}catch(e){(0,l.R)(50,e)}};return f}class Oe extends W{static featureName=Z.T;constructor(e){var t;super(e,Z.T),t=e,(0,N.Y)(k.o5,(e,r)=>ie(e,r,t),t),function(e){(0,N.Y)(k.bt,function(t){e.runtime.onerror=t},e)}(e),function(e){let t=0;(0,N.Y)(k.k6,function(e,r){++t>10||(this.runtime.releaseIds[e.slice(-200)]=(""+r).slice(-200))},e)}(e),Se(e);try{this.removeOnAbort=new AbortController}catch(e){}this.ee.on("internal-error",(t,r)=>{this.abortHandler&&(0,S.p)("ierr",[ee(t),(0,_.t)(),!0,{},e.runtime.isRecording,r],void 0,this.featureName,this.ee)}),g.gm.addEventListener("unhandledrejection",t=>{this.abortHandler&&(0,S.p)("err",[te(t),(0,_.t)(),!1,{unhandledPromiseRejection:1},e.runtime.isRecording],void 0,this.featureName,this.ee)},(0,J.jT)(!1,this.removeOnAbort?.signal)),g.gm.addEventListener("error",t=>{this.abortHandler&&(0,S.p)("err",[re(t),(0,_.t)(),!1,{},e.runtime.isRecording],void 0,this.featureName,this.ee)},(0,J.jT)(!1,this.removeOnAbort?.signal)),this.abortHandler=this.#n,this.importAggregator(e,()=>r.e(478).then(r.bind(r,9377)))}#n(){this.removeOnAbort?.abort(),this.abortHandler=void 0}}var _e=r(8990);let ke=1;function Ne(e){const t=typeof e;return!e||"object"!==t&&"function"!==t?-1:e===g.gm?0:(0,_e.I)(e,"nr@id",function(){return ke++})}function Le(e){if("string"==typeof e)return e.length;if("object"==typeof e){if("undefined"!=typeof ArrayBuffer&&e instanceof ArrayBuffer&&e.byteLength)return e.byteLength;if("undefined"!=typeof Blob&&e instanceof Blob&&e.size)return e.size;if(!("undefined"!=typeof FormData&&e instanceof FormData))try{return(0,X.A)(e).length}catch(e){return}}}var Me=r(8139),Pe=r(3434),Ie=r(5732);const je={},Ce=["open","send","setRequestHeader"];function De(e,t){var r=e||R.ee;const n=function(e){return(e||R.ee).get("xhr")}(r);if(void 0===g.gm.XMLHttpRequest)return n;if(je[n.debugId]++)return n;je[n.debugId]=1,(0,Me.u)(r,t);var i=(0,Pe.YM)(n,void 0,t),s=g.gm.XMLHttpRequest,a=g.gm.MutationObserver,o=g.gm.Promise,c=g.gm.setInterval,d="readystatechange",u=["onload","onerror","onabort","onloadstart","onloadend","onprogress","ontimeout"],f=[],h=g.gm.XMLHttpRequest=function(e){const r=new s(e),a=n.context(r);a.targets=(0,Ie.$5)(t);try{n.emit("new-xhr",[r],a),r.addEventListener(d,(o=a,function(){var e=this;e.readyState>3&&!o.resolved&&(o.resolved=!0,n.emit("xhr-resolved",[],e)),i.inPlace(e,u,"fn-",E)}),(0,J.jT)(!1))}catch(e){(0,l.R)(15,e);try{n.emit("internal-error",[e])}catch(e){}}var o;return r};function p(e,t){i.inPlace(t,["onreadystatechange"],"fn-",E)}if(function(e,t){for(var r in e)t[r]=e[r]}(s,h),h.prototype=s.prototype,i.inPlace(h.prototype,Ce,"-xhr-",E),n.on("send-xhr-start",function(e,t){p(e,t),function(e){f.push(e),a&&(m?m.then(b):c?c(b):(v=-v,y.data=v))}(t)}),n.on("open-xhr-start",p),a){var m=o&&o.resolve();if(!c&&!o){var v=1,y=document.createTextNode(v);new a(b).observe(y,{characterData:!0})}}else r.on("fn-end",function(e){e[0]&&e[0].type===d||b()});function b(){for(var e=0;e<f.length;e++)p(0,f[e]);f.length&&(f=[])}function E(e,t){return t}return n}var Be="fetch-",He=Be+"body-",We=["arrayBuffer","blob","json","text","formData"],Ue=g.gm.Request,Ke=g.gm.Response,Fe="prototype";const Ve={};function ze(e,t){const r=function(e){return(e||R.ee).get("fetch")}(e);if(!(Ue&&Ke&&g.gm.fetch))return r;if(Ve[r.debugId]++)return r;function n(e,n,i){var s=e[n];"function"==typeof s&&(e[n]=function(){var e=[...arguments];const n={},a=(0,Ie.$5)(t);var o;r.emit(i+"before-start",[e],n),n[R.P]&&n[R.P].dt&&(o=n[R.P].dt);var c=s.apply(this,e);return r.emit(i+"start",[e,o],c),c.then(function(e){return r.emit(i+"end",[null,e,a],c),e},function(e){throw r.emit(i+"end",[e,void 0,a],c),e})})}return Ve[r.debugId]=1,We.forEach(e=>{n(Ue[Fe],e,He),n(Ke[Fe],e,He)}),n(g.gm,"fetch",Be),r.on(Be+"end",function(e,n,i){var s=this;if(s.targets=i||[t.runtime.v2Target],n){var a=n.headers.get("content-length");null!==a&&(s.rxSize=a),r.emit(Be+"done",[null,n],s)}else r.emit(Be+"done",[e],s)}),r}var Ge=r(7485);class qe{constructor(e){this.agentRef=e}generateTracePayload(e){const t=this.agentRef.loader_config;if(!this.shouldGenerateTrace(e)||!t)return null;var r=(t.accountID||"").toString()||null,n=(t.agentID||"").toString()||null,i=(t.trustKey||"").toString()||null;if(!r||!n)return null;var s=(0,ye.ZF)(),a=(0,ye.el)(),o=Date.now(),c={spanId:s,traceId:a,timestamp:o};return(e.sameOrigin||this.isAllowedOrigin(e)&&this.useTraceContextHeadersForCors())&&(c.traceContextParentHeader=this.generateTraceContextParentHeader(s,a),c.traceContextStateHeader=this.generateTraceContextStateHeader(s,o,r,n,i)),(e.sameOrigin&&!this.excludeNewrelicHeader()||!e.sameOrigin&&this.isAllowedOrigin(e)&&this.useNewrelicHeaderForCors())&&(c.newrelicHeader=this.generateTraceHeader(s,a,o,r,n,i)),c}generateTraceContextParentHeader(e,t){return"00-"+t+"-"+e+"-01"}generateTraceContextStateHeader(e,t,r,n,i){return i+"@nr=0-1-"+r+"-"+n+"-"+e+"----"+t}generateTraceHeader(e,t,r,n,i,s){if(!("function"==typeof g.gm?.btoa))return null;var a={v:[0,1],d:{ty:"Browser",ac:n,ap:i,id:e,tr:t,ti:r}};return s&&n!==s&&(a.d.tk=s),btoa((0,X.A)(a))}shouldGenerateTrace(e){return this.agentRef.init?.distributed_tracing?.enabled&&this.isAllowedOrigin(e)}isAllowedOrigin(e){var t=!1;const r=this.agentRef.init?.distributed_tracing;if(e.sameOrigin)t=!0;else if(r?.allowed_origins instanceof Array)for(var n=0;n<r.allowed_origins.length;n++){var i=(0,Ge.D)(r.allowed_origins[n]);if(e.hostname===i.hostname&&e.protocol===i.protocol&&e.port===i.port){t=!0;break}}return t}excludeNewrelicHeader(){var e=this.agentRef.init?.distributed_tracing;return!!e&&!!e.exclude_newrelic_header}useNewrelicHeaderForCors(){var e=this.agentRef.init?.distributed_tracing;return!!e&&!1!==e.cors_use_newrelic_header}useTraceContextHeadersForCors(){var e=this.agentRef.init?.distributed_tracing;return!!e&&!!e.cors_use_tracecontext_headers}}var Ye=r(7295);function Ze(e){return"string"==typeof e?e:e instanceof(0,i.dV)().o.REQ?e.url:g.gm?.URL&&e instanceof URL?e.href:void 0}function $e(e,t){var r=(0,Ge.D)(t),n=e.params||e;n.hostname=r.hostname,n.port=r.port,n.protocol=r.protocol,n.host=r.hostname+":"+r.port,n.pathname=r.pathname,e.parsedOrigin=r,e.sameOrigin=r.sameOrigin}var Je=["load","error","abort","timeout"],Xe=Je.length,Qe=(0,i.dV)().o.REQ,et=(0,i.dV)().o.XHR;const tt="X-NewRelic-App-Data",rt="internal-error";class nt extends W{static featureName=c.TZ;constructor(e){super(e,c.TZ),this.dt=new qe(e),this.handler=(e,t,r,n)=>(0,S.p)(e,t,r,n,this.ee);try{const e={xmlhttprequest:"xhr",fetch:"fetch",beacon:"beacon"};g.gm?.performance?.getEntriesByType("resource").forEach(r=>{if(r.initiatorType in e&&0!==r.responseStatus){const n={status:r.responseStatus},i={rxSize:r.transferSize,duration:Math.floor(r.duration),cbTime:0};$e(n,r.name),this.handler("xhr",[n,i,r.startTime,r.responseEnd,e[r.initiatorType]],void 0,t.K7.ajax)}})}catch(e){}ze(this.ee,e),De(this.ee,e),function(e,r,n,i){const s=[c.mo.ALL,c.mo.FAILURES].includes(e.init.ajax?.capture_payloads);function a(e){var t=this;t.totalCbs=0,t.called=0,t.cbTime=0,t.end=A,t.ended=!1,t.xhrGuids={},t.lastSize=null,t.loadCaptureCalled=!1,t.params=this.params||{},t.metrics=this.metrics||{},t.latestLongtaskEnd=0,e.addEventListener("load",function(r){O(t,e)},(0,J.jT)(!1)),g.lR||e.addEventListener("progress",function(e){t.lastSize=e.loaded},(0,J.jT)(!1))}function o(e){this.params={method:e[0]},$e(this,e[1]),this.metrics={}}function d(t,r){e.loader_config.xpid&&this.sameOrigin&&r.setRequestHeader("X-NewRelic-ID",e.loader_config.xpid);var n=i.generateTracePayload(this.parsedOrigin);if(n){var s=!1;n.newrelicHeader&&(r.setRequestHeader("newrelic",n.newrelicHeader),s=!0),n.traceContextParentHeader&&(r.setRequestHeader("traceparent",n.traceContextParentHeader),n.traceContextStateHeader&&r.setRequestHeader("tracestate",n.traceContextStateHeader),s=!0),s&&(this.dt=n)}}function u(e,t){s&&e.length>=2&&(this.requestHeaders??={},this.requestHeaders[e[0].toLowerCase()]=e[1])}function l(e,t){var n=this.metrics,i=e[0],s=this;if(n&&i){var a=Le(i);a&&(n.txSize=a)}this.startTime=(0,_.t)(),this.requestBody=i,this.listener=function(e){try{"abort"!==e.type||s.loadCaptureCalled||(s.params.aborted=!0),("load"!==e.type||s.called===s.totalCbs&&(s.onloadCalled||"function"!=typeof t.onload)&&"function"==typeof s.end)&&s.end(t)}catch(e){try{r.emit(rt,[e])}catch(e){}}};for(var o=0;o<Xe;o++)t.addEventListener(Je[o],this.listener,(0,J.jT)(!1))}function f(e,t,r){this.cbTime+=e,t?this.onloadCalled=!0:this.called+=1,this.called!==this.totalCbs||!this.onloadCalled&&"function"==typeof r.onload||"function"!=typeof this.end||this.end(r)}function h(e,t){var r=""+Ne(e)+!!t;this.xhrGuids&&!this.xhrGuids[r]&&(this.xhrGuids[r]=!0,this.totalCbs+=1)}function p(e,t){var r=""+Ne(e)+!!t;this.xhrGuids&&this.xhrGuids[r]&&(delete this.xhrGuids[r],this.totalCbs-=1)}function m(){this.endTime=(0,_.t)()}function v(e,t){t instanceof et&&"load"===e[0]&&r.emit("xhr-load-added",[e[1],e[2]],t)}function y(e,t){t instanceof et&&"load"===e[0]&&r.emit("xhr-load-removed",[e[1],e[2]],t)}function b(e,t,r){t instanceof et&&("onload"===r&&(this.onload=!0),("load"===(e[0]&&e[0].type)||this.onload)&&(this.xhrCbStart=(0,_.t)()))}function E(e,t){this.xhrCbStart&&r.emit("xhr-cb-time",[(0,_.t)()-this.xhrCbStart,this.onload,t],t)}function w(e){var t,r=e[1]||{};if("string"==typeof e[0]?0===(t=e[0]).length&&g.RI&&(t=""+g.gm.location.href):e[0]&&e[0].url?t=e[0].url:g.gm?.URL&&e[0]&&e[0]instanceof URL?t=e[0].href:"function"==typeof e[0].toString&&(t=e[0].toString()),"string"==typeof t&&0!==t.length){t&&(this.parsedOrigin=(0,Ge.D)(t),this.sameOrigin=this.parsedOrigin.sameOrigin);var n=i.generateTracePayload(this.parsedOrigin);if(n&&(n.newrelicHeader||n.traceContextParentHeader))if(e[0]&&e[0].headers)o(e[0].headers,n)&&(this.dt=n);else{var s={};for(var a in r)s[a]=r[a];s.headers=new Headers(r.headers||{}),o(s.headers,n)&&(this.dt=n),e.length>1?e[1]=s:e.push(s)}}function o(e,t){var r=!1;return t.newrelicHeader&&(e.set("newrelic",t.newrelicHeader),r=!0),t.traceContextParentHeader&&(e.set("traceparent",t.traceContextParentHeader),t.traceContextStateHeader&&e.set("tracestate",t.traceContextStateHeader),r=!0),r}}function R(e,t){this.params={},this.metrics={},this.startTime=(0,_.t)(),this.dt=t;let[r,n={}]=e;$e(this,Ze(r));const i=(""+(r&&r instanceof Qe&&r.method||n.method||"GET")).toUpperCase();this.params.method=i,this.txSize=Le(n.body||r?.body)||0;try{var a=n.headers||r?.headers;if(s&&a)if(this.requestHeaders??={},a instanceof Headers)a.forEach(function(e,t){this.requestHeaders[t.toLowerCase()]=e}.bind(this));else if("object"==typeof a)for(var o in a)this.requestHeaders[o.toLowerCase()]=a[o]}catch(e){}this.requestBody=n.body||r?.body}function T(e,t){if(this.endTime=(0,_.t)(),this.params||(this.params={}),(0,Ye.iW)(this.params))return;this.params.status=t?t.status:0;const n=()=>{const e=+this.rxSize,t=null==this.rxSize||isNaN(e)?void 0:e,r={txSize:this.txSize,rxSize:t,duration:this.endTime-this.startTime},n=[this.params,r,this.startTime,this.endTime,"fetch"];this.targets.forEach(e=>x(n,this,e))};t&&s?t.clone().text().then(e=>{this.responseBody=e,this.rxSize&&"0"!==this.rxSize&&0!==this.rxSize||void 0===e||0===this.params.status||(this.rxSize=Le(e)),t?.headers&&(this.responseHeaders={},t.headers.forEach(function(e,t){this.responseHeaders[t.toLowerCase()]=e}.bind(this)))}).catch(e=>{r.emit(rt,[e])}).finally(()=>{n()}):n()}function A(e){const t=this.params,n=this.metrics;if(this.ended)return;this.ended=!0;for(let t=0;t<Xe;t++)e.removeEventListener(Je[t],this.listener,!1);if(t.aborted)return;if((0,Ye.iW)(t))return;if(n.duration=this.endTime-this.startTime,this.loadCaptureCalled||4!==e.readyState?null==t.status&&(t.status=0):O(this,e),n.cbTime=this.cbTime,s){try{this.responseBody=e.responseText}catch(t){this.responseBody=e.response}if((!n.rxSize||0===n.rxSize)&&void 0!==this.responseBody&&0!==t.status){const e=Le(this.responseBody);void 0!==e&&(n.rxSize=e)}try{this.responseHeaders=function(e){const t={};return e?(e.split("\r\n").forEach(function(e){const r=e.indexOf(": ");if(r>0){const n=e.substring(0,r),i=e.substring(r+2);t[n.toLowerCase()]=i}}),t):t}(e.getAllResponseHeaders())}catch(e){r.emit(rt,[e])}}const i=[t,n,this.startTime,this.endTime,"xhr"];this.targets.forEach(e=>x(i,this,e))}function x(e,r,i){n("xhr",[...e,i],r,t.K7.ajax)}function O(e,n){e.params.status=n.status;var i=function(e,t){var r=e.responseType;return"json"===r&&null!==t?t:"arraybuffer"===r||"blob"===r||"json"===r?Le(e.response):"text"===r||""===r||void 0===r?Le(e.responseText):void 0}(n,e.lastSize);if(void 0!==i&&0!==n.status&&(e.metrics.rxSize=i),e.sameOrigin&&n.getAllResponseHeaders().indexOf(tt)>=0){var s=n.getResponseHeader(tt);s&&((0,S.p)("sm",["Ajax/CrossApplicationTracing/Header/Seen"],void 0,t.K7.metrics,r),e.params.cat=s.split(", ").pop())}e.loadCaptureCalled=!0}r.on("new-xhr",a),r.on("open-xhr-start",o),r.on("open-xhr-end",d),r.on("send-xhr-start",l),r.on("setRequestHeader-xhr-start",u),r.on("xhr-cb-time",f),r.on("xhr-load-added",h),r.on("xhr-load-removed",p),r.on("xhr-resolved",m),r.on("addEventListener-end",v),r.on("removeEventListener-end",y),r.on("fn-end",E),r.on("fetch-before-start",w),r.on("fetch-start",R),r.on("fn-start",b),r.on("fetch-done",T)}(e,this.ee,this.handler,this.dt),this.importAggregator(e,()=>r.e(478).then(r.bind(r,3845)))}}const it={},st=["pushState","replaceState"];function at(e,t){const r=function(e){return(e||R.ee).get("history")}(e);return!g.RI||it[r.debugId]++||(it[r.debugId]=1,(0,Pe.YM)(r,void 0,t).inPlace(window.history,st,"-")),r}var ot=r(3738);function ct(e){(0,N.Y)(k.BL,function(r=Date.now()){const n=r-g.WN;n<0&&(0,l.R)(62,r),(0,S.p)(q.XG,[k.BL,{time:n}],void 0,t.K7.metrics,e.ee),e.addToTrace({name:k.BL,start:r,origin:"nr"}),(0,S.p)("api-"+k.hG,[n,k.BL],void 0,t.K7.genericEvents,e.ee)},e)}const{He:dt,bD:ut,d3:lt,Kp:ft,TZ:ht,Lc:pt,uP:gt,Rz:mt}=ot;class vt extends W{static featureName=ht;constructor(e){var n;super(e,ht),n=e,(0,N.Y)(k.U2,function(e){if(!(e&&"object"==typeof e&&e.name&&e.start))return;const r={n:e.name,s:e.start-g.WN,e:(e.end||e.start)-g.WN,o:e.origin||"",t:"api"};r.s<0||r.e<0||r.e<r.s?(0,l.R)(61,{start:r.s,end:r.e}):(0,S.p)("bstApi",[r],void 0,t.K7.sessionTrace,n.ee)},n),ct(e);if(!(0,j.V)(e.init))return void this.deregisterDrain();const i=this.ee;let s;at(i,e),this.eventsEE=(0,Me.u)(i,e),this.eventsEE.on(gt,function(e,t){this.bstStart=(0,_.t)()}),this.eventsEE.on(pt,function(e,r){(0,S.p)("bst",[e[0],r,this.bstStart,(0,_.t)()],void 0,t.K7.sessionTrace,i)}),i.on(mt+lt,function(e){this.time=(0,_.t)(),this.startPath=location.pathname+location.hash}),i.on(mt+ft,function(e){(0,S.p)("bstHist",[location.pathname+location.hash,this.startPath,this.time],void 0,t.K7.sessionTrace,i)});try{s=new PerformanceObserver(e=>{const r=e.getEntries();(0,S.p)(dt,[r],void 0,t.K7.sessionTrace,i)}),s.observe({type:ut,buffered:!0})}catch(e){}this.importAggregator(e,()=>r.e(478).then(r.bind(r,6974)),{resourceObserver:s})}}var yt=r(733),bt=r(6344);class Et extends W{static featureName=bt.TZ;#i;recorder;constructor(e){var n;let i;super(e,bt.TZ),n=e,(0,N.Y)(k.CH,function(){(0,S.p)(k.CH,[],void 0,t.K7.sessionReplay,n.ee)},n),function(e){(0,N.Y)(k.Tb,function(){(0,S.p)(k.Tb,[],void 0,t.K7.sessionReplay,e.ee)},e)}(e);const s="".concat(u.Wt).concat((0,yt.Y)(e.info.licenseKey,e.info.applicationID));try{i=JSON.parse(localStorage.getItem(s))}catch(e){}(0,I.SR)(e.init)&&this.ee.on(k.CH,()=>this.#s()),this.#a(i)&&this.importRecorder().then(e=>{e.startRecording(bt.Qb.PRELOAD,i?.sessionReplayMode)}),this.abortHandler=this.#n,this.importAggregator(this.agentRef,()=>r.e(478).then(r.bind(r,6167)),this),this.ee.on("err",e=>{this.blocked||this.agentRef.runtime.isRecording&&(this.errorNoticed=!0,(0,S.p)(bt.Vh,[e],void 0,this.featureName,this.ee))})}#a(e){return e&&(e.sessionReplayMode===u.g.FULL||e.sessionReplayMode===u.g.ERROR)||(0,I.Aw)(this.agentRef.init)}importRecorder(){return this.recorder?Promise.resolve(this.recorder):(this.#i??=Promise.all([r.e(478),r.e(249)]).then(r.bind(r,4866)).then(({Recorder:e})=>(this.recorder=new e(this),this.recorder)).catch(e=>{throw this.ee.emit("internal-error",[e]),this.blocked=!0,e}),this.#i)}#s(){this.blocked||(this.featAggregate?this.featAggregate.mode!==u.g.FULL&&this.featAggregate.initializeRecording(u.g.FULL,!0,bt.Qb.API):this.importRecorder().then(()=>{this.recorder.startRecording(bt.Qb.API,u.g.FULL)}))}#n(){this.recorder?.stopRecording()}}var wt=r(3962);class Rt extends W{static featureName=wt.TZ;constructor(e){if(super(e,wt.TZ),function(e){const r=e.ee.get("tracer");function n(){}(0,N.Y)(k.dT,function(e){return(new n).get("object"==typeof e?e:{})},e);const i=n.prototype={createTracer:function(n,i){var s={},a=this,o="function"==typeof i;return(0,S.p)(q.xV,["API/createTracer/called"],void 0,t.K7.metrics,e.ee),function(){if(r.emit((o?"":"no-")+"fn-start",[(0,_.t)(),a,o],s),o)try{return i.apply(this,arguments)}catch(e){const t="string"==typeof e?new Error(e):e;throw r.emit("fn-err",[arguments,this,t],s),t}finally{r.emit("fn-end",[(0,_.t)()],s)}}}};["actionText","setName","setAttribute","save","ignore","onEnd","getContext","end","get"].forEach(r=>{N.Y.apply(this,[r,function(){return(0,S.p)(k.hw+r,[performance.now(),...arguments],this,t.K7.softNav,e.ee),this},e,i])}),(0,N.Y)(k.PA,function(){(0,S.p)(k.hw+"routeName",[performance.now(),...arguments],void 0,t.K7.softNav,e.ee)},e)}(e),!g.RI||!(0,i.dV)().o.MO)return;const n=at(this.ee,e);try{this.removeOnAbort=new AbortController}catch(e){}wt.tC.forEach(e=>{(0,J.sp)(e,e=>{c(e)},!0,this.removeOnAbort?.signal)});const s=()=>(0,S.p)("newURL",[(0,_.t)(),""+window.location],void 0,this.featureName,this.ee);n.on("pushState-end",s),n.on("replaceState-end",s),(0,J.sp)(wt.OV,e=>{c(e),(0,S.p)("newURL",[e.timeStamp,""+window.location],void 0,this.featureName,this.ee)},!0,this.removeOnAbort?.signal);let a=!1;const o=new((0,i.dV)().o.MO)((e,t)=>{a||(a=!0,requestAnimationFrame(()=>{(0,S.p)("newDom",[(0,_.t)()],void 0,this.featureName,this.ee),a=!1}))}),c=(0,C.s)(e=>{"loading"!==document.readyState&&((0,S.p)("newUIEvent",[e],void 0,this.featureName,this.ee),o.observe(document.body,{attributes:!0,childList:!0,subtree:!0,characterData:!0}))},100,{leading:!0});this.abortHandler=function(){this.removeOnAbort?.abort(),o.disconnect(),this.abortHandler=void 0},this.importAggregator(e,()=>r.e(478).then(r.bind(r,4393)),{domObserver:o})}}var Tt=r(981);const At={},St=new Set;function xt(e){return"string"==typeof e?{type:"string",size:(new TextEncoder).encode(e).length}:e instanceof ArrayBuffer?{type:"ArrayBuffer",size:e.byteLength}:e instanceof Blob?{type:"Blob",size:e.size}:e instanceof DataView?{type:"DataView",size:e.byteLength}:ArrayBuffer.isView(e)?{type:"TypedArray",size:e.byteLength}:{type:"unknown",size:0}}class Ot{constructor(e,t){this.timestamp=(0,_.t)(),this.currentUrl=(0,Ee.L)(window.location.href),this.socketId=(0,ye.LA)(8),this.requestedUrl=(0,Ee.L)(e),this.requestedProtocols=Array.isArray(t)?t.join(","):t||"",this.openedAt=void 0,this.protocol=void 0,this.extensions=void 0,this.binaryType=void 0,this.messageOrigin=void 0,this.messageCount=0,this.messageBytes=0,this.messageBytesMin=0,this.messageBytesMax=0,this.messageTypes=void 0,this.sendCount=0,this.sendBytes=0,this.sendBytesMin=0,this.sendBytesMax=0,this.sendTypes=void 0,this.closedAt=void 0,this.closeCode=void 0,this.closeReason="unknown",this.closeWasClean=void 0,this.connectedDuration=0,this.hasErrors=void 0}}class _t extends W{static featureName=o.TZ;constructor(e){super(e,o.TZ);const n=e.init.feature_flags.includes("websockets")||e.init.web_sockets?.enabled,s=!e.init.feature_flags.includes("no_spv"),a=[e.init.page_action.enabled,e.init.performance.capture_marks,e.init.performance.capture_measures,e.init.performance.resources.enabled,e.init.user_actions.enabled,n,s];var c;let d;if(c=e,(0,N.Y)(k.hG,(e,t)=>ce(e,t,c),c),function(e){(0,N.Y)(k.fF,(t,r)=>ue(t,r,e),e)}(e),ct(e),Se(e),function(e){(0,N.Y)(k.V1,(t,r)=>de(t,r,e),e)}(e),this.removeOnAbort=new AbortController,this.abortHandler=()=>{this.removeOnAbort.abort(),this.abortHandler=void 0},n){const u=function(e,t){if(!(0,i.dV)().o.WS)return e;const r=e.get("websockets");if(At[r.debugId]++)return r;At[r.debugId]=1,(0,V.G)(()=>{const e=(0,_.t)();St.forEach(t=>{t.nrData.closedAt=e,t.nrData.closeCode=1001,t.nrData.closeReason="Page navigating away",t.nrData.closeWasClean=!1,t.nrData.openedAt&&(t.nrData.connectedDuration=e-t.nrData.openedAt),r.emit("ws",[t.nrData,t.targets],t)})});class n extends WebSocket{static name=Tt.R.WS;static toString(){return"function WebSocket() { [native code] }"}toString(){return"[object WebSocket]"}get[Symbol.toStringTag](){return n.name}#o(e){(e.__newrelic??={}).socketId=this.nrData.socketId,this.nrData.hasErrors??=!0}constructor(...e){super(...e),this.nrData=new Ot(e[0],e[1]),this.targets=(0,Ie.$5)(t),this.addEventListener("open",()=>{this.nrData.openedAt=(0,_.t)(),["protocol","extensions","binaryType"].forEach(e=>{this.nrData[e]=this[e]}),St.add(this)}),this.addEventListener("message",e=>{const{type:t,size:r}=xt(e.data);this.nrData.messageOrigin??=(0,Ee.L)(e.origin),this.nrData.messageCount++,this.nrData.messageBytes+=r,this.nrData.messageBytesMin=Math.min(this.nrData.messageBytesMin||1/0,r),this.nrData.messageBytesMax=Math.max(this.nrData.messageBytesMax,r),(this.nrData.messageTypes??"").includes(t)||(this.nrData.messageTypes=this.nrData.messageTypes?"".concat(this.nrData.messageTypes,",").concat(t):t)}),this.addEventListener("close",e=>{this.nrData.closedAt=(0,_.t)(),this.nrData.closeCode=e.code,e.reason&&(this.nrData.closeReason=e.reason),this.nrData.closeWasClean=e.wasClean,this.nrData.connectedDuration=this.nrData.closedAt-this.nrData.openedAt,St.delete(this),r.emit("ws",[this.nrData,this.targets],this)})}addEventListener(e,t,...r){const n=this,i="function"==typeof t?function(...e){try{return t.apply(this,e)}catch(e){throw n.#o(e),e}}:t?.handleEvent?{handleEvent:function(...e){try{return t.handleEvent.apply(t,e)}catch(e){throw n.#o(e),e}}}:t;return super.addEventListener(e,i,...r)}send(e){if(this.readyState===WebSocket.OPEN){const{type:t,size:r}=xt(e);this.nrData.sendCount++,this.nrData.sendBytes+=r,this.nrData.sendBytesMin=Math.min(this.nrData.sendBytesMin||1/0,r),this.nrData.sendBytesMax=Math.max(this.nrData.sendBytesMax,r),(this.nrData.sendTypes??"").includes(t)||(this.nrData.sendTypes=this.nrData.sendTypes?"".concat(this.nrData.sendTypes,",").concat(t):t)}try{return super.send(e)}catch(e){throw this.#o(e),e}}close(...e){try{super.close(...e)}catch(e){throw this.#o(e),e}}}return g.gm.WebSocket=n,r}(this.ee,e);u.on("ws",(e,t)=>{(0,S.p)("ws-complete",[e,t],void 0,this.featureName,this.ee)})}if(s){if("function"==typeof g.gm.ReportingObserver){const l=new g.gm.ReportingObserver(e=>{e.forEach(e=>{(0,S.p)("spv",[kt(e),(0,_.t)()],void 0,t.K7.genericEvents,this.ee)}),l.disconnect()},{types:["csp-violation"],buffered:!0});l.observe()}g.gm.addEventListener("securitypolicyviolation",e=>{(0,S.p)("spv",[kt(e),e.timeStamp],void 0,t.K7.genericEvents,this.ee)},(0,J.jT)(!1,this.removeOnAbort.signal))}if(g.RI){if(ze(this.ee,e),De(this.ee,e),d=at(this.ee,e),e.init.user_actions.enabled){function f(t){const r=(0,Ge.D)(t);return e.beacons.includes(r.hostname+":"+r.port)}function h(){d.emit("navChange")}o.Zp.forEach(e=>(0,J.sp)(e,e=>(0,S.p)("ua",[e],void 0,this.featureName,this.ee),!0)),o.qN.forEach(e=>{const t=(0,C.s)(e=>{(0,S.p)("ua",[e],void 0,this.featureName,this.ee)},500,{leading:!0});(0,J.sp)(e,t)}),g.gm.addEventListener("error",()=>{(0,S.p)("uaErr",[],void 0,t.K7.genericEvents,this.ee)},(0,J.jT)(!1,this.removeOnAbort.signal)),this.ee.on("open-xhr-start",(e,r)=>{f(e[1])||r.addEventListener("readystatechange",()=>{2===r.readyState&&(0,S.p)("uaXhr",[],void 0,t.K7.genericEvents,this.ee)},(0,J.jT)(void 0,this.removeOnAbort.signal))}),this.ee.on("fetch-start",e=>{e.length>=1&&!f(Ze(e[0]))&&(0,S.p)("uaXhr",[],void 0,t.K7.genericEvents,this.ee)}),d.on("pushState-end",h),d.on("replaceState-end",h),window.addEventListener("hashchange",h,(0,J.jT)(!0,this.removeOnAbort.signal)),window.addEventListener("popstate",h,(0,J.jT)(!0,this.removeOnAbort.signal))}if(e.init.performance.resources.enabled&&g.gm.PerformanceObserver?.supportedEntryTypes.includes("resource")){new PerformanceObserver(e=>{e.getEntries().forEach(e=>{(0,S.p)("browserPerformance.resource",[e],void 0,this.featureName,this.ee)})}).observe({type:"resource",buffered:!0})}}a.some(e=>e)?this.importAggregator(e,()=>r.e(478).then(r.bind(r,8019))):this.deregisterDrain()}}function kt(e){const t=e.body??e;return{blockedUrl:t.blockedURL??e.blockedURI,documentUrl:t.documentURL??e.documentURI,effectiveDirective:t.effectiveDirective,originalPolicy:t.originalPolicy,sourceFile:t.sourceFile,statusCode:t.statusCode,lineNumber:t.lineNumber,columnNumber:t.columnNumber,disposition:"reporting"===t.disposition?"report":t.disposition,sample:t.sample,referrer:t.referrer}}var Nt=r(2646);const Lt=new Map;function Mt(e,t,r,n,i=!0,s){if("object"!=typeof t||!t||"string"!=typeof r||!r||"function"!=typeof t[r])return(0,l.R)(29);const a=function(e){return(e||R.ee).get("logger")}(e),o=(0,Pe.YM)(a,void 0,s),c=new Nt.y(R.P);c.level=n.level,c.customAttributes=n.customAttributes,c.autoCaptured=i;const d=t[r]?.[Pe.Jt]||t[r];return Lt.set(d,c),o.inPlace(t,[r],"wrap-logger-",()=>Lt.get(d),void 0,!0),a}var Pt=r(1910);class It extends W{static featureName=se.TZ;constructor(e){var t;super(e,se.TZ),t=e,(0,N.Y)("log",(e,r)=>oe(e,r,t),t),function(e){(0,N.Y)(k.Wb,(t,r,{customAttributes:n={},level:i=se.p_.INFO}={})=>{Mt(e.ee,t,r,{customAttributes:n,level:i},!1,e)},e)}(e),Se(e);const n=this.ee;["log","error","warn","info","debug","trace"].forEach(t=>{(0,Pt.i)(g.gm.console[t]),Mt(n,g.gm.console,t,{level:"log"===t?"info":t},void 0,e)}),this.ee.on("wrap-logger-end",function([t],r,i,s=[e.runtime.v2Target]){const{level:a,customAttributes:o,autoCaptured:c}=this;s.forEach(e=>{(0,ae.R)(n,t,o,a,c,e)})}),this.importAggregator(e,()=>r.e(478).then(r.bind(r,5288)))}}new F({features:[nt,K,G,vt,Et,Y,Oe,_t,It,Rt],loaderType:"spa"})})()})();</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Painel eMulti — Indicadores M1 e M2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel="icon" type="image/x-icon" href="favicon.ico">
+<link rel="icon" type="image/png" sizes="192x192" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+<style>
+  /* Filtros (Equipe/Ano/Quadrimestre/Mês) 40% menores — pedido do usuário.
+     "zoom" encolhe o bloco inteiro (fonte, padding, altura dos selects e
+     do painel de opções) mantendo a proporção, sem precisar reescrever as
+     regras de style.css (não incluído neste upload). Se preferir, essas
+     mesmas regras podem ser movidas pra dentro de style.css. */
+  .filter-bar-outer{ zoom:1.0; }
+</style>
+</head>
+<body>
+
+<div id="loginOverlay">
+  <div class="login-card">
+    <p class="login-kicker">Atenção Primária · Varjota-CE</p>
+    <h2 class="login-title">Painel eMulti</h2>
+    <div class="login-error" id="loginError"></div>
+    <form id="loginForm" autocomplete="off">
+      <div class="login-field">
+        <label for="loginCpf">CPF</label>
+        <input type="text" id="loginCpf" inputmode="numeric" placeholder="000.000.000-00" maxlength="14" required>
+      </div>
+      <div class="login-field">
+        <label for="loginSenha">Senha</label>
+        <input type="password" id="loginSenha" placeholder="Sua senha" required>
+      </div>
+      <button type="submit" class="login-submit" id="loginSubmit">Entrar</button>
+    </form>
+    <p class="login-footer">Acesso restrito às equipes eMulti de Varjota.</p>
+  </div>
+</div>
+
+<div class="login-modal-backdrop hidden" id="firstLoginModal">
+  <div class="login-modal">
+    <h3>Primeiro acesso</h3>
+    <p>Esta é sua primeira vez entrando com essa senha. Deseja trocá-la agora por uma senha só sua?</p>
+    <div class="login-modal-actions">
+      <button type="button" class="btn-secondary" id="firstLoginNo">Agora não</button>
+      <button type="button" class="btn-primary" id="firstLoginYes">Trocar senha</button>
+    </div>
+  </div>
+</div>
+
+<div class="login-modal-backdrop hidden" id="changePasswordBackdrop">
+  <div class="login-modal">
+    <h3>Nova senha</h3>
+    <p>Escolha uma nova senha com pelo menos 6 caracteres.</p>
+    <div class="login-error" id="changePasswordError"></div>
+    <form id="changePasswordForm">
+      <div class="login-field">
+        <label for="newSenha">Nova senha</label>
+        <input type="password" id="newSenha" required>
+      </div>
+      <div class="login-field">
+        <label for="newSenhaConfirm">Confirmar nova senha</label>
+        <input type="password" id="newSenhaConfirm" required>
+      </div>
+      <div class="login-modal-actions">
+        <button type="button" class="btn-secondary" id="changePasswordSkip">Pular</button>
+        <button type="submit" class="btn-primary" id="changePasswordSubmit">Salvar nova senha</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="appShell" class="hidden">
+<div class="header-group">
+<header class="topbar">
+  <div class="topbar-brand">
+    <img class="topbar-logo" src="logo-emulti.png" alt="eMulti Varjota" width="56" height="72">
+    <div class="topbar-left">
+      <p class="kicker">Atenção Primária</p>
+      <h1>Painel eMulti - Varjota-CE</h1>
+      <p class="tagline">Indicadores M1 e M2 calculados de dados do PEC.</p>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <button class="refresh-pill" id="refreshBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-2.6-6.36M21 4v5h-5"/></svg>
+      <span id="refreshLabel">Atualizar</span>
+    </button>
+    <div class="topbar-meta">
+      <div class="eq" id="topEquipe">—</div>
+      <div class="periodo" id="topPeriodo"></div>
+      <div class="dt" id="topUpdated">Carregando…</div>
+    </div>
+    <button class="logout-pill" id="logoutBtn" title="Sair">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" stroke-linecap="round" stroke-linejoin="round"/><path d="M16 17l5-5-5-5M21 12H9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Sair</span>
+    </button>
+  </div>
+</header>
+
+<nav class="tabbar">
+  <button class="tab active" data-tab="geral">Visão geral</button>
+  <button class="tab" data-tab="m1">M1 - Média de Atendimentos</button>
+  <button class="tab" data-tab="m2">M2 - Ações compartilhadas</button>
+  <button class="tab" data-tab="analises">Frequência e Retorno</button>
+  <button class="tab" data-tab="agendamentos">Agendamentos</button>
+  <button class="tab" data-tab="profissionais">Panoroma Assistencial</button>
+  <button class="tab" data-tab="tendencia">Tendência</button>
+  <button class="tab" data-tab="notas">Notas metodológicas</button>
+</nav>
+</div>
+
+<div class="filter-bar-outer">
+<div class="ref-month-row" id="filterBar">
+  <div class="ms-field">
+    <label>Equipe</label>
+    <div class="ms-wrap" id="equipeMs"></div>
+  </div>
+  <div class="ms-field">
+    <label>Ano</label>
+    <div class="ms-wrap" id="anoMs"></div>
+  </div>
+  <div class="ms-field">
+    <label>Quadrimestre</label>
+    <div class="ms-wrap" id="quadMs"></div>
+  </div>
+   <div class="ms-field">
+    <label>Mês (opcional)</label>
+    <div class="ms-wrap" id="mesMs"></div>
+  </div>
+  <div class="ms-field ms-field-window">
+    <label class="ms-hidden-label" aria-hidden="true">Período</label>
+    <span class="ref-window-label" id="refWindowLabel"></span>
+  </div>
+</div>
+</div>
+
+<main class="main">
+  <div id="statusState" class="status-state">
+    <div class="spinner-ring"></div>
+    <h2>Carregando indicadores…</h2>
+    <p>Buscando os dados mais recentes......</p>
+  </div>
+
+  <div id="tabGeral" class="tab-panel active">
+    <div class="gauge-row" id="gaugeRow"></div>
+    <div class="meta-quad-row" id="metaQuadRow"></div>
+    <p class="section-title">Composição do cálculo</p>
+    <div class="comp-row" id="compRow"></div>
+  </div>
+
+  <div id="tabM1" class="tab-panel">
+    <div class="ip-header">
+      <div class="ip-header-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8.5" cy="8" r="3"/><path d="M2.5 19c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5" stroke-linecap="round"/><circle cx="17" cy="9" r="2.4"/><path d="M15.3 13.6c2.6.3 4.7 2.3 4.7 5.4" stroke-linecap="round"/></svg></div>
+      <div class="ip-header-text">
+        <h2><span class="ip-m-tag">M1</span>Atendimentos por pessoa</h2>
+        <p>Atendimentos individuais + coletivos ÷ pessoas atendidas</p>
+      </div>
+    </div>
+    <div class="ip-layout">
+      <div id="gaugeRowM1"></div>
+      <div class="ip-comp-col" id="compRowM1"></div>
+      <div class="ip-side-col" id="sideRowM1"></div>
+    </div>
+    <div id="readingM1"></div>
+    <p class="section-title">Listas</p>
+    <div class="lists-section" id="listsM1"></div>
+  </div>
+
+  <div id="tabM2" class="tab-panel">
+    <div class="ip-header">
+      <div class="ip-header-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="12" r="2.4"/><circle cx="17" cy="6" r="2.4"/><circle cx="17" cy="18" r="2.4"/><path d="M8.2 10.8L14.8 7.2M8.2 13.2l6.6 3.6" stroke-linecap="round"/></svg></div>
+      <div class="ip-header-text">
+        <h2><span class="ip-m-tag">M2</span>Ações compartilhadas</h2>
+        <p>Ações compartilhadas ÷ ações realizadas × 100</p>
+      </div>
+    </div>
+    <div class="ip-layout">
+      <div id="gaugeRowM2"></div>
+      <div class="ip-comp-col" id="compRowM2"></div>
+      <div class="ip-side-col" id="sideRowM2"></div>
+    </div>
+    <div id="readingM2"></div>
+    <p class="section-title">Listas</p>
+    <div class="lists-section" id="listsM2"></div>
+  </div>
+
+  <div id="tabTendencia" class="tab-panel">
+    <div class="trend-row" id="trendRow"></div>
+    <div id="trendHistoryWrap"></div>
+    <p class="fetch-status" id="fetchStatus"></p>
+  </div>
+
+  <div id="tabProfissionais" class="tab-panel">
+    <div class="ip-header">
+      <div class="ip-header-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8.5" cy="8" r="3"/><path d="M2.5 19c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5" stroke-linecap="round"/><circle cx="17" cy="9" r="2.4"/><path d="M15.3 13.6c2.6.3 4.7 2.3 4.7 5.4" stroke-linecap="round"/></svg></div>
+      <div class="ip-header-text">
+        <h2>Perfil de Atendimento</h2>
+        <p>Retorno de pacientes por profissional (Lista de Atendimentos), na janela selecionada acima.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title" id="profMainChartTitle">Quadro Geral de Distribuição de Consultas por Profissional(%)</div>
+        <div class="pill-group">
+          <button type="button" class="pill-btn active" id="profPillPercent">Percentual (100%)</button>
+          <button type="button" class="pill-btn" id="profPillAbsolute">Valores absolutos</button>
+        </div>
+      </div>
+      <div style="height:280px;position:relative;">
+        <canvas id="profStackedChart"></canvas>
+      </div>
+    </div>
+
+    <p class="section-title">Profissionais</p>
+    <div class="grid-professionals" id="profGrid"></div>
+
+    <div class="card" id="fluxoPacientesCard">
+      <div id="fluxoPacientes"></div>
+    </div>
+  </div>
+
+  <div id="tabAnalises" class="tab-panel">
+    <style>
+      #tabAnalises h3{font-size:20.6px;}
+      #tabAnalises h4{font-size:17.6px;}
+      #tabAnalises .footnote{font-size:14.4px;}
+      #tabAnalises .list-meta{font-size:14.4px;}
+      #tabAnalises .list-month-filter-label{font-size:15px;}
+      #tabAnalises .list-search{font-size:15.6px;}
+      #tabAnalises #analisesFreqLegenda.kpi-item{min-width:0;}
+      #tabAnalises #analisesFreqLegenda{min-width:0;flex:1 1 160px;box-sizing:border-box;}
+      #tabAnalises #analisesFreqLegenda .kpi-item{min-width:0;max-width:100%;box-sizing:border-box;gap:2px;}
+      #tabAnalises #analisesFreqLegenda .kpi-item label{font-size:12.5px;white-space:normal;margin:0;line-height:1.2;}
+      #tabAnalises #analisesFreqLegenda .kpi-item span{font-size:15.6px;word-break:break-word;margin:0;line-height:1.2;}
+    </style>
+    <div class="card" style="margin-bottom:16px;">
+      <h3 style="margin:0 0 4px;">Perfil de pacientes — <span id="analisesTotalPacientes">—</span> pacientes no período</h3>
+      <p class="footnote" style="margin:0 0 12px;">Estas análises usam um filtro de Equipe e Quadrimestre PRÓPRIO desta aba (independente do filtro do topo). Sem nenhum quadrimestre marcado, olham pro histórico completo de atendimentos.</p>
+      <div class="list-filters">
+        <div class="list-month-filter"><label class="list-month-filter-label">Quadrimestre</label>
+          <div class="ms-wrap" id="analisesQuadMs"></div>
+        </div>
+        <div class="list-month-filter"><label class="list-month-filter-label">Equipe</label>
+          <div class="ms-wrap" id="analisesEquipeMs"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+      <h4 style="margin-top:0;">Tempo entre consultas</h4>
+      <div id="analisesIntervalos"></div>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+      <h4 style="margin-top:0;">Funil de abandono</h4>
+      <div id="analisesFunil"></div>
+    </div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;">
+      <div class="card" style="flex:1;min-width:280px;margin-bottom:0;">
+        <h4 style="margin-top:0;">Perfil de frequência</h4>
+        <div class="card-charts-layout card-charts-layout--lg">
+          <div class="chart-box">
+            <canvas id="analisesFreqDonut"></canvas>
+          </div>
+          <div id="analisesFreqLegenda" class="kpi-container kpi-legend-vertical" style="flex-direction:column;align-items:stretch;gap:6px;"></div>
+        </div>
+      </div>
+      <div class="card" style="flex:1;min-width:280px;margin-bottom:0;">
+        <h4 style="margin-top:0;">Atendimentos por dia da semana</h4>
+        <div class="chart-box-full" style="height:220px;">
+          <canvas id="analisesDiaSemana"></canvas>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+      <h4 style="margin-top:0;">Tempo até a 2ª e da 2ª até a 3ª consulta de acordo com o Profissional</h4>
+      <div class="chart-box-full" style="height:260px;">
+        <canvas id="analisesCompProf"></canvas>
+      </div>
+    </div>
+    <div class="card">
+      <h4 style="margin-top:0;">Pacientes em risco de abandono</h4>
+      <p class="footnote" style="margin-top:0;line-height:1.5;">Pacientes com 2+ consultas cujo último atendimento já passou da mediana histórica de retorno da equipe, mas ainda dentro de uma janela em que voltar é plausível. Quando o paciente tem 2 ou mais profissionais no histórico, o nome <b>que aparece visível</b> na coluna "Profissional" é de quem realizou a última consulta. <b>Dias restantes</b> é uma estimativa: quanto falta pra passar de 3x a mediana histórica de retorno (limite de abandono consumado); depois disso aparece "Ultrapassou há X dias". <b>Última participação coletiva</b> é só informativa — não entra no cálculo de risco.</p>
+      <div id="analisesRiscoResumo" style="margin-bottom:14px;"></div>
+      <div id="analisesRisco"></div>
+    </div>
+  </div>
+
+  <div id="tabAgendamentos" class="tab-panel">
+    <div class="ip-header"><div class="ip-header-text"><h2>Agendamentos <span class="ag-info" tabindex="0" role="button" aria-label="Como funciona esta tela"><span class="ag-info-i" aria-hidden="true">i</span><span class="ag-info-tip" role="tooltip">Mostra por padrão as pessoas cujo último atendimento foi nos últimos 120 dias (ajuste os dias ao lado; 0 mostra todas). Clique no título de uma coluna para ordenar (por padrão, o agendamento mais recente fica no topo). Marque “Também seguir os filtros da lista Pessoas atendidas” para respeitar também os filtros aplicados lá (Mês, colunas e busca). Os filtros ficam lembrados neste navegador. Situação “Faltou” devolve a pessoa para a fila de reagendamento. A situação e a data agendada ficam registradas na planilha. Use “Gerar datas automaticamente” para distribuir as pessoas pendentes por profissional da última consulta (mais antiga primeiro, segunda a sexta, até 6 pela manhã e 6 à tarde por dia).</span></span></h2></div><div class="pill-group ag-pills" role="tablist" aria-label="Visão"><button type="button" class="pill-btn active" id="agPillLista" role="tab" aria-selected="true">Agendamentos</button><button type="button" class="pill-btn" id="agPillAgenda" role="tab" aria-selected="false">Agenda</button></div></div>
+    <div id="agVisaoLista">
+    <div class="card agendamentos-card">
+      <div class="agendamentos-toolbar"><input id="agendamentosBusca" type="search" placeholder="Buscar pessoa…" aria-label="Buscar pessoa"><input id="agendamentosProfissional" type="search" list="agendamentosProfissionais" placeholder="Filtrar por profissional…" aria-label="Filtrar por profissional" autocomplete="off"><datalist id="agendamentosProfissionais"></datalist><select id="agendamentosTurno" aria-label="Filtrar por turno"><option value="">Todos os turnos</option><option value="manha">Manhã</option><option value="tarde">Tarde</option><option value="sem">Sem turno</option></select><label class="agendamentos-dias" for="agendamentosDias">Último atendimento nos últimos</label><input id="agendamentosDias" type="number" min="0" step="1" value="120" inputmode="numeric" aria-label="Dias desde o último atendimento (0 = todos)"><span class="agendamentos-dias">dias</span><span id="agendamentosContagem">—</span><button id="agendamentosAtualizar" type="button">Atualizar lista</button></div>
+      <div class="agendamentos-toolbar agendamentos-gerar"><label for="agendamentosInicio">Gerar a partir de</label><input id="agendamentosInicio" type="date"><button id="agendamentosGerar" type="button">Gerar datas automaticamente</button><button id="agendamentosSalvarGerados" type="button" hidden>Salvar datas geradas</button><button id="agendamentosDescartar" type="button" class="agendamentos-secundario" hidden>Descartar</button><button id="agendamentosSincronizar" type="button">Sincronizar Pessoas atendidas</button></div>
+      <div class="agendamentos-toolbar agendamentos-filtros2"><label class="agendamentos-dias" for="agendamentosSituacao">Situação</label><select id="agendamentosSituacao" aria-label="Filtrar por situação"><option value="">Todas</option><option>Pendente</option><option>Agendado</option><option>Realizado</option><option>Faltou</option><option>Cancelado</option></select><label class="agendamentos-dias" for="agendamentosDe">Data agendada de</label><input id="agendamentosDe" type="date"><label class="agendamentos-dias" for="agendamentosAte">até</label><input id="agendamentosAte" type="date"><button id="agendamentosLimpar" type="button" class="agendamentos-secundario">Limpar filtros</button><button id="agendamentosCsv" type="button" class="agendamentos-secundario">Exportar CSV</button><button id="agendamentosImprimir" type="button" class="agendamentos-secundario">Imprimir agenda</button></div>
+      <label class="agendamentos-seguir"><input type="checkbox" id="agendamentosSeguir"> Também seguir os filtros da lista Pessoas atendidas (Mês, colunas e busca)</label>
+      <p id="agendamentosFiltroInfo" class="agendamentos-filtro-info"></p>
+      <p id="agendamentosFeedback" class="agendamentos-feedback" role="status"></p>
+      <div id="agendamentosResumo" class="agendamentos-resumo"></div>
+      <details id="agendamentosVagas" class="agendamentos-detalhe"><summary>Vagas por dia (próximos dias de atendimento)</summary><div id="agendamentosVagasTabela" class="agendamentos-vagas"></div></details>
+      <details id="agendamentosConfig" class="agendamentos-detalhe"><summary>Configurar agenda (vagas, dias de atendimento e distribuição)</summary>
+        <div class="agendamentos-cfg">
+          <div class="agendamentos-cfg-linha"><label>Vagas pela manhã <input id="agCfgM" type="number" min="0"></label><label>Vagas à tarde <input id="agCfgT" type="number" min="0"></label><label>Espalhar em <input id="agCfgJanela" type="number" min="0"> dias de atendimento <small>(0 = automático: uma semana inteira, preenchendo primeiro os dias com menos gente)</small></label></div>
+          <div class="agendamentos-cfg-linha agendamentos-cfg-dias"><span>Dias de atendimento:</span><label><input type="checkbox" data-dia="1"> seg</label><label><input type="checkbox" data-dia="2"> ter</label><label><input type="checkbox" data-dia="3"> qua</label><label><input type="checkbox" data-dia="4"> qui</label><label><input type="checkbox" data-dia="5"> sex</label><label><input type="checkbox" data-dia="6"> sáb</label><label><input type="checkbox" data-dia="0"> dom</label></div>
+          <p class="agendamentos-filtro-info">Valores por profissional (tabela abaixo) substituem o padrão; deixe em branco para usar o padrão. As configurações ficam salvas neste navegador.</p>
+          <div id="agCfgProf"></div>
+          <button id="agCfgReset" type="button" class="agendamentos-btn agendamentos-secundario">Restaurar padrão</button>
+        </div>
+      </details>
+      <div class="agendamentos-pager"><label for="agendamentosPorPagina">Linhas por página</label><select id="agendamentosPorPagina" aria-label="Linhas por página"><option>50</option><option selected>100</option><option>200</option><option value="0">Todas</option></select><button id="agendamentosPrev" type="button" class="agendamentos-btn agendamentos-secundario">‹ Anterior</button><span id="agendamentosPagina">—</span><button id="agendamentosNext" type="button" class="agendamentos-btn agendamentos-secundario">Próxima ›</button></div>
+      <div class="table-wrap"><table class="data-table agendamentos-table"><thead><tr><th class="sortable-th" data-ag-sort="nome">Nome<span class="sort-ind"></span></th><th class="sortable-th" data-ag-sort="atendimentos">Atendimentos<span class="sort-ind"></span></th><th class="sortable-th" data-ag-sort="ultimo">Último Atendimento<span class="sort-ind"></span></th><th class="sortable-th" data-ag-sort="prof">Profissional (última consulta)<span class="sort-ind"></span></th><th class="sortable-th" data-ag-sort="situacao">Situação<span class="sort-ind"></span></th><th class="sortable-th" data-ag-sort="data">Data agendada<span class="sort-ind"></span></th><th class="sortable-th" data-ag-sort="turno">Turno<span class="sort-ind"></span></th><th class="sortable-th" data-ag-sort="atualizado">Atualizado em<span class="sort-ind"></span></th><th>Ação</th></tr></thead><tbody id="agendamentosBody"><tr><td colspan="10" class="agendamentos-vazio">Entre na aba para carregar os registros.</td></tr></tbody></table></div>
+    </div>
+    </div>
+    <div id="agVisaoAgenda" hidden>
+    <div class="card agenda-card">
+      <div class="agenda-toolbar">
+        <select id="agendaProf" aria-label="Profissional"><option value="">Todos os profissionais</option></select>
+        <span class="agenda-nav agenda-nav-sem"><button type="button" id="agendaSemPrev" title="Semana anterior" aria-label="Semana anterior">‹ Semana</button><select id="agendaSemana" aria-label="Semana"><option value="">Todo o mês</option></select><button type="button" id="agendaSemNext" title="Avançar semana" aria-label="Avançar semana">Semana ›</button></span>
+        <span class="agenda-nav"><button type="button" id="agendaPrev" aria-label="Mês anterior">‹</button><strong id="agendaMes">—</strong><button type="button" id="agendaNext" aria-label="Próximo mês">›</button></span>
+        <button type="button" id="agendaPdf" class="agenda-ico" title="Gerar PDF" aria-label="Gerar PDF">PDF</button>
+        <button type="button" id="agendaZap" class="agenda-ico" title="Copiar texto para WhatsApp" aria-label="Copiar para WhatsApp">WhatsApp</button>
+        <button type="button" id="agendaImg" class="agenda-ico" title="Baixar card em imagem" aria-label="Baixar card">Imagem</button>
+      </div>
+      <div class="agenda-legenda" id="agendaLegenda"></div>
+      <div class="agenda-grade" id="agendaGrade"></div>
+      <div class="agenda-lista" id="agendaLista"></div>
+    </div>
+    </div>
+  </div>
+
+  <div id="tabNotas" class="tab-panel">
+    <div class="card">
+      <ul class="notes-list" id="notesList"></ul>
+    </div>
+  </div><!-- /#tabNotas -->
+</main>
+
+<footer class="app-footer">
+  Secretaria Municipal de Saúde de Varjota - Desenvolvido por Alidemberg Araújo - Coordenador do e-SUS Municipal
+</footer>
+</div><!-- /#appShell -->
+
+<script>window.iniciarPainelEmulti=function(){window.__emultiPendente=true;};</script>
+<script type="module" src="app.js"></script>
+<script type="module" src="agendamentos.js"></script>
+<script type="module" src="agenda.js"></script>
+<script src="auth.js"></script>
+</body>
+</html>
