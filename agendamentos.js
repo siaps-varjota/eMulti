@@ -45,7 +45,7 @@ function profMapAg(){
   if(profCacheAg)return profCacheAg;
   var list=window.__emultiPessoasAtendidas&&window.__emultiPessoasAtendidas();
   if(!list||!Array.isArray(list.rows)||!list.rows.length)return null;
-  var map={},nomes={},ult={},ultProf={},elegiveis={};
+  var map={},nomes={},ult={},ultProf={},ultUnid={},elegiveis={},unidsDe={};
   list.rows.forEach(function(r){
     // Só entra quem teve atendimento individual com profissional da eMulti (sem participação só em atividade coletiva).
     if(r.agendavel!==true)return;
@@ -53,11 +53,13 @@ function profMapAg(){
     var u=r.ultimoAtendimentoAgendaISO||''; if(u)ult[k]=u;
     // Profissional (da eMulti) do atendimento mais recente — base da distribuição automática de datas.
     var up=String(r.ultimoProfissionalAgenda==null?'':r.ultimoProfissionalAgenda).trim();
-    if(up){ultProf[k]=up;nomes[up]=1;}
+    if(up){ultProf[k]=up;nomes[up]=1;var un=String(r.ultimaUnidadeAgenda==null?'':r.ultimaUnidadeAgenda).trim();if(un){ultUnid[k]=un;(unidsDe[normAg(up)]=unidsDe[normAg(up)]||{})[un]=1;}}
     var txt=String(r[5]==null?'':r[5]);
     if(txt&&txt!=='—')map[k]=normAg(txt);
   });
-  profCacheAg={map:map,ult:ult,ultProf:ultProf,elegiveis:elegiveis,rows:list.rows.filter(function(r){return r.agendavel===true;}),nomes:Object.keys(nomes).sort(function(a,b){return a.localeCompare(b,'pt-BR');})};
+  // Profissional que atendeu em 2+ unidades: vagas, dias e lotação passam a valer por unidade.
+  var multi={};Object.keys(unidsDe).forEach(function(pk){if(Object.keys(unidsDe[pk]).length>1)multi[pk]=true;});
+  profCacheAg={map:map,ult:ult,ultProf:ultProf,ultUnid:ultUnid,multi:multi,elegiveis:elegiveis,rows:list.rows.filter(function(r){return r.agendavel===true;}),nomes:Object.keys(nomes).sort(function(a,b){return a.localeCompare(b,'pt-BR');})};
   return profCacheAg;
 }
 function fillProfAg(){var dl=document.getElementById('agendamentosProfissionais'),c=profMapAg();if(!dl||!c)return;dl.innerHTML=c.nomes.map(function(n){return '<option value="'+escAg(n)+'"></option>';}).join('');}
@@ -125,7 +127,7 @@ function chaveSortAg(col,r,ix,uc,turnos){
     case 'atendimentos':return r.Atendimentos===''||r.Atendimentos==null?null:Number(r.Atendimentos)||0;
     case 'total':return r.Total===''||r.Total==null?null:Number(r.Total)||0;
     case 'ultimo':return ultimoDeAg(r,uc)||null;
-    case 'prof':return normAg(uc&&uc.ultProf[normAg(r.Nome)])||null;
+    case 'prof':return normAg(nomeProfAg(r,uc))||null;
     case 'situacao':return normAg(r.Situação||'Pendente');
     case 'data':return propostaAg[ix]||dateAg(r['Data agendada'])||null;
     case 'turno':return turnos[ix]?TURNO_ORD_AG[turnos[ix].classe]:null;
@@ -172,7 +174,7 @@ function calcularListaAg(){
     if(tf){var t=turnos[ix];if(tf==='sem'?!!t:(!t||t.classe!==tf))return false;}
     if(de||ate){var d=propostaAg[ix]||dateAg(r['Data agendada']);if(!d||(de&&d<de)||(ate&&d>ate))return false;}
     if(q&&!String(r.Nome||'').toLocaleLowerCase('pt-BR').includes(q))return false;
-    if(pq){var up=uc.ultProf[normAg(r.Nome)]||'';if(normAg(up).indexOf(pq)<0)return false;}
+    if(pq){var up=nomeProfAg(r,uc)||'';if(normAg(up).indexOf(pq)<0)return false;}
     return true;
   });
   list=ordenarAg(list,uc,turnos);
@@ -202,7 +204,7 @@ function renderAg(){
   var pos=new Map();rowsAg.forEach(function(r,i){pos.set(r,i);});
   body.innerHTML=vis.map(function(r){
     var ix=pos.get(r), prop=propostaAg[ix], data=prop||dateAg(r['Data agendada']);
-    var prof=(uc&&uc.ultProf[normAg(r.Nome)])||'—', t=turnos[ix];
+    var prof=(uc&&nomeProfAg(r,uc))||'—', t=turnos[ix];
     var turnoHtml=t?'<span class="ag-turno '+t.classe+'" title="'+escAg(t.dica)+'">'+t.rotulo+'</span>':'<span title="'+escAg(motivoSemTurnoAg(r,ix,uc))+'">—</span>';
     var sit=r.Situação||'Pendente';
     return '<tr data-ag-ix="'+ix+'"'+(prop?' class="agendamentos-gerada" title="Data gerada automaticamente — ainda não salva"':'')+'>'
@@ -234,7 +236,7 @@ function amanhaAg(){var h=new Date();return new Date(h.getFullYear(),h.getMonth(
 // Núcleo da distribuição (função pura).
 //  cands: [{ix,prof,nome,ult,pri}]  prof = chave do profissional; ult = AAAA-MM-DD; pri 0 = faltoso (vai primeiro)
 //  ocupados: {prof:{AAAA-MM-DD:n}}  vagas já usadas  |  inicio: Date
-//  opt: {cap:function(prof)->{dia,dias}, janela:n}  (janela = nº de dias de atendimento para espalhar; 0 = o menor possível)
+//  opt: {cap:function(prof)->{dia,dias}, janela:n}  (janela = nº mínimo de dias de atendimento para espalhar; 0 = uma semana inteira)
 //  devolve {ix: AAAA-MM-DD}
 function planejarAg(cands,ocupados,inicio,opt){
   opt=opt||{};var capFn=opt.cap||function(){return capAg('');},janela=opt.janela||0;
@@ -247,10 +249,17 @@ function planejarAg(cands,ocupados,inicio,opt){
       if(a.ult!==b.ult)return a.ult<b.ult?-1:1;
       return String(a.nome).localeCompare(String(b.nome),'pt-BR');
     });
-    var N=fila.length,dias=[],livre=0,dia=proxDiaAg(inicio,cap.dias),guard=0;
-    // 1) dias de atendimento com vaga, até caber todo mundo (e pelo menos "janela" dias)
-    while((livre<N||dias.length<janela)&&guard<3000){
-      guard++;
+    var N=fila.length,dias=[],livre=0,vistos=0,dia=proxDiaAg(inicio,cap.dias),guard=0;
+    // Janela mínima: a configurada ou, no automático (0), uma semana inteira de atendimento —
+    // assim poucas pessoas não lotam só o primeiro dia e deixam o resto da semana vazio.
+    var semana=cap.dias.reduce(function(a,x){return a+(x?1:0);},0)||1,janEf=janela>0?janela:semana;
+    // Último dia já com gente (até 8 semanas à frente): os dias vazios antes dele entram na
+    // distribuição, para os buracos da agenda serem preenchidos antes de lotar os dias cheios.
+    var limHoriz=isoAg(somaDiaAg(inicio,56)),ultOc='';
+    Object.keys(oc).forEach(function(k){if(oc[k]>0&&k>=isoAg(inicio)&&k<=limHoriz&&k>ultOc)ultOc=k;});
+    // 1) dias de atendimento com vaga, até caber todo mundo, cobrir a janela e alcançar o último dia ocupado
+    while((livre<N||vistos<janEf||(ultOc&&isoAg(dia)<=ultOc))&&guard<3000){
+      guard++;vistos++;
       var k=isoAg(dia),f=Math.max(0,cap.dia-(oc[k]||0));
       if(f>0){dias.push({k:k,f:f,carga:oc[k]||0,n:0});livre+=f;}
       dia=proxDiaAg(somaDiaAg(dia,1),cap.dias);
@@ -268,7 +277,26 @@ function planejarAg(cands,ocupados,inicio,opt){
   });
   return plano;
 }
-function chaveProfAg(r,uc){var p=uc&&uc.ultProf[normAg(r.Nome)];return p?normAg(p):'';}
+// ---------- Chave de agenda: profissional (+ unidade, quando ele atende em mais de uma) ----------
+// Quem atende em 2 unidades (ex.: Centro e Croatá) tem uma agenda por unidade: cada uma com suas
+// vagas, dias de atendimento e lotação. Os demais continuam com a chave simples (nome normalizado).
+function chaveProfAg(r,uc){
+  var n=normAg(r.Nome),p=uc&&uc.ultProf[n];if(!p)return '';
+  var k=normAg(p),u=uc.ultUnid&&uc.ultUnid[n];
+  return (uc.multi&&uc.multi[k]&&u)?k+'@'+normAg(u):k;
+}
+// Nome para exibir: "Profissional — Unidade" quando a agenda é separada por unidade.
+function nomeProfAg(r,uc){
+  var n=normAg(r.Nome),p=uc&&uc.ultProf[n];if(!p)return '';
+  var u=uc.ultUnid&&uc.ultUnid[n];
+  return (uc.multi&&uc.multi[normAg(p)]&&u)?p+' — '+u:p;
+}
+// Todas as agendas existentes {chave: nome para exibir}.
+function agendasAg(uc){
+  var o={};
+  Object.keys(uc.ultProf).forEach(function(n){var r={Nome:n};var k=chaveProfAg(r,uc);if(k)o[k]=nomeProfAg(r,uc);});
+  return o;
+}
 // Próximo dia de atendimento (a partir de iso, inclusive) em que o profissional ainda tem vaga.
 // ignorarIx = linha que está sendo movida (não conta como ocupante). Nunca deixa "excedente".
 function proximaVagaAg(ix,iso,uc){
@@ -393,10 +421,10 @@ function gerarAg(auto,prefixo){
     if(sit!=='Pendente'&&sit!=='Faltou')return;
     // Pendente com data já está resolvido; Faltou volta para a fila mesmo tendo a data antiga.
     if(sit==='Pendente'&&dateAg(r['Data agendada'])){jaTem++;return;}
-    var prof=uc.ultProf[normAg(r.Nome)];
+    var prof=nomeProfAg(r,uc);
     if(!prof){semProf++;return;}
-    var k=normAg(prof);
-    if(pq&&k.indexOf(pq)<0)return;
+    var k=chaveProfAg(r,uc);
+    if(pq&&normAg(prof).indexOf(pq)<0)return;
     nomes[k]=prof;
     if(sit==='Faltou')faltosos++;
     cands.push({ix:ix,prof:k,nome:String(r.Nome||''),ult:ultimoDeAg(r,uc),pri:sit==='Faltou'?0:1});
@@ -405,7 +433,7 @@ function gerarAg(auto,prefixo){
   propostaAg=cands.length?planejarAg(cands,ocupados,inicio,{cap:capAg,janela:cfgAg.janela}):{};
   // Realoca os excedentes para o primeiro dia seguinte (ao dia deles) com vaga.
   excedentes.sort(function(a,b){return a.d<b.d?-1:a.d>b.d?1:a.ix-b.ix;}).forEach(function(x){
-    var k=chaveProfAg(rowsAg[x.ix],uc);nomes[k]=nomes[k]||uc.ultProf[normAg(rowsAg[x.ix].Nome)];
+    var k=chaveProfAg(rowsAg[x.ix],uc);nomes[k]=nomes[k]||nomeProfAg(rowsAg[x.ix],uc);
     var nova=proximaVagaAg(x.ix,isoAg(somaDiaAg(isoParaDataAg(x.d),1)),uc);
     propostaAg[x.ix]=nova;
   });
@@ -524,7 +552,7 @@ window.__emultiAgendaDados=function(){
     var sit=r.Situação||'Pendente';if(!prop&&!ehAtivoAg(r))return;
     var k=chaveProfAg(r,uc);if(!k)return;
     var t=turnos[ix];
-    ev.push({data:d,nome:String(r.Nome||''),prof:uc.ultProf[normAg(r.Nome)],profKey:k,tipo:prop?'sugerido':(sit==='Realizado'?'realizado':'agendado'),situacao:sit,turno:t?t.rotulo:'',ult:ultimoDeAg(r,uc),capDia:capAg(k).dia});
+    ev.push({data:d,nome:String(r.Nome||''),prof:nomeProfAg(r,uc),profKey:k,tipo:prop?'sugerido':(sit==='Realizado'?'realizado':'agendado'),situacao:sit,turno:t?t.rotulo:'',ult:ultimoDeAg(r,uc),capDia:capAg(k).dia});
   });
   return {eventos:ev,pronto:true};
 };
@@ -569,7 +597,7 @@ function renderVagasAg(uc){
   var det=document.getElementById('agendamentosVagas'),box=document.getElementById('agendamentosVagasTabela');
   if(!det||!box||!det.open)return;
   if(!uc){box.innerHTML='<p class="agendamentos-vazio">Carregue Pessoas atendidas para ver as vagas.</p>';return;}
-  var nomes={};Object.keys(uc.ultProf).forEach(function(n){var p=uc.ultProf[n];nomes[normAg(p)]=p;});
+  var nomes=agendasAg(uc);
   var ks=Object.keys(nomes).sort(function(a,b){return nomes[a].localeCompare(nomes[b],'pt-BR');});
   if(!ks.length){box.innerHTML='<p class="agendamentos-vazio">Sem profissionais identificados.</p>';return;}
   var oc={};
@@ -598,7 +626,7 @@ function renderConfigAg(){
   var box=document.getElementById('agCfgProf');if(!box)return;
   var uc=profMapAg();
   if(!uc){box.innerHTML='<p class="agendamentos-filtro-info">Carregue Pessoas atendidas para configurar por profissional.</p>';return;}
-  var nomes={};Object.keys(uc.ultProf).forEach(function(n){var p=uc.ultProf[n];nomes[normAg(p)]=p;});
+  var nomes=agendasAg(uc);
   var ks=Object.keys(nomes).sort(function(a,b){return nomes[a].localeCompare(nomes[b],'pt-BR');});
   box.innerHTML='<div class="table-wrap"><table class="data-table"><thead><tr><th>Profissional</th><th>Vagas manhã</th><th>Vagas tarde</th>'+DIAS_SEM_AG.map(function(n){return '<th>'+n+'</th>';}).join('')+'</tr></thead><tbody>'+ks.map(function(k){
     var o=cfgAg.prof[k]||{},cap=capAg(k);
@@ -619,7 +647,7 @@ function linhasAgendaAg(c){
     var ix=pos.get(r);if(!ehAtivoAg(r))return;
     var d=propostaAg[ix]||dateAg(r['Data agendada']);if(!d)return;
     var t=c.turnos[ix];
-    out.push({prof:(c.uc&&c.uc.ultProf[normAg(r.Nome)])||'Sem profissional identificado',data:d,turno:t?t.rotulo:'',tclasse:t?t.classe:'',nome:String(r.Nome||''),ult:ultimoDeAg(r,c.uc),sit:propostaAg[ix]?'Proposta (não salva)':(r.Situação||'Pendente'),at:r.Atendimentos,total:r.Total});
+    out.push({prof:(c.uc&&nomeProfAg(r,c.uc))||'Sem profissional identificado',data:d,turno:t?t.rotulo:'',tclasse:t?t.classe:'',nome:String(r.Nome||''),ult:ultimoDeAg(r,c.uc),sit:propostaAg[ix]?'Proposta (não salva)':(r.Situação||'Pendente'),at:r.Atendimentos,total:r.Total});
   });
   out.sort(function(a,b){
     return a.prof.localeCompare(b.prof,'pt-BR')||(a.data<b.data?-1:a.data>b.data?1:0)||((TURNO_ORD_AG[a.tclasse]||9)-(TURNO_ORD_AG[b.tclasse]||9))||(a.ult<b.ult?-1:a.ult>b.ult?1:0)||a.nome.localeCompare(b.nome,'pt-BR');
