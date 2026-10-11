@@ -407,13 +407,28 @@ function gerarAg(auto,prefixo){
     (ocupados[k]=ocupados[k]||{})[d]=((ocupados[k]||{})[d]||0)+1;
   });
   // Excedente não existe: quem está acima do limite do dia vai para o próximo dia com vaga.
+  // Datas futuras já gravadas em dia que o profissional (unidade) NÃO atende, segundo a configuração
+  // atual: voltam para a fila e são redistribuídas nos dias certos (só vira data salva após "Salvar datas geradas").
+  var hojeIso=isoAg(new Date()),foraDia={},nForaDia=0;
+  rowsAg.forEach(function(r,ix){
+    var k=chaveProfAg(r,uc),d=dateAg(r['Data agendada']),sit=r.Situação||'Pendente';
+    if(!k||!d||d<hojeIso||sit==='Realizado'||!ehAtivoAg(r))return;
+    var dt=isoParaDataAg(d);if(!dt||capAg(k).dias[dt.getDay()])return;
+    if(pq&&normAg(nomeProfAg(r,uc)).indexOf(pq)<0)return;
+    foraDia[ix]=true;
+    if(ocupados[k]&&ocupados[k][d])ocupados[k][d]--;
+    nomes[k]=nomeProfAg(r,uc);nForaDia++;
+    cands.push({ix:ix,prof:k,nome:String(r.Nome||''),ult:ultimoDeAg(r,uc),pri:1});
+  });
   var turnosAtuais=turnosAg(uc),excedentes=[];
   Object.keys(turnosAtuais).forEach(function(i){
     var r=rowsAg[i],d=propostaAg[i]||dateAg(r['Data agendada']);
+    if(foraDia[i])return;
     if(turnosAtuais[i].classe==='excedente'&&!propostaAg[i]&&(r.Situação||'Pendente')!=='Realizado'&&d>=isoAg(new Date()))excedentes.push({ix:Number(i),d:d});
   });
   excedentes.forEach(function(x){var k=chaveProfAg(rowsAg[x.ix],uc);if(ocupados[k]&&ocupados[k][x.d])ocupados[k][x.d]--;});
   rowsAg.forEach(function(r,ix){
+    if(foraDia[ix])return;
     if(!uc.elegiveis[normAg(r.Nome)])return;
     if(lf&&!lf.set[normAg(r.Nome)])return;
     if(!dentroDiasAg(r,uc,lim))return;
@@ -439,7 +454,7 @@ function gerarAg(auto,prefixo){
   });
   var datas=Object.keys(propostaAg).map(function(i){return propostaAg[i];}).sort();
   renderAg();atualizarBotoesGeracaoAg();resumoGeradoAg(uc,nomes);
-  msgAg((prefixo?prefixo+' ':'')+cands.length+(cands.length===1?' pessoa distribuída':' pessoas distribuídas')+(faltosos?' ('+faltosos+(faltosos===1?' faltoso reagendado':' faltosos reagendados')+')':'')+' de '+brAg(datas[0])+' a '+brAg(datas[datas.length-1])+' (dias de atendimento e vagas por profissional conforme a configuração). Revise e clique em "Salvar datas geradas".'+(semProf?' '+semProf+' sem profissional identificado ficaram de fora.':''),false);
+  msgAg((prefixo?prefixo+' ':'')+cands.length+(cands.length===1?' pessoa distribuída':' pessoas distribuídas')+(faltosos?' ('+faltosos+(faltosos===1?' faltoso reagendado':' faltosos reagendados')+')':'')+(nForaDia?' ('+nForaDia+(nForaDia===1?' remanejada':' remanejadas')+' por estar em dia fora da configuração)':'')+' de '+brAg(datas[0])+' a '+brAg(datas[datas.length-1])+' (dias de atendimento e vagas por profissional conforme a configuração). Revise e clique em "Salvar datas geradas".'+(semProf?' '+semProf+' sem profissional identificado ficaram de fora.':''),false);
 }
 function descartarAg(){propostaAg={};atualizarBotoesGeracaoAg();renderAg();msgAg('Datas geradas descartadas.',false);}
 
