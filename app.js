@@ -1,903 +1,903 @@
-// ======================================================================
-// app.js
-// Arquivo consolidado a partir dos módulos de js/ (ver MODULOS.md).
-// Cada seção "=== módulo: ... ===" corresponde a um arquivo original.
-// ======================================================================
+// Aba de agendamentos: lê/grava a aba Agendamentos pelo backend existente.
+var rowsAg=[]; var busyAg=false; var profCacheAg=null;
+// Datas geradas automaticamente que ainda NÃO foram salvas na planilha:
+// índice da linha em rowsAg -> data (AAAA-MM-DD). Só vão pra planilha quando
+// a pessoa clica em "Salvar datas geradas".
+var propostaAg={};
+var paginaAg=1;                 // página atual da tabela (1-based)
+var loteIndisponivelAg=false;   // backend ainda sem a ação em lote -> usa o salvamento linha a linha
+var LOTE_AG=100;                // pessoas por pedido no salvamento em lote
+var LS_FILTROS_AG='emulti.agendamentos.filtros', LS_CONFIG_AG='emulti.agendamentos.config';
+function lsGetAg(k){try{return JSON.parse(localStorage.getItem(k)||'null');}catch(e){return null;}}
+function lsSetAg(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
+function valAg(id){var el=document.getElementById(id);return el?String(el.value==null?'':el.value):'';}
 
-import { CLASS_BANDS_M1, CLASS_BANDS_M1_OV, CLASS_BANDS_M2, CLASS_BANDS_M2_OV, CLASS_BANDS_NOTA_OV, CLASS_PILL_HEX, EQUIPES, JANELA_MESES, LEGEND_M1, LEGEND_M2, OV_LEGEND_M1, OV_LEGEND_M2, OV_LEGEND_NOTA, STORAGE_AVAILABLE, STORAGE_KEY, TREND_MESES, anchorMonthDate, animateGauges, anoMs, calcularIndicadoresDoPeriodo, calcularJanelaComOverride, calcularJanelaPeriodo, calcularSerieTendencia, classificarDesempenho, classificarM1, classificarM2, colIndex, compCardHeaderHTML, createMultiSelect, criarLigacaoAtividades, escapeHtml, estadoApp, fetchAllSheets, fetchOfficialOverridesSafe, fetchProfissionaisSafe, filtrarLinhasPorEquipe, fmtBRDate, fmtDate, fmtDec, fmtInt, init_nucleo_config, init_nucleo_dados, init_nucleo_listas_estado, init_nucleo_periodos, init_nucleo_popovers, init_visual_gauge, init_visual_painel_kpi, isMesFuturo, labelQuadsSelecionados, m1ListNames, m2ListNames, mediaDeMeses, mesMs, mesesDosQuadsSelecionadosUniao, mesesElapsedDosQuadsSelecionadosUniao, monthOptionValue, monthShortLabel, normalizeText, parseBRDate, parseCsv, periodoMesUnico, pillHex, populateAnoQuadSelects, profissionaisRoster, quadCode, quadKeyOfDate, quadMs, refMonthLabel, sheetToRows, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, valoresUnicosOrdenados, withinPeriod } from './nucleo.js';
-import { renderFluxoPacientes, M1_META_THRESHOLDS, M2_META_THRESHOLDS, calcularAnalises, calcularMetasQuadrimestre, calcularPerformanceProfissionais, calcularQuadrimestreAnterior, init_abas_analises_calculo, init_abas_analises_render, init_abas_m1_m2, init_abas_profissionais, ipGaugeCardHTML, ipReadingHTML, metaQuadrimestreHTML, metaQuadrimestreMiniHTML, overviewCardHTML, populateSheetsCache, profListaAtual, renderAnalises, renderPerformanceProfissionais, setupPreliminarToggle, setupTrendInteractivity, sparkline, stackbar } from './abas.js';
-import { gerarPdfDivergenciaOficial, init_listas_atividade_coletiva, pessoasAtendidasParaMeses, renderListsSection } from './listas.js';
+// ---------- Configuração da agenda (vagas, dias de atendimento, janela) ----------
+// Padrão: 6 vagas pela manhã + 6 à tarde, seg–sex. Pode ser ajustado por profissional.
+var DIAS_UTEIS_AG=[0,1,1,1,1,1,0];            // índice = Date.getDay() (0 = domingo)
+var DIAS_SEM_AG=['dom','seg','ter','qua','qui','sex','sáb'];
+var cfgAg={m:6,t:6,dias:DIAS_UTEIS_AG.slice(),janela:0,prof:{},soManha:[0,0,0,0,0,1,0],feriados:[],faltas:[],redistribuir:false};   // feriados: [{ini,fim,nome}] fecham todas as agendas; faltas: [{prof,ini,fim,motivo}] só do profissional.
+// soManha: dias em que só há atendimento de manhã (padrão: sexta)
+function numAg(v,def,min){var n=parseInt(v,10);return isNaN(n)||n<min?def:n;}
+function carregarConfigAg(){
+  var c=lsGetAg(LS_CONFIG_AG);if(!c||typeof c!=='object')return;
+  cfgAg.m=numAg(c.m,6,0);cfgAg.t=numAg(c.t,6,0);cfgAg.janela=numAg(c.janela,0,0);
+  if(Array.isArray(c.dias)&&c.dias.length===7)cfgAg.dias=c.dias.map(function(x){return x?1:0;});
+  cfgAg.prof=c.prof&&typeof c.prof==='object'?c.prof:{};
+  if(Array.isArray(c.soManha)&&c.soManha.length===7)cfgAg.soManha=c.soManha.map(function(x){return x?1:0;});
+  function per(x){return x&&/^\d{4}-\d\d-\d\d$/.test(x.ini||'')&&/^\d{4}-\d\d-\d\d$/.test(x.fim||'');}
+  cfgAg.feriados=Array.isArray(c.feriados)?c.feriados.filter(per):[];
+  cfgAg.faltas=Array.isArray(c.faltas)?c.faltas.filter(function(x){return per(x)&&x.prof;}):[];
+}
+function salvarConfigAg(){var c=Object.assign({},cfgAg);delete c.redistribuir;lsSetAg(LS_CONFIG_AG,c);}
+// A visão Agenda (agenda.js) marca os feriados no calendário.
+window.__emultiFeriadoAg=function(iso){return folgaDiaAg('',iso);};
+// Capacidade efetiva de um profissional (chave = nome normalizado).
+function capAg(k){
+  var o=(k&&cfgAg.prof[k])||{};
+  var m=o.m==null?cfgAg.m:numAg(o.m,cfgAg.m,0), t=o.t==null?cfgAg.t:numAg(o.t,cfgAg.t,0);
+  var dias=Array.isArray(o.dias)&&o.dias.length===7?o.dias:cfgAg.dias;
+  if(m+t<1){m=6;t=6;}
+  if(!dias.some(function(x){return x;}))dias=DIAS_UTEIS_AG;
+  return {m:m,t:t,dia:m+t,dias:dias,soManha:cfgAg.soManha,k:k||''};
+}
+// Motivo de o dia estar fechado para a agenda k (feriado para todos; falta só do profissional,
+// em todas as unidades dele). '' = dia normal.
+function folgaDiaAg(k,iso){
+  var i,f;
+  for(i=0;i<cfgAg.feriados.length;i++){f=cfgAg.feriados[i];if(iso>=f.ini&&iso<=f.fim)return 'Feriado'+(f.nome?': '+f.nome:'');}
+  var base=String(k||'').split('@')[0];
+  if(base)for(i=0;i<cfgAg.faltas.length;i++){f=cfgAg.faltas[i];if(normAg(f.prof)===base&&iso>=f.ini&&iso<=f.fim)return 'Falta do profissional'+(f.motivo?': '+f.motivo:'');}
+  return '';
+}
+// Capacidade do profissional em um dia específico: nos dias "só manhã" (padrão: sexta) só valem as vagas da manhã.
+function capNoDiaAg(cap,iso){
+  if(folgaDiaAg(cap.k,iso))return {m:0,t:0,dia:0,dias:cap.dias,soManha:cap.soManha,k:cap.k,fechado:true};
+  var d=isoParaDataAg(iso);
+  if(d&&cap.soManha&&cap.soManha[d.getDay()])return {m:cap.m,t:0,dia:cap.m,dias:cap.dias,soManha:cap.soManha};
+  return cap;
+}
 
-// ===== módulo: js/app/render.js =====
-// ======================================================================
-// app/render.js
-// Abas (tabs), barra de filtros e renderDashboard
-// (módulo gerado a partir do app.js original — ver MODULOS.md)
-// ======================================================================
+// Último atendimento de uma linha de Pessoas atendidas: usa a data completa
+// (listas.js) e, se ela não existir, a maior das colunas "Data 1..N" (índice 6+).
+function ultimoAg(r){if(r.ultimoAtendimentoISO)return r.ultimoAtendimentoISO;var best='';for(var i=6;i<r.length;i++){var m=String(r[i]==null?'':r[i]).match(/^(\d{2})\/(\d{2})\/(\d{4})$/);if(m){var iso=m[3]+'-'+m[2]+'-'+m[1];if(iso>best)best=iso;}}return best;}
+function normAg(v){return String(v==null?'':v).trim().toLocaleLowerCase('pt-BR').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ');}
+// Mapa pessoa -> profissionais (histórico completo), vindo de Pessoas atendidas
+// (coluna "Profissional"). Também junta a lista de profissionais para o datalist.
+function profMapAg(){
+  if(profCacheAg)return profCacheAg;
+  var list=window.__emultiPessoasAtendidas&&window.__emultiPessoasAtendidas();
+  if(!list||!Array.isArray(list.rows)||!list.rows.length)return null;
+  var map={},nomes={},ult={},ultProf={},ultUnid={},elegiveis={},unidsDe={};
+  list.rows.forEach(function(r){
+    // Só entra quem teve atendimento individual com profissional da eMulti (sem participação só em atividade coletiva).
+    if(r.agendavel!==true)return;
+    var k=normAg(r[0]);elegiveis[k]=true;
+    var u=r.ultimoAtendimentoAgendaISO||''; if(u)ult[k]=u;
+    // Profissional (da eMulti) do atendimento mais recente — base da distribuição automática de datas.
+    var up=String(r.ultimoProfissionalAgenda==null?'':r.ultimoProfissionalAgenda).trim();
+    if(up){ultProf[k]=up;nomes[up]=1;var un=String(r.ultimaUnidadeAgenda==null?'':r.ultimaUnidadeAgenda).trim();if(un){ultUnid[k]=un;(unidsDe[normAg(up)]=unidsDe[normAg(up)]||{})[un]=1;}}
+    var txt=String(r[5]==null?'':r[5]);
+    if(txt&&txt!=='—')map[k]=normAg(txt);
+  });
+  // Profissional que atendeu em 2+ unidades: vagas, dias e lotação passam a valer por unidade.
+  var multi={};Object.keys(unidsDe).forEach(function(pk){if(Object.keys(unidsDe[pk]).length>1)multi[pk]=true;});
+  profCacheAg={map:map,ult:ult,ultProf:ultProf,ultUnid:ultUnid,multi:multi,elegiveis:elegiveis,rows:list.rows.filter(function(r){return r.agendavel===true;}),nomes:Object.keys(nomes).sort(function(a,b){return a.localeCompare(b,'pt-BR');})};
+  return profCacheAg;
+}
+function fillProfAg(){var dl=document.getElementById('agendamentosProfissionais'),c=profMapAg();if(!dl||!c)return;dl.innerHTML=c.nomes.map(function(n){return '<option value="'+escAg(n)+'"></option>';}).join('');}
+function apiAg(payload){var api=window.PAINEL_API,token=window.painelToken&&window.painelToken();if(!api||!token)return Promise.reject(Error('Sessão não iniciada. Entre novamente no painel.'));return fetch(api.url,{method:'POST',headers:{'Content-Type':'text/plain'},cache:'no-store',body:JSON.stringify(Object.assign({chave:api.chave,acao:'agendamentos',token:token},payload))}).then(function(r){if(!r.ok)throw Error('Falha de comunicação com a planilha.');return r.json();}).then(function(r){if(r.status==='sessao_expirada'){if(window.logoutPainelEmulti)window.logoutPainelEmulti();throw Error('Sessão expirada. Entre novamente.');}if(r.ok===false||r.status==='erro')throw Error(r.error||r.mensagem||'Operação não concluída.');return r;});}
+function msgAg(text,error){var el=document.getElementById('agendamentosFeedback');if(el){el.textContent=text||'';el.className='agendamentos-feedback'+(error?' erro':'');}}
+function dateAg(v){if(!v)return '';if(v instanceof Date&&!isNaN(v))return v.toISOString().slice(0,10);var s=String(v).trim(),m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);if(/^\d{4}-\d\d-\d\d$/.test(s))return s;if(m)return m[3]+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[1]).slice(-2);var d=new Date(s);return isNaN(d)?'':d.toISOString().slice(0,10);}
+function ultimoDeAg(r,uc){return (uc&&uc.ult[normAg(r.Nome)])||dateAg(r['Último Atendimento'])||'';}
 
+// ---------- Situação ----------
+// Cancelado e Faltou não ocupam vaga nem têm turno. Faltou volta para a fila de reagendamento.
+function ehAtivoAg(r){var s=r.Situação||'Pendente';return s!=='Cancelado'&&s!=='Faltou';}
 
-// ---------- Tabs ----------
-var FILTER_BAR_TABS = {geral:true, m1:true, m2:true, tendencia:true, profissionais:true};
+// ---------- Filtros ----------
+// Filtro próprio da aba: último atendimento nos últimos N dias (padrão 120; 0/vazio = todos).
+function diasAg(){var el=document.getElementById('agendamentosDias');if(!el)return 120;var n=parseInt(el.value,10);return isNaN(n)||n<0?120:n;}
+function limiteDiasAg(){var n=diasAg();if(!n)return '';var h=new Date();return isoAg(new Date(h.getFullYear(),h.getMonth(),h.getDate()-n));}
+function dentroDiasAg(r,uc,lim){if(!lim)return true;var u=ultimoDeAg(r,uc);return !!u&&u>=lim;}
+function seguirListaAg(){var el=document.getElementById('agendamentosSeguir');return !!(el&&el.checked);}
+// Opcional: seguir também a lista "Pessoas atendidas" com os filtros aplicados lá (Mês, colunas, busca).
+function filtroListaAg(){
+  if(!seguirListaAg())return null;
+  var f=window.__emultiPessoasAtendidasFiltradas&&window.__emultiPessoasAtendidasFiltradas();
+  if(!f||!Array.isArray(f.nomes))return null;
+  var set={};f.nomes.forEach(function(n){set[normAg(n)]=true;});
+  return {set:set,origem:f.origem,meses:f.meses||[],n:f.nomes.length};
+}
+var FILTROS_IDS_AG={prof:'agendamentosProfissional',turno:'agendamentosTurno',sit:'agendamentosSituacao',dias:'agendamentosDias',de:'agendamentosDe',ate:'agendamentosAte',pp:'agendamentosPorPagina'};
+// Lembra os filtros (não a busca por nome) entre aberturas do painel.
+function salvarFiltrosAg(){var o={sort:sortAg,seguir:seguirListaAg()};Object.keys(FILTROS_IDS_AG).forEach(function(k){o[k]=valAg(FILTROS_IDS_AG[k]);});lsSetAg(LS_FILTROS_AG,o);}
+function restaurarFiltrosAg(){
+  var o=lsGetAg(LS_FILTROS_AG);if(!o||typeof o!=='object')return;
+  Object.keys(FILTROS_IDS_AG).forEach(function(k){var el=document.getElementById(FILTROS_IDS_AG[k]);if(el&&o[k]!=null)el.value=o[k];});
+  var sg=document.getElementById('agendamentosSeguir');if(sg)sg.checked=!!o.seguir;
+  if(o.sort&&typeof o.sort.col==='string'&&(o.sort.dir==='asc'||o.sort.dir==='desc'))sortAg={col:o.sort.col,dir:o.sort.dir};
+}
 
-// ---------- Render ----------
-export function renderDashboard(record, serieTendencia, performanceProfissionais, analisesData){
-  serieTendencia = serieTendencia || [];
-  // Ao reabrir uma leitura antiga do histórico (sem recalcular a partir
-  // do cache bruto), a aba de Desempenho Profissional fica vazia — só é
-  // recalculada quando vem de aplicarMesReferencia (ver chamadas abaixo).
-  renderPerformanceProfissionais(performanceProfissionais || []);
-  renderAnalises(analisesData || null);
-  document.getElementById('statusState').style.display = 'none';
-  populateAnoQuadSelects();
-  document.getElementById('topEquipe').textContent = record.equipe || '—';
-  document.getElementById('topPeriodo').textContent = record.periodo
-    ? 'Período: ' + record.periodo.inicio + ' a ' + record.periodo.fim
-    : '';
-  document.getElementById('topUpdated').textContent = record.error
-    ? 'Falha na última leitura'
-    : '';
+// Quem está em Pessoas atendidas mas ainda não existe na planilha vira uma
+// linha "virtual" (Pendente, sem data). Ela só é gravada na planilha quando
+// recebe data/situação (antes disso é sincronizada automaticamente).
+function completarVirtuaisAg(){
+  var uc=profMapAg();if(!uc)return;
+  var tem={};rowsAg.forEach(function(r){tem[normAg(r.Nome)]=true;});
+  uc.rows.forEach(function(p){
+    var nome=String(p[0]||'').trim();if(!nome||tem[normAg(nome)])return;tem[normAg(nome)]=true;
+    rowsAg.push({Nome:nome,Atendimentos:Number(p[1])||0,Total:Number(p[3])||0,'Último Atendimento':p.ultimoAtendimentoAgendaISO||'',Situação:'Pendente','Data agendada':'','Atualizado em':'',_virtual:true});
+  });
+}
+function garantirNaPlanilhaAg(linhas){
+  var uc=profMapAg();
+  var pessoas=linhas.map(function(r){return{nome:String(r.Nome||'').trim(),at:Number(r.Atendimentos)||0,total:Number(r.Total)||0,ultimo:ultimoDeAg(r,uc)};});
+  return apiAg({action:'agendamentos.sync',rows:pessoas}).then(function(){linhas.forEach(function(r){delete r._virtual;});});
+}
+function brAg(v){var s=String(v==null?'':v).trim(),m=s.match(/^(\d{4})-(\d\d)-(\d\d)$/);return m?m[3]+'/'+m[2]+'/'+m[1]:s;}
+function escAg(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 
-  if(record.error){
-    document.getElementById('gaugeRow').innerHTML =
-      '<div class="card" style="flex:1;"><p style="color:var(--pill-regular);margin:0;">Não encontramos os indicadores M1 e M2 nesta planilha. Confira se o link publicado é o correto.</p></div>';
-    document.getElementById('compRow').innerHTML = '';
+// ---------- Ordenação por coluna ----------
+// Padrão: Data agendada, da mais recente para a mais antiga (quem não tem data fica no fim).
+var sortAg={col:'data',dir:'desc'};
+function tsAg(v){var s=String(v==null?'':v).trim();if(!s)return 0;var m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ ,T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);if(m)return new Date(+m[3],+m[2]-1,+m[1],+(m[4]||0),+(m[5]||0),+(m[6]||0)).getTime();var t=Date.parse(s);return isNaN(t)?0:t;}
+var TURNO_ORD_AG={manha:1,tarde:2,excedente:3};
+// Valor de ordenação da coluna: texto (string), número ou data (AAAA-MM-DD). Vazio = null (sempre no fim).
+function chaveSortAg(col,r,ix,uc,turnos){
+  switch(col){
+    case 'nome':return normAg(r.Nome)||null;
+    case 'atendimentos':return r.Atendimentos===''||r.Atendimentos==null?null:Number(r.Atendimentos)||0;
+    case 'total':return r.Total===''||r.Total==null?null:Number(r.Total)||0;
+    case 'ultimo':return ultimoDeAg(r,uc)||null;
+    case 'prof':return normAg(nomeProfAg(r,uc))||null;
+    case 'situacao':return normAg(r.Situação||'Pendente');
+    case 'data':return propostaAg[ix]||dateAg(r['Data agendada'])||null;
+    case 'turno':return turnos[ix]?TURNO_ORD_AG[turnos[ix].classe]:null;
+    case 'atualizado':return tsAg(r['Atualizado em'])||null;
+  }
+  return null;
+}
+function ordenarAg(list,uc,turnos){
+  var col=sortAg.col,mult=sortAg.dir==='asc'?1:-1,pos=new Map();
+  rowsAg.forEach(function(r,i){pos.set(r,i);});
+  var itens=list.map(function(r){var ix=pos.get(r);return {r:r,ix:ix,k:chaveSortAg(col,r,ix,uc,turnos)};});
+  itens.sort(function(a,b){
+    if(a.k===null&&b.k!==null)return 1;   // vazios sempre por último
+    if(b.k===null&&a.k!==null)return -1;
+    var c=0;
+    if(a.k!==null){c=typeof a.k==='number'?a.k-b.k:String(a.k).localeCompare(String(b.k),'pt-BR',{numeric:true});}
+    if(c)return c*mult;
+    return normAg(a.r.Nome).localeCompare(normAg(b.r.Nome),'pt-BR');  // desempate estável por nome
+  });
+  return itens.map(function(x){return x.r;});
+}
+function marcarOrdemAg(){
+  document.querySelectorAll('#tabAgendamentos th[data-ag-sort]').forEach(function(th){
+    var ativo=th.getAttribute('data-ag-sort')===sortAg.col;
+    th.classList.toggle('sort-asc',ativo&&sortAg.dir==='asc');
+    th.classList.toggle('sort-desc',ativo&&sortAg.dir==='desc');
+  });
+}
+
+// ---------- Lista filtrada + ordenada (usada pela tabela, exportação e impressão) ----------
+function calcularListaAg(){
+  var uc=profMapAg(),
+      q=valAg('agendamentosBusca').trim().toLocaleLowerCase('pt-BR'),
+      pq=normAg(valAg('agendamentosProfissional')),
+      tf=valAg('agendamentosTurno'), sf=valAg('agendamentosSituacao'),
+      de=valAg('agendamentosDe'), ate=valAg('agendamentosAte'),
+      lf=filtroListaAg(), lim=limiteDiasAg(), semProf=!!pq&&!uc,
+      turnos=turnosAg(uc);
+  var list=semProf?[]:rowsAg.filter(function(r,ix){
+    if(uc&&!uc.elegiveis[normAg(r.Nome)])return false;   // só atendidos por profissional da eMulti (não só atividade coletiva)
+    if(lf&&!lf.set[normAg(r.Nome)])return false;
+    if(!dentroDiasAg(r,uc,lim))return false;
+    if(sf&&(r.Situação||'Pendente')!==sf)return false;
+    if(tf){var t=turnos[ix];if(tf==='sem'?!!t:(!t||t.classe!==tf))return false;}
+    if(de||ate){var d=propostaAg[ix]||dateAg(r['Data agendada']);if(!d||(de&&d<de)||(ate&&d>ate))return false;}
+    if(q&&!String(r.Nome||'').toLocaleLowerCase('pt-BR').includes(q))return false;
+    if(pq){var up=nomeProfAg(r,uc)||'';if(normAg(up).indexOf(pq)<0)return false;}
+    return true;
+  });
+  list=ordenarAg(list,uc,turnos);
+  return {uc:uc,list:list,turnos:turnos,lf:lf,lim:lim,semProf:semProf,filtrado:!!(q||pq||lf||lim||tf||sf||de||ate)};
+}
+function renderAg(){
+  setTimeout(function(){window.dispatchEvent(new Event('emulti:agenda-dados'));},0);
+  var body=document.getElementById('agendamentosBody'); if(!body)return;
+  marcarOrdemAg();
+  var c=calcularListaAg(),uc=c.uc,list=c.list,turnos=c.turnos,lf=c.lf,lim=c.lim;
+  document.getElementById('agendamentosContagem').textContent=list.length+(list.length===1?' pessoa':' pessoas');
+  var info=document.getElementById('agendamentosFiltroInfo');
+  if(info){var dn=diasAg(),txtDias=dn?('Último atendimento nos últimos '+dn+' dias'+(lim?' (desde '+brAg(lim)+')':'')):'Todos os períodos';info.textContent=txtDias+(lf?' · seguindo também a lista Pessoas atendidas (aba '+lf.origem+'): '+lf.n+(lf.n===1?' pessoa':' pessoas')+' · '+(lf.meses.length?lf.meses.length+(lf.meses.length===1?' mês selecionado':' meses selecionados'):'todos os meses')+'.':'.');}
+  // Paginação
+  var porPag=parseInt(valAg('agendamentosPorPagina'),10)||0,total=list.length,paginas=porPag?Math.max(1,Math.ceil(total/porPag)):1;
+  if(paginaAg>paginas)paginaAg=paginas;if(paginaAg<1)paginaAg=1;
+  var vis=porPag?list.slice((paginaAg-1)*porPag,paginaAg*porPag):list;
+  var pg=document.getElementById('agendamentosPagina');
+  if(pg)pg.textContent=total?('Página '+paginaAg+' de '+paginas+(porPag?' · '+(vis.length?((paginaAg-1)*porPag+1)+'–'+((paginaAg-1)*porPag+vis.length):'0')+' de '+total:'')):'—';
+  var bp=document.getElementById('agendamentosPrev'),bn=document.getElementById('agendamentosNext');
+  if(bp)bp.disabled=paginaAg<=1;if(bn)bn.disabled=paginaAg>=paginas;
+  renderVagasAg(uc);
+  if(!list.length){
+    body.innerHTML='<tr><td colspan="9" class="agendamentos-vazio">'+(busyAg?'Carregando…':c.semProf?'Dados de profissionais indisponíveis. Atualize os dados do painel.':c.filtrado?'Nenhuma pessoa encontrada.':'Nenhum registro disponível. Sincronize Pessoas atendidas.')+'</td></tr>';
     return;
   }
-
-  var d = record.data;
-  // Legenda do gauge (a linha "X atendimentos ÷ Y pessoas" embaixo do
-  // ponteiro) e os cards de Composição precisam bater com o valor do
-  // m1/m2 mostrado — que é calculado com a janela móvel oficial. Quando
-  // existir a versão "Janela" (média do quadrimestre / vários meses
-  // selecionados), usa ela; num mês único o próprio d.numeradorM1/
-  // d.denominadorM1 JÁ é a janela (ver aplicarMesReferencia), então cai
-  // nele direto. Meta do quadrimestre usa essas MESMAS variáveis (num/
-  // denM1Gauge, num/denM2Gauge), pra bater com o valor do ponteiro do
-  // gauge em vez dos totais reais do quadrimestre.
-  var numM1Gauge = d.numeradorM1Janela!=null ? d.numeradorM1Janela : d.numeradorM1;
-  var denM1Gauge = d.denominadorM1Janela!=null ? d.denominadorM1Janela : d.denominadorM1;
-  var numM2Gauge = d.numeradorM2Janela!=null ? d.numeradorM2Janela : d.numeradorM2;
-  var denM2Gauge = d.denominadorM2Janela!=null ? d.denominadorM2Janela : d.denominadorM2;
-  var atendIndGauge = d.atendimentosIndividuaisJanela!=null ? d.atendimentosIndividuaisJanela : d.atendimentosIndividuais;
-  var atendEspGauge = d.atendimentosEspecificosJanela!=null ? d.atendimentosEspecificosJanela : d.atendimentosEspecificos;
-  var atendCompGauge = d.atendimentosCompartilhadosJanela!=null ? d.atendimentosCompartilhadosJanela : d.atendimentosCompartilhados;
-  var participColGauge = d.participacoesColetivasJanela!=null ? d.participacoesColetivasJanela : d.participacoesColetivas;
-  // Contagem REAL de "Pessoas atendidas" (calculada a partir das listas,
-  // ANTES do override oficial) — mesmo padrão de atendIndGauge/
-  // participColGauge acima: o total do card (denM1Gauge, mais abaixo)
-  // pode vir substituído pelo valor oficial da aba Q2-26, mas o segmento
-  // da barra mostra o dado calculado de verdade, com o percentual em
-  // relação ao total oficial.
-  var denM1CalcGauge = d.denominadorM1CalculadoJanela!=null ? d.denominadorM1CalculadoJanela
-    : (d.denominadorM1Calculado!=null ? d.denominadorM1Calculado : d.denominadorM1);
-  var atividadesCompGauge = d.atividadesCompartilhadasJanela!=null ? d.atividadesCompartilhadasJanela : d.atividadesCompartilhadas;
-  var atividadesTotaisGauge = d.atividadesTotaisJanela!=null ? d.atividadesTotaisJanela : d.atividadesTotais;
-  // Usa a parcela que de fato entrou no numerador (0 nos meses em que a
-  // fonte foi TOTAL RELATÓRIO AC) — não o total bruto de reuniões — pra
-  // os segmentos do stackbar baterem com numM2Gauge (ver
-  // reunioesCompartilhadasContrib em calcularIndicadoresDoPeriodo).
-  var reunioesCompGauge = d.reunioesCompartilhadasContribJanela!=null ? d.reunioesCompartilhadasContribJanela
-    : (d.reunioesCompartilhadasContrib!=null ? d.reunioesCompartilhadasContrib : d.reunioesCompartilhadas);
-  var reunioesTotaisGauge = d.reunioesTotaisJanela!=null ? d.reunioesTotaisJanela : d.reunioesTotais;
-
-  // Textos das definições oficiais (Nota Metodológica M1 = NT 43/2026 e
-  // M2 = NT 44/2026-CGIAD/DEAPS/SAPS/MS), mostrados como tooltip em cada
-  // parcela das composições abaixo — pedido explícito: deixar claro,
-  // tanto no Numerador do M1 quanto no Denominador do M2, que
-  // "Atendimentos individuais" é o mesmo número/definição nos dois
-  // lugares (é a mesma contagem entrando nas duas fórmulas).
-  var DEF_ATEND_IND = 'Atendimento individual (presencial, domiciliar ou remoto) registrado por profissional da eMulti com CNS/CPF identificado — Modelo de Informação de Atendimento Individual (MIAI). Mesma contagem usada no Numerador do M1 (NT 43/2026) e no Denominador do M2 (NT 44/2026), que soma TODOS os atendimentos e atividades da eMulti no período.';
-  var DEF_PARTIC_COLETIVA = 'Participações em atividade coletiva (códigos 04 a 07: Educação em saúde, Atendimento em grupo, Avaliação/Procedimento coletivo, Mobilização social), específica ou compartilhada — cada pessoa participante conta 1 vez por atividade (Modelo de Informação de Atividade Coletiva - MIAC). Entra no Numerador do M1 (NT 43/2026) junto com os atendimentos individuais.';
-  var DEF_AC_ESPECIFICA = 'Atividade coletiva (Resumo Atividade Coletiva) que NÃO teve 2+ profissionais com CNS diferentes (sendo ao menos 1 da eMulti) — ou que é uma reunião sem o tema "Discussão de caso/Projeto terapêutico singular" — entra no Denominador do M2 como ação específica, mas NÃO no Numerador (não é compartilhada).';
-  var DEF_AC_COMPARTILHADA = 'Atividade coletiva realizada de forma simultânea por 2 ou mais profissionais (CNS diferentes), com pelo menos 1 da eMulti — conta como ação compartilhada no Numerador do M2 (NT 44/2026). Reuniões (de equipe, com outras equipes ou intersetorial) só contam se o tema for "Discussão de caso/Projeto terapêutico singular".';
-  var DEF_REUNIAO_ESPECIFICA = 'Reunião (Resumo Reuniões) que não é dos tipos 01-03 (Reunião de equipe/outras equipes de saúde/intersetorial) com tema "Discussão de caso/Projeto terapêutico singular", ou não teve 2+ participantes, ou a planilha não traz o tema — entra no Denominador do M2, mas NÃO no Numerador.';
-  var DEF_REUNIAO_COMPARTILHADA = 'Reunião de equipe, com outras equipes de saúde ou intersetorial (códigos 01-03), registrada com o tema "Discussão de caso/Projeto terapêutico singular" e 2 ou mais participantes — conta como ação compartilhada no Numerador do M2 (NT 44/2026).';
-
-  // Parcelas do numerador do M2 que esta extração não consegue medir
-  // (não há aba com esses dados), mas que devem aparecer SEMPRE na
-  // composição, mesmo zeradas — ver numM2Bar abaixo.
-  var DEF_ATEND_COMPARTILHADO = 'Atendimento individual realizado em conjunto por 2 ou mais profissionais diferentes (CNS diferentes), com pelo menos 1 da eMulti — conta como ação compartilhada no Numerador e no Denominador do M2 (NT 44/2026). Aproximação desta extração: mesma pessoa, no mesmo dia, atendida por 2+ profissionais distintos (cada pessoa/dia conta 1 vez, e os registros específicos duplicados são desconsiderados).';
-  var DEF_ATEND_ESPECIFICO = 'Atendimento individual registrado por apenas 1 profissional da eMulti (NT 44/2026) — entra no Denominador do M2, mas NÃO no Numerador. Não inclui pessoa/dia que já foi contada como atendimento compartilhado.';
-  var DEF_COMPART_CUIDADO = 'Solicitações respondidas de compartilhamento de cuidado no PEC — conta como ação compartilhada no Numerador do M2 (NT 44/2026). Não existe aba equivalente nesta extração, então o valor aparece zerado.';
-
-  // ---- Composição (4 cartões: Numerador/Denominador de M1 e M2) ----
-  var numM1Bar = stackbar([
-      {label:'Atendimentos individuais', value:atendIndGauge, color:'#153F35', title:DEF_ATEND_IND},
-      {label:'Participações coletivas', value:participColGauge, color:'#C68A3D', title:DEF_PARTIC_COLETIVA}
-    ], numM1Gauge);
-  var denM1Bar = stackbar([
-      {label:'Pessoas atendidas', value:denM1CalcGauge, color:'#153F35'}
-    ], denM1Gauge);
-  var numM2Bar = stackbar([
-      {label:'Atendimentos compartilhados', value:atendCompGauge||0, color:'#3B7DDD', title:DEF_ATEND_COMPARTILHADO},
-      {label:'Atividades coletivas compartilhadas', value:atividadesCompGauge, color:'#153F35', title:DEF_AC_COMPARTILHADA},
-      {label:'Reuniões compartilhadas', value:reunioesCompGauge, color:'#C68A3D', title:DEF_REUNIAO_COMPARTILHADA},
-      {label:'Compartilhamento de cuidado', value:0, color:'#7C5CBF', title:DEF_COMPART_CUIDADO}
-    ], numM2Gauge);
-  var denM2Bar = stackbar([
-      {label:'Atendimentos individuais (específicos)', value:atendEspGauge||0, color:'#CBD3C4', title:DEF_ATEND_ESPECIFICO},
-      {label:'Atendimentos individuais (compartilhados)', value:atendCompGauge||0, color:'#3B7DDD', title:DEF_ATEND_COMPARTILHADO},
-      {label:'Atividades coletivas (específicas)', value:(atividadesTotaisGauge!=null && atividadesCompGauge!=null) ? Math.max(0, atividadesTotaisGauge-atividadesCompGauge) : 0, color:'#E7DFC9', title:DEF_AC_ESPECIFICA},
-      {label:'Atividades coletivas compartilhadas', value:atividadesCompGauge||0, color:'#153F35', title:DEF_AC_COMPARTILHADA},
-      {label:'Reuniões (específicas)', value:(reunioesTotaisGauge!=null && reunioesCompGauge!=null) ? Math.max(0, reunioesTotaisGauge-reunioesCompGauge) : 0, color:'#F1E6D2', title:DEF_REUNIAO_ESPECIFICA},
-      {label:'Reuniões compartilhadas', value:reunioesCompGauge||0, color:'#C68A3D', title:DEF_REUNIAO_COMPARTILHADA}
-    ], denM2Gauge);
-
-  document.getElementById('compRow').innerHTML =
-      '<div class="card comp-card">'+compCardHeaderHTML('Numerador do M1', numM1Gauge)+numM1Bar+'</div>'
-    + '<div class="card comp-card">'+compCardHeaderHTML('Denominador do M1', denM1Gauge)+denM1Bar+'</div>'
-    + '<div class="card comp-card">'+compCardHeaderHTML('Numerador do M2', numM2Gauge)+numM2Bar+'</div>'
-    + '<div class="card comp-card">'+compCardHeaderHTML('Denominador do M2', denM2Gauge)+denM2Bar+'</div>';
-
-  // ---- Visão geral: 3 cards no modelo "ícone + anel + evolução" ----
-  var quadAnterior = calcularQuadrimestreAnterior();
-  document.getElementById('gaugeRow').innerHTML =
-      overviewCardHTML({
-        iconKind:'pulse', title:'M1 — Média de Atendimentos por Pessoa', classe:d.classificacaoM1,
-        value:d.m1, domainMax:4, decimals:2, suffix:'', bands:CLASS_BANDS_M1_OV, gaugeId:'ovGaugeM1',
-        valueTxt:fmtDec(d.m1,2), valueCap:fmtInt(numM1Gauge)+' atendimentos ÷ '+fmtInt(denM1Gauge)+' pessoas',
-        ringTxt:fmtDec(d.m1,2),
-        anterior:quadAnterior.m1, legend:OV_LEGEND_M1
-      })
-    + overviewCardHTML({
-        iconKind:'users', title:'M2 — Ações Interprofissionais', classe:d.classificacaoM2,
-        value:d.m2, domainMax:8, decimals:1, suffix:'%', bands:CLASS_BANDS_M2_OV, gaugeId:'ovGaugeM2',
-        valueTxt:fmtDec(d.m2,1)+'%', valueCap:fmtInt(numM2Gauge)+' compartilhadas ÷ '+fmtInt(denM2Gauge)+' ações',
-        ringTxt:fmtDec(d.m2,1),
-        anterior:quadAnterior.m2, legend:OV_LEGEND_M2
-      })
-    + overviewCardHTML({
-        iconKind:'speed', title:'Desempenho Quadrimestral', classe:d.desempenho,
-        value:d.notaFinal, domainMax:10, decimals:1, suffix:'', bands:CLASS_BANDS_NOTA_OV, gaugeId:'ovGaugeNota',
-        valueTxt:fmtDec(d.notaFinal,1), valueCap:'M1: '+fmtDec(d.pontosM1,1)+' ('+(d.classificacaoM1||'—')+') · M2: '+fmtDec(d.pontosM2,1)+' ('+(d.classificacaoM2||'—')+') | Pesos: 6 + 4',
-        ringTxt:fmtDec(d.notaFinal,1),
-        anterior:quadAnterior.notaFinal, legend:OV_LEGEND_NOTA
-      });
-
-  // ---- Meta do quadrimestre: alvo de atendimentos/ações compartilhadas
-  // pra bater "Bom" e "Ótimo" em M1 e M2, com ritmo médio necessário. ----
-  var metaM1 = calcularMetasQuadrimestre(numM1Gauge, denM1Gauge, M1_META_THRESHOLDS, 'atendimentos',
-    'atendimentos (retornos) de pessoas que foram atendidas nos últimos 4 meses');
-  var metaM2 = calcularMetasQuadrimestre(numM2Gauge, denM2Gauge, M2_META_THRESHOLDS, 'ações');
-  document.getElementById('metaQuadRow').innerHTML =
-      metaQuadrimestreHTML('Meta do quadrimestre — M1', denM1Gauge, 'pessoas atendidas', metaM1.cards, metaM1.preliminar, d.mesesProjecaoLabel)
-    + metaQuadrimestreHTML('Meta do quadrimestre — M2', denM2Gauge, 'ações realizadas', metaM2.cards, metaM2.preliminar, d.mesesProjecaoLabel);
-
-  // ---- Aba M1: layout de 3 colunas (gauge + evolução | composição |
-  // meta), igual ao modelo de referência, + leitura textual + listas ----
-  document.getElementById('gaugeRowM1').innerHTML =
-    ipGaugeCardHTML(d.m1, 4, CLASS_BANDS_M1, 'needle-m1tab-m1', fmtDec(d.m1,2), d.classificacaoM1,
-      fmtInt(numM1Gauge)+' atendimentos ÷ '+fmtInt(denM1Gauge)+' pessoas',
-      quadAnterior.m1, 2, '', LEGEND_M1, 'pulse');
-  document.getElementById('compRowM1').innerHTML =
-      '<div class="card comp-card">'+compCardHeaderHTML('Composição do numerador', numM1Gauge)+numM1Bar+'</div>'
-    + '<div class="card comp-card">'+compCardHeaderHTML('Denominador do M1', denM1Gauge)+denM1Bar+'</div>';
-  document.getElementById('sideRowM1').innerHTML =
-    metaQuadrimestreMiniHTML(denM1Gauge, 'pessoas atendidas', metaM1.cards, metaM1.preliminar, d.mesesProjecaoLabel);
-  document.getElementById('readingM1').innerHTML =
-    ipReadingHTML('Leitura do M1', d.m1, d.classificacaoM1, quadAnterior.m1, 2, '', CLASS_BANDS_M1, 'atendimentos por pessoa');
-  renderListsSection('listsM1', m1ListNames());
-
-  // ---- Aba M2: mesmo layout de 3 colunas + leitura + listas ----
-  document.getElementById('gaugeRowM2').innerHTML =
-    ipGaugeCardHTML(d.m2, 8, CLASS_BANDS_M2, 'needle-m2tab-m2', fmtDec(d.m2,2)+'<span class="unit">%</span>', d.classificacaoM2,
-      fmtInt(numM2Gauge)+' compartilhadas ÷ '+fmtInt(denM2Gauge)+' ações',
-      quadAnterior.m2, 2, '%', LEGEND_M2, 'users');
-  document.getElementById('compRowM2').innerHTML =
-      '<div class="card comp-card">'+compCardHeaderHTML('Composição do numerador', numM2Gauge)+numM2Bar+'</div>'
-    + '<div class="card comp-card">'+compCardHeaderHTML('Denominador do M2', denM2Gauge)+denM2Bar+'</div>';
-  document.getElementById('sideRowM2').innerHTML =
-    metaQuadrimestreMiniHTML(denM2Gauge, 'ações realizadas', metaM2.cards, metaM2.preliminar, d.mesesProjecaoLabel);
-  document.getElementById('readingM2').innerHTML =
-    ipReadingHTML('Leitura do M2', d.m2, d.classificacaoM2, quadAnterior.m2, 2, '%', CLASS_BANDS_M2, 'de ações compartilhadas');
-  renderListsSection('listsM2', m2ListNames());
-  window.__emultiPessoasAtendidas = function(){ return pessoasAtendidasParaMeses([]); };
-
-  // Tendência mês a mês: cada ponto é o M1/M2 calculado com sua própria
-  // janela móvel de JANELA_MESES meses terminando naquele mês (ver
-  // calcularSerieTendencia) — não é mais o histórico de vezes que a
-  // página foi atualizada.
-  var trend = '<div class="card trend-card-combo">'
-    + '<button type="button" id="trendPreliminarToggle" class="trend-preliminar-toggle" title="Mostrar a linha calculada só com os dados da planilha (tabela nominal), sem o override da aba Q2-26"><i></i>Preliminar</button>'
-    + '<div class="trend-sub"><h4>M1 mês a mês</h4>'
-      + '<p class="cur">Mês de referência ('+refMonthLabel()+'): '+fmtDec(d.m1,2)+'</p>'
-      + sparkline(serieTendencia.map(function(p){ return {y:p.m1, label:monthShortLabel(p.mes), value:fmtDec(p.m1,2), quadKey:quadKeyOfDate(p.mes), quadLabel:quadCode(p.mes), oficial:!!p.m1Oficial, yAlt:p.m1Calculado, futuro:isMesFuturo(p.mes)}; }).filter(function(p){return p.y!=null;}), '#153F35', {quadAvg:true, classify:classificarM1, hideAxis:true})
-      + '</div>'
-    + '<div class="trend-sub"><h4>M2 (%) mês a mês</h4>'
-      + '<p class="cur">Mês de referência ('+refMonthLabel()+'): '+fmtDec(d.m2,2)+'%</p>'
-      + sparkline(serieTendencia.map(function(p){ return {y:p.m2, label:monthShortLabel(p.mes), value:fmtDec(p.m2,2)+'%', quadKey:quadKeyOfDate(p.mes), quadLabel:quadCode(p.mes), oficial:!!p.m2Oficial, yAlt:p.m2Calculado, futuro:isMesFuturo(p.mes)}; }).filter(function(p){return p.y!=null;}), '#C68A3D', {quadAvg:true, suffix:'%', classify:classificarM2})
-      + '</div>'
-    + '<p class="footnote">Cada ponto já é a janela de '+JANELA_MESES+' meses terminando naquele mês. Linha tracejada fina = média do quadrimestre no período exibido; o trecho tracejado mais grosso no final da linha principal = meses que ainda não terminaram (projeção). O pill "Preliminar" (canto superior direito) mostra/esconde a linha calculada só com os dados da planilha (tabela nominal), sem o override da aba Q2-26 — os pontinhos marcam os meses em que ela diverge da linha oficial.</p>'
-    + '</div>';
-  document.getElementById('trendRow').innerHTML = trend;
-  setupTrendInteractivity();
-  setupPreliminarToggle();
-
-  // Série histórica (tabela): um mês por linha, cada um já calculado com
-  // sua própria janela móvel de JANELA_MESES meses (mesmos pontos do
-  // sparkline acima) — mostra numerador/denominador/classificação de
-  // M1 e M2 e o "Desempenho quadrimestral" (síntese M1×6 + M2×4) mês a
-  // mês, pra dar visibilidade à composição por trás de cada ponto do
-  // gráfico. Ordem: mês mais recente primeiro (slice().reverse() —
-  // serieTendencia em si continua do mais antigo pro mais novo, ordem
-  // usada pelos gráficos de Tendência acima).
-  var serieRecenteParaAntigo = serieTendencia.slice().reverse();
-  var trendHistoryRows = serieRecenteParaAntigo.map(function(p){
-    var classeM1 = classificarM1(p.m1);
-    var classeM2 = classificarM2(p.m2);
-    var desemp = classificarDesempenho(p.notaFinal);
-    function pill(txt){ return '<span class="pill" style="background:'+(CLASS_PILL_HEX[txt]||'#7A8A82')+'">'+escapeHtml(txt)+'</span>'; }
-    // Pequeno selo "Oficial" na célula do M1/M2 quando aquele mês usou
-    // o dado da aba Q2-26 em vez do calculado pelo painel (ver
-    // aplicarOverrideOficial) — só um lembrete visual, não muda o valor.
-    function oficialTag(ehOficial){ return ehOficial ? ' <span class="pill" style="background:#3B7DDD;font-size:9.5px;">Oficial</span>' : ''; }
-    // Etiqueta de depuração: de onde veio o número de "atividades
-    // coletivas compartilhadas" (SÓ essa parcela — não o Numerador M2
-    // inteiro, que ainda soma reuniões compartilhadas por cima) — da
-    // contagem detalhada (Resumo Atividade Coletiva) ou do total
-    // mensal já consolidado (TOTAL RELATÓRIO AC). Fica colado na
-    // própria célula "Ativ. compartilhadas" pra não passar a impressão
-    // de que o Numerador M2 todo veio da AC.
-    var fonteAc = p.atividadesCompartilhadasFonte;
-    var fonteAcCurta = fonteAc === 'TOTAL RELATÓRIO AC' ? 'AC' : 'Lista';
-    var fonteAcCor = fonteAc === 'TOTAL RELATÓRIO AC' ? '#3B7DDD' : '#7A8A82';
-    var fonteAcTitle = 'Lista (Resumo Atividade Coletiva): '+fmtInt(p.atividadesCompartilhadasListas)
-      +' · TOTAL RELATÓRIO AC (mês âncora): '+fmtInt(p.totalRelatorioAc);
-    var fonteAcTag = fonteAc
-      ? ' <span class="pill" style="background:'+fonteAcCor+';font-size:9.5px;" title="'+escapeHtml(fonteAcTitle)+'">'+fonteAcCurta+'</span>'
-      : '';
-    // Quando a fonte é AC, o total já vem fechado do relatório oficial
-    // e reuniões NÃO entram na soma (ver numeradorM2 em
-    // calcularIndicadoresDoPeriodo) — mostra o valor de reuniões
-    // esmaecido, com "(não somada)", pra bater com Numerador M2 =
-    // Ativ. compartilhadas nesses meses.
-    var reunioesNaoSomada = fonteAc === 'TOTAL RELATÓRIO AC';
-    var reunioesCell = reunioesNaoSomada
-      ? '<span style="color:#A9B3A5;" title="Não entra no Numerador M2 este mês: a parcela de atividades já veio como total fechado da aba TOTAL RELATÓRIO AC.">'+fmtInt(p.reunioesCompartilhadas)+' (não somada)</span>'
-      : fmtInt(p.reunioesCompartilhadas);
-    return '<tr>'
-      + '<td>'+escapeHtml(monthShortLabel(p.mes))+'</td>'
-      + '<td>'+fmtInt(p.numeradorM1)+'</td>'
-      + '<td>'+fmtInt(p.denominadorM1)+'</td>'
-      + '<td>'+(p.m1!=null ? fmtDec(p.m1,2) : '—')+oficialTag(p.m1Oficial)+'</td>'
-      + '<td>'+pill(classeM1)+'</td>'
-      + '<td>'+fmtInt(p.atividadesCompartilhadas)+fonteAcTag+'</td>'
-      + '<td>'+reunioesCell+'</td>'
-      + '<td>'+fmtInt(p.numeradorM2)+'</td>'
-      + '<td>'+fmtInt(p.denominadorM2)+'</td>'
-      + '<td>'+(p.m2!=null ? fmtDec(p.m2,2)+'%' : '—')+oficialTag(p.m2Oficial)+'</td>'
-      + '<td>'+pill(classeM2)+'</td>'
-      + '<td>'+(p.notaFinal!=null ? fmtDec(p.notaFinal,2) : '—')+'</td>'
-      + '<td>'+pill(desemp)+'</td>'
-      + '</tr>';
+  var pos=new Map();rowsAg.forEach(function(r,i){pos.set(r,i);});
+  body.innerHTML=vis.map(function(r){
+    var ix=pos.get(r), prop=propostaAg[ix], data=prop||dateAg(r['Data agendada']);
+    var prof=(uc&&nomeProfAg(r,uc))||'—', t=turnos[ix];
+    var turnoHtml=t?'<span class="ag-turno '+t.classe+'" title="'+escAg(t.dica)+'">'+t.rotulo+'</span>':'<span title="'+escAg(motivoSemTurnoAg(r,ix,uc))+'">—</span>';
+    var sit=r.Situação||'Pendente';
+    return '<tr data-ag-ix="'+ix+'"'+(prop?' class="agendamentos-gerada" title="Data gerada automaticamente — ainda não salva"':'')+'>'
+      +'<td class="agendamentos-nome">'+escAg(r.Nome)+'</td>'
+      +'<td>'+escAg(r.Atendimentos)+'</td>'
+      +'<td>'+escAg(brAg(ultimoDeAg(r,uc)))+'</td>'
+      +'<td class="agendamentos-prof">'+escAg(prof)+'</td>'
+      +'<td><select data-ag="situacao" aria-label="Situação">'+['Pendente','Agendado','Realizado','Faltou','Cancelado'].map(function(s){return '<option'+(sit===s?' selected':'')+'>'+s+'</option>';}).join('')+'</select></td>'
+      +'<td><input type="date" data-ag="dataAgendada" value="'+data+'"></td>'
+      +'<td>'+turnoHtml+'</td>'
+      +'<td class="agendamentos-atualizado">'+escAg(r['Atualizado em']||'')+'</td>'
+      +'<td><button type="button" class="agendamentos-salvar" data-ag-save>Salvar</button></td></tr>';
   }).join('');
-  var temAlgumOficial = serieTendencia.some(function(p){ return p.m1Oficial || p.m2Oficial; });
-  var divergenciaBtnHtml = temAlgumOficial
-    ? '<button type="button" class="pdf-btn" id="btnDivergenciaOficial">'
-      + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h1a1.5 1.5 0 0 0 0-3H9v5"/><path d="M13 12v5h1a2 2 0 0 0 0-5z"/><path d="M18.5 12H17v5"/><path d="M17 14.5h1.3"/></svg>'
-      + '<span>PDF de divergência</span></button>'
-    : '';
-  document.getElementById('trendHistoryWrap').innerHTML =
-      '<div class="card"><div class="list-card-head"><h4 style="margin:0;font-size:14.5px;font-weight:500;">Série histórica — numerador, denominador e desempenho quadrimestral</h4>'+divergenciaBtnHtml+'</div>'
-    + '<p class="footnote" style="margin:4px 0 12px;">Um mês por linha (mais recente primeiro), cada um com sua própria janela móvel de '+JANELA_MESES+' meses terminando naquele mês (mesmos pontos dos gráficos acima). "Desempenho quadrimestral" é a síntese própria M1×6 + M2×4 — ver Notas Metodológicas. O selo "Oficial" marca meses em que o valor veio da aba Q2-26 em vez do cálculo do painel. O selo "AC"/"Lista" fica na coluna "Ativ. coletivas compartilhadas" e mostra a origem daquela parcela. Quando a origem é "AC", o total já vem fechado da aba TOTAL RELATÓRIO AC e Reuniões compartilhadas não entra na soma (fica marcada "não somada"); quando é "Lista", Numerador M2 = Ativ. coletivas compartilhadas + Reuniões compartilhadas.</p>'
-    + '<div class="table-wrap"><table class="data-table"><thead><tr>'
-    +   '<th>Mês</th><th>Numerador M1</th><th>Denominador M1</th><th>M1</th><th>Classe M1</th>'
-    +   '<th>Ativ. coletivas compartilhadas</th><th>Reuniões compartilhadas</th><th>Numerador M2</th><th>Denominador M2</th><th>M2 (%)</th><th>Classe M2</th><th>Nota do desempenho</th><th>Desempenho quadrimestral</th>'
-    + '</tr></thead><tbody>'+trendHistoryRows+'</tbody></table></div></div>';
-  var btnDivergencia = document.getElementById('btnDivergenciaOficial');
-  if(btnDivergencia){
-    btnDivergencia.addEventListener('click', function(){ gerarPdfDivergenciaOficial(serieTendencia); });
-  }
-
-  var notesList = document.getElementById('notesList');
-  if(record.notes && record.notes.length){
-    notesList.innerHTML = record.notes.map(function(n){ return '<li>'+escapeHtml(n)+'</li>'; }).join('');
-  } else {
-    notesList.innerHTML = '<li style="list-style:none;margin-left:-20px;">Nenhuma nota disponível para esta leitura.</li>';
-  }
-
-  animateGauges();
-  renderFluxoPacientes();
 }
 
-// Código que rodava no carregamento (ordem original preservada pelo main.js)
-export function init_app_render(){
-document.querySelectorAll('.tab').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      document.querySelectorAll('.tab').forEach(function(b){ b.classList.toggle('active', b===btn); });
-      var target = btn.getAttribute('data-tab');
-      document.querySelectorAll('.tab-panel').forEach(function(p){
-        p.classList.toggle('active', p.id === 'tab'+target.charAt(0).toUpperCase()+target.slice(1));
-      });
-      document.getElementById('filterBar').classList.toggle('hidden', !FILTER_BAR_TABS[target]);
-      // Gráficos Chart.js criados enquanto a aba estava escondida (display:none)
-      // ficam com tamanho zero e não se redesenham sozinhos ao trocar de aba —
-      // re-renderiza na hora em que o painel de Desempenho Profissional fica visível.
-      if(target === 'profissionais'){
-        renderPerformanceProfissionais(profListaAtual);
-      }
-      if(target === 'analises'){
-        renderAnalises(estadoApp.analisesDataAtual);
-      }
+// ---------- Geração automática de datas ----------
+// Regras: por profissional da ÚLTIMA consulta da pessoa; faltosos primeiro e depois quem tem a
+// última consulta mais antiga; só nos dias de atendimento do profissional; no máximo as vagas
+// configuradas por dia (padrão 6 manhã + 6 tarde). Quem já tem data na planilha (e não está
+// Cancelado/Faltou) ocupa vaga no dia dele. As pessoas são espalhadas de forma uniforme pelos
+// dias (o dia menos carregado recebe a próxima), em vez de lotar um dia por vez.
+function isoAg(d){return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);}
+function isoParaDataAg(iso){var m=String(iso||'').match(/^(\d{4})-(\d\d)-(\d\d)$/);return m?new Date(Number(m[1]),Number(m[2])-1,Number(m[3])):null;}
+function somaDiaAg(d,n){return new Date(d.getFullYear(),d.getMonth(),d.getDate()+n);}
+// Primeiro dia de atendimento a partir de d (inclusive), segundo o vetor de dias da semana.
+function proxDiaAg(d,dias){var x=new Date(d.getFullYear(),d.getMonth(),d.getDate()),n=0;while(!dias[x.getDay()]&&n<8){x.setDate(x.getDate()+1);n++;}return x;}
+function diaUtilAg(d){return proxDiaAg(d,DIAS_UTEIS_AG);}
+function amanhaAg(){var h=new Date();return new Date(h.getFullYear(),h.getMonth(),h.getDate()+1);}
+// Núcleo da distribuição (função pura).
+//  cands: [{ix,prof,nome,ult,pri}]  prof = chave do profissional; ult = AAAA-MM-DD; pri 0 = faltoso (vai primeiro)
+//  ocupados: {prof:{AAAA-MM-DD:n}}  vagas já usadas  |  inicio: Date
+//  opt: {cap:function(prof)->{dia,dias}, janela:n}  (janela = nº mínimo de dias de atendimento para espalhar; 0 = uma semana inteira)
+//  devolve {ix: AAAA-MM-DD}
+function planejarAg(cands,ocupados,inicio,opt){
+  opt=opt||{};var capFn=opt.cap||function(){return capAg('');},janela=opt.janela||0;
+  var porProf={},plano={};
+  cands.forEach(function(c){(porProf[c.prof]=porProf[c.prof]||[]).push(c);});
+  Object.keys(porProf).forEach(function(p){
+    var cap=capFn(p),oc=ocupados[p]||{};
+    var fila=porProf[p].slice().sort(function(a,b){
+      if((a.pri||0)!==(b.pri||0))return (a.pri||0)-(b.pri||0);
+      if(a.ult!==b.ult)return a.ult<b.ult?-1:1;
+      return String(a.nome).localeCompare(String(b.nome),'pt-BR');
+    });
+    var N=fila.length,dias=[],livre=0,vistos=0,dia=proxDiaAg(inicio,cap.dias),guard=0;
+    // Janela mínima: a configurada ou, no automático (0), uma semana inteira de atendimento —
+    // assim poucas pessoas não lotam só o primeiro dia e deixam o resto da semana vazio.
+    var semana=cap.dias.reduce(function(a,x){return a+(x?1:0);},0)||1,janEf=janela>0?janela:semana;
+    // Último dia já com gente (até 8 semanas à frente): os dias vazios antes dele entram na
+    // distribuição, para os buracos da agenda serem preenchidos antes de lotar os dias cheios.
+    var limHoriz=isoAg(somaDiaAg(inicio,56)),ultOc='';
+    Object.keys(oc).forEach(function(k){if(oc[k]>0&&k>=isoAg(inicio)&&k<=limHoriz&&k>ultOc)ultOc=k;});
+    // 1) dias de atendimento com vaga, até caber todo mundo, cobrir a janela e alcançar o último dia ocupado
+    while((livre<N||vistos<janEf||(ultOc&&isoAg(dia)<=ultOc))&&guard<3000){
+      guard++;vistos++;
+      var k=isoAg(dia),f=Math.max(0,capNoDiaAg(cap,k).dia-(oc[k]||0));
+      if(f>0){dias.push({k:k,f:f,carga:oc[k]||0,n:0});livre+=f;}
+      dia=proxDiaAg(somaDiaAg(dia,1),cap.dias);
+    }
+    // 2) quantas pessoas em cada dia: sempre no dia menos carregado (empate: o mais cedo)
+    for(var i=0;i<N;i++){
+      var melhor=null;
+      for(var j=0;j<dias.length;j++){var d=dias[j];if(d.n>=d.f)continue;if(!melhor||d.carga+d.n<melhor.carga+melhor.n)melhor=d;}
+      if(!melhor)break;
+      melhor.n++;
+    }
+    // 3) a fila (prioridade e depois a última consulta mais antiga) ocupa os dias em ordem cronológica
+    var pos=0;
+    dias.forEach(function(d){for(var i=0;i<d.n&&pos<N;i++){plano[fila[pos].ix]=d.k;pos++;}});
+  });
+  return plano;
+}
+// ---------- Chave de agenda: profissional (+ unidade, quando ele atende em mais de uma) ----------
+// Quem atende em 2 unidades (ex.: Centro e Croatá) tem uma agenda por unidade: cada uma com suas
+// vagas, dias de atendimento e lotação. Os demais continuam com a chave simples (nome normalizado).
+function chaveProfAg(r,uc){
+  var n=normAg(r.Nome),p=uc&&uc.ultProf[n];if(!p)return '';
+  var k=normAg(p),u=uc.ultUnid&&uc.ultUnid[n];
+  return (uc.multi&&uc.multi[k]&&u)?k+'@'+normAg(u):k;
+}
+// Nome para exibir: "Profissional — Unidade" quando a agenda é separada por unidade.
+function nomeProfAg(r,uc){
+  var n=normAg(r.Nome),p=uc&&uc.ultProf[n];if(!p)return '';
+  var u=uc.ultUnid&&uc.ultUnid[n];
+  return (uc.multi&&uc.multi[normAg(p)]&&u)?p+' — '+u:p;
+}
+// Todas as agendas existentes {chave: nome para exibir}.
+function agendasAg(uc){
+  var o={};
+  Object.keys(uc.ultProf).forEach(function(n){var r={Nome:n};var k=chaveProfAg(r,uc);if(k)o[k]=nomeProfAg(r,uc);});
+  return o;
+}
+// Próximo dia de atendimento (a partir de iso, inclusive) em que o profissional ainda tem vaga.
+// ignorarIx = linha que está sendo movida (não conta como ocupante). Nunca deixa "excedente".
+function proximaVagaAg(ix,iso,uc){
+  var r=rowsAg[ix],k=chaveProfAg(r,uc),cap=capAg(k),oc={};
+  rowsAg.forEach(function(x,i){
+    if(i===ix||chaveProfAg(x,uc)!==k||!ehAtivoAg(x))return;
+    var d=propostaAg[i]||dateAg(x['Data agendada']);if(d)oc[d]=(oc[d]||0)+1;
+  });
+  var dia=isoParaDataAg(iso);if(!dia)return iso;
+  dia=proxDiaAg(dia,cap.dias);
+  for(var g=0;g<3000;g++){
+    var d=isoAg(dia);
+    if((oc[d]||0)<capNoDiaAg(cap,d).dia)return d;
+    dia=proxDiaAg(somaDiaAg(dia,1),cap.dias);
+  }
+  return iso;
+}
+// Por que a linha está sem turno (mostrado como dica no "—" da coluna Turno).
+function motivoSemTurnoAg(r,ix,uc){
+  if((r.Situação||'Pendente')==='Cancelado')return 'Sem turno: agendamento cancelado';
+  if((r.Situação||'Pendente')==='Faltou')return 'Sem turno: faltou — aguardando reagendamento';
+  if(!chaveProfAg(r,uc))return 'Sem turno: profissional da última consulta não identificado';
+  if(!(propostaAg[ix]||dateAg(r['Data agendada'])))return 'Sem turno: ainda não tem data agendada';
+  return 'Sem turno';
+}
+// Turno gravado na planilha (coluna "Turno"), válido só enquanto a data da linha não foi mexida aqui.
+function turnoGuardadoAg(r,ix){if(propostaAg[ix])return '';var t=normAg(r.Turno);return t==='manha'||t==='tarde'?t:'';}
+// Turno de cada pessoa com data (salva ou gerada, exceto Cancelado/Faltou). Por profissional+dia:
+// quem já tem turno gravado mantém; as demais se dividem meio a meio (a metade de cima, com a
+// última consulta mais antiga, fica de manhã) respeitando as vagas de cada turno; passou do
+// limite do dia = excedente (só acontece com data manual).
+function turnosAg(uc){
+  var grupos={},res={};
+  rowsAg.forEach(function(r,ix){
+    var k=chaveProfAg(r,uc); if(!k||!ehAtivoAg(r))return;
+    var d=propostaAg[ix]||dateAg(r['Data agendada']); if(!d)return;
+    (grupos[k+'|'+d]=grupos[k+'|'+d]||[]).push({ix:ix,ult:ultimoDeAg(r,uc),nome:String(r.Nome||''),fixo:turnoGuardadoAg(r,ix)});
+  });
+  Object.keys(grupos).forEach(function(g){
+    var cap=capNoDiaAg(capAg(g.slice(0,g.lastIndexOf('|'))),g.slice(g.lastIndexOf('|')+1));
+    var ord=grupos[g].sort(function(a,b){
+      if(a.ult!==b.ult)return a.ult<b.ult?-1:1;
+      return a.nome.localeCompare(b.nome,'pt-BR');
+    });
+    // turno gravado na tarde não vale em dia/agenda sem vaga à tarde (ex.: sexta só manhã)
+    ord.forEach(function(x){if(x.fixo==='tarde'&&cap.t<1)x.fixo='';});
+    var nEff=Math.min(ord.length,cap.dia),alvoM=Math.min(cap.m,Math.max(Math.ceil(nEff/2),nEff-cap.t));
+    var nM=0,nT=0;
+    ord.forEach(function(x){if(x.fixo==='manha'){nM++;x.cls='manha';}else if(x.fixo==='tarde'){nT++;x.cls='tarde';}});
+    var vagaM=Math.max(0,alvoM-nM);
+    ord.forEach(function(x){
+      if(x.cls)return;
+      if(vagaM>0&&nM<cap.m){x.cls='manha';nM++;vagaM--;}
+      else if(nT<cap.t){x.cls='tarde';nT++;}
+      else if(nM<cap.m){x.cls='manha';nM++;}
+      else x.cls='excedente';
+    });
+    ord.forEach(function(x){
+      if(x.cls==='manha')res[x.ix]={rotulo:'Manhã',classe:'manha',dica:'Manhã — '+nM+' de '+cap.m+' vagas no dia'+(x.fixo?' (turno gravado)':'')};
+      else if(x.cls==='tarde')res[x.ix]={rotulo:'Tarde',classe:'tarde',dica:'Tarde — '+nT+' de '+cap.t+' vagas no dia'+(x.fixo?' (turno gravado)':'')};
+      else res[x.ix]={rotulo:'Excedente',classe:'excedente',dica:cap.fechado?(folgaDiaAg(cap.k,g.slice(g.lastIndexOf('|')+1))||'Dia sem atendimento'):'Acima do limite de '+cap.dia+' pessoas por dia para este profissional'};
     });
   });
+  return res;
+}
+// Turno que a linha teria com a situação/data informadas (usado ao gravar, para guardar na planilha).
+function turnoFuturoAg(ix,sit,data){
+  var uc=profMapAg();if(!uc||!data||sit==='Cancelado'||sit==='Faltou')return '';
+  var r=rowsAg[ix],bs=r.Situação,bd=r['Data agendada'],bt=r.Turno,bp=propostaAg[ix];
+  r.Situação=sit;r['Data agendada']=data;r.Turno='';delete propostaAg[ix];
+  var t=turnosAg(uc)[ix];
+  r.Situação=bs;r['Data agendada']=bd;r.Turno=bt;if(bp!==undefined)propostaAg[ix]=bp;
+  return t?t.rotulo:'';
+}
+function atualizarBotoesGeracaoAg(){
+  var tem=Object.keys(propostaAg).length>0;
+  ['agendamentosSalvarGerados','agendamentosDescartar'].forEach(function(id){var el=document.getElementById(id);if(el)el.hidden=!tem;});
+  if(!tem){var rs=document.getElementById('agendamentosResumo');if(rs)rs.innerHTML='';}
+}
+function resumoGeradoAg(uc,nomes){
+  var por={};
+  Object.keys(propostaAg).forEach(function(ix){
+    var k=chaveProfAg(rowsAg[ix],uc),d=propostaAg[ix];
+    var o=por[k]=por[k]||{n:0,dias:{},min:d,max:d};
+    o.n++;o.dias[d]=1;if(d<o.min)o.min=d;if(d>o.max)o.max=d;
+  });
+  var el=document.getElementById('agendamentosResumo'); if(!el)return;
+  var itens=Object.keys(por).sort(function(a,b){return String(nomes[a]).localeCompare(String(nomes[b]),'pt-BR');}).map(function(k){
+    var o=por[k],nd=Object.keys(o.dias).length;
+    return '<li><b>'+escAg(nomes[k]||k)+'</b>: '+o.n+(o.n===1?' pessoa':' pessoas')+' · '+brAg(o.min)+(o.min===o.max?'':' a '+brAg(o.max))+' ('+nd+(nd===1?' dia de atendimento)':' dias de atendimento)')+'</li>';
+  }).join('');
+  el.innerHTML=itens?'<ul>'+itens+'</ul>':'';
+}
+// auto=true: geração automática (ao abrir a aba / mudar filtros). Não depende do filtro de
+// profissional da tela e fica em silêncio quando não há o que gerar. prefixo: texto a manter no aviso.
+function gerarAg(auto,prefixo){
+  if(auto!==true)auto=false;
+  if(busyAg)return;
+  var uc=profMapAg();
+  if(!uc||!Object.keys(uc.ultProf).length){if(!auto)msgAg('Atualize os dados do painel para carregar Pessoas atendidas antes de gerar as datas.',true);return;}
+  if(!rowsAg.length){if(!auto)msgAg('Não há registros em Agendamentos. Clique em "Sincronizar Pessoas atendidas" primeiro.',true);return;}
+  var ini=isoParaDataAg(valAg('agendamentosInicio'));
+  var inicio=diaUtilAg(ini||amanhaAg());
+  var pq=auto?'':normAg(valAg('agendamentosProfissional'));
+  var lf=filtroListaAg(),lim=limiteDiasAg();
+  var ocupados={},nomes={},cands=[],semProf=0,jaTem=0,faltosos=0;
+  rowsAg.forEach(function(r){
+    var k=chaveProfAg(r,uc),d=dateAg(r['Data agendada']);
+    if(!k||!d||!ehAtivoAg(r))return;
+    (ocupados[k]=ocupados[k]||{})[d]=((ocupados[k]||{})[d]||0)+1;
+  });
+  // Excedente não existe: quem está acima do limite do dia vai para o próximo dia com vaga.
+  // Datas futuras já gravadas em dia que o profissional (unidade) NÃO atende, segundo a configuração
+  // atual: voltam para a fila e são redistribuídas nos dias certos (só vira data salva após "Salvar datas geradas").
+  var hojeIso=isoAg(new Date()),foraDia={},nForaDia=0,origForaDia={};
+  rowsAg.forEach(function(r,ix){
+    var k=chaveProfAg(r,uc),d=dateAg(r['Data agendada']),sit=r.Situação||'Pendente';
+    if(!k||!d||d<hojeIso||sit==='Realizado'||!ehAtivoAg(r))return;
+    var dt=isoParaDataAg(d);if(!dt)return;
+    // Redistribuir: todo mundo com data a partir do início volta para a fila (a data só muda se a nova distribuição for diferente).
+    var invalido=!capAg(k).dias[dt.getDay()]||!!folgaDiaAg(k,d);
+    if(!invalido&&!(cfgAg.redistribuir&&d>=isoAg(inicio)))return;
+    origForaDia[ix]=d;
+    if(pq&&normAg(nomeProfAg(r,uc)).indexOf(pq)<0)return;
+    foraDia[ix]=true;
+    if(ocupados[k]&&ocupados[k][d])ocupados[k][d]--;
+    nomes[k]=nomeProfAg(r,uc);nForaDia++;
+    cands.push({ix:ix,prof:k,nome:String(r.Nome||''),ult:ultimoDeAg(r,uc),pri:1});
+  });
+  var turnosAtuais=turnosAg(uc),excedentes=[];
+  Object.keys(turnosAtuais).forEach(function(i){
+    var r=rowsAg[i],d=propostaAg[i]||dateAg(r['Data agendada']);
+    if(foraDia[i])return;
+    if(turnosAtuais[i].classe==='excedente'&&!propostaAg[i]&&(r.Situação||'Pendente')!=='Realizado'&&d>=isoAg(new Date()))excedentes.push({ix:Number(i),d:d});
+  });
+  excedentes.forEach(function(x){var k=chaveProfAg(rowsAg[x.ix],uc);if(ocupados[k]&&ocupados[k][x.d])ocupados[k][x.d]--;});
+  rowsAg.forEach(function(r,ix){
+    if(foraDia[ix])return;
+    if(!uc.elegiveis[normAg(r.Nome)])return;
+    if(lf&&!lf.set[normAg(r.Nome)])return;
+    if(!dentroDiasAg(r,uc,lim))return;
+    var sit=r.Situação||'Pendente';
+    if(sit!=='Pendente'&&sit!=='Faltou')return;
+    // Pendente com data já está resolvido; Faltou volta para a fila mesmo tendo a data antiga.
+    if(sit==='Pendente'&&dateAg(r['Data agendada'])){jaTem++;return;}
+    var prof=nomeProfAg(r,uc);
+    if(!prof){semProf++;return;}
+    var k=chaveProfAg(r,uc);
+    if(pq&&normAg(prof).indexOf(pq)<0)return;
+    nomes[k]=prof;
+    if(sit==='Faltou')faltosos++;
+    cands.push({ix:ix,prof:k,nome:String(r.Nome||''),ult:ultimoDeAg(r,uc),pri:sit==='Faltou'?0:1});
+  });
+  if(!cands.length&&!excedentes.length){propostaAg={};atualizarBotoesGeracaoAg();renderAg();if(auto){if(prefixo)msgAg(prefixo,false);return;}msgAg('Nenhuma pessoa pendente para agendar'+(pq?' deste profissional':'')+'.'+(jaTem?' '+jaTem+' já têm data.':''),false);return;}
+  propostaAg=cands.length?planejarAg(cands,ocupados,inicio,{cap:capAg,janela:cfgAg.janela}):{};
+  // Quem voltou para a fila e caiu na mesma data de antes não tem o que salvar.
+  var semMudar=0;Object.keys(origForaDia).forEach(function(i){if(propostaAg[i]===origForaDia[i]){delete propostaAg[i];semMudar++;}});
+  nForaDia-=semMudar;
+  // Realoca os excedentes para o primeiro dia seguinte (ao dia deles) com vaga.
+  excedentes.sort(function(a,b){return a.d<b.d?-1:a.d>b.d?1:a.ix-b.ix;}).forEach(function(x){
+    var k=chaveProfAg(rowsAg[x.ix],uc);nomes[k]=nomes[k]||nomeProfAg(rowsAg[x.ix],uc);
+    var nova=proximaVagaAg(x.ix,isoAg(somaDiaAg(isoParaDataAg(x.d),1)),uc);
+    propostaAg[x.ix]=nova;
+  });
+  var datas=Object.keys(propostaAg).map(function(i){return propostaAg[i];}).sort();
+  if(!datas.length){renderAg();atualizarBotoesGeracaoAg();msgAg((prefixo?prefixo+' ':'')+'Nada a mudar: a distribuição atual já está de acordo com a configuração.',false);return;}
+  renderAg();atualizarBotoesGeracaoAg();resumoGeradoAg(uc,nomes);
+  msgAg((prefixo?prefixo+' ':'')+(cands.length-semMudar)+(cands.length-semMudar===1?' pessoa distribuída':' pessoas distribuídas')+(faltosos?' ('+faltosos+(faltosos===1?' faltoso reagendado':' faltosos reagendados')+')':'')+(nForaDia?' ('+nForaDia+(nForaDia===1?' já agendada mudou':' já agendadas mudaram')+' de data: dia sem atendimento ou redistribuição)':'')+' de '+brAg(datas[0])+' a '+brAg(datas[datas.length-1])+' (dias de atendimento e vagas por profissional conforme a configuração). Revise e clique em "Salvar datas geradas".'+(semProf?' '+semProf+' sem profissional identificado ficaram de fora.':''),false);
+}
+function descartarAg(){propostaAg={};atualizarBotoesGeracaoAg();renderAg();msgAg('Datas geradas descartadas.',false);}
+
+// ---------- Conflito de edição (duas pessoas mexendo na mesma linha) ----------
+// Antes de gravar, relê a planilha e compara Situação/Data agendada com o que esta tela sabia.
+function verificarConflitosAg(linhas){
+  var reais=linhas.filter(function(r){return r&&!r._virtual;});
+  if(!reais.length)return Promise.resolve([]);
+  return apiAg({action:'agendamentos.list'}).then(function(resp){
+    var remoto={};(Array.isArray(resp.rows)?resp.rows:[]).forEach(function(x){remoto[normAg(x.Nome)]=x;});
+    var conf=[];
+    reais.forEach(function(l){
+      var x=remoto[normAg(l.Nome)];if(!x)return;
+      if((l.Situação||'Pendente')!==(x.Situação||'Pendente')||dateAg(l['Data agendada'])!==dateAg(x['Data agendada']))conf.push({linha:l,remoto:x});
+    });
+    return conf;
+  },function(e){if(/Sess/i.test((e&&e.message)||''))throw e;return [];});
+}
+// Pergunta se pode sobrescrever. Se não, mostra o estado atual da planilha nessas linhas.
+function confirmarConflitosAg(conf){
+  var itens=conf.slice(0,6).map(function(c){var s=c.remoto.Situação||'Pendente',d=dateAg(c.remoto['Data agendada']);return '• '+c.linha.Nome+' — agora: '+s+(d?' em '+brAg(d):'');}).join('\n');
+  var ok=window.confirm((conf.length===1?'Esta pessoa foi alterada':conf.length+' pessoas foram alteradas')+' por outra pessoa depois que a lista foi carregada:\n'+itens+(conf.length>6?'\n…':'')+'\n\nSalvar mesmo assim e sobrescrever?');
+  if(!ok){conf.forEach(function(c){c.linha.Situação=c.remoto.Situação||'Pendente';c.linha['Data agendada']=c.remoto['Data agendada']||'';c.linha['Atualizado em']=c.remoto['Atualizado em']||c.linha['Atualizado em'];});}
+  return ok;
 }
 
-// ===== módulo: js/app/historico.js =====
-// ======================================================================
-// app/historico.js
-// Histórico salvo no navegador (storage)
-// (módulo gerado a partir do app.js original — ver MODULOS.md)
-// ======================================================================
-
-
-// ---------- Storage ----------
-export function loadHistoryArray(){
-  return window.__historyCache || [];
-}
-
-export function refreshHistoryFromStorage(cb){
-  if(!STORAGE_AVAILABLE){
-    window.__historyCache = estadoApp.memoryHistory;
-    if(cb) cb(estadoApp.memoryHistory);
-    return;
-  }
-  window.storage.get(STORAGE_KEY, false).then(function(res){
-    var arr = [];
-    if(res && res.value){
-      try{ arr = JSON.parse(res.value); }catch(e){ arr = []; }
-    }
-    window.__historyCache = arr;
-    if(cb) cb(arr);
-  }).catch(function(){
-    window.__historyCache = [];
-    if(cb) cb([]);
+// ---------- Salvar datas geradas (em lote, com fallback linha a linha) ----------
+function salvarGeradosAg(){
+  var ixs=Object.keys(propostaAg);
+  if(!ixs.length||busyAg)return;
+  var datas=ixs.map(function(i){return propostaAg[i];}).sort();
+  if(!window.confirm('Salvar '+ixs.length+' agendamentos (de '+brAg(datas[0])+' a '+brAg(datas[datas.length-1])+')?\nA situação dessas pessoas passará para "Agendado".'))return;
+  busyAg=true;
+  var linhas=ixs.map(function(i){return rowsAg[Number(i)];}).filter(Boolean);
+  msgAg('Conferindo se alguém alterou a planilha…',false);
+  verificarConflitosAg(linhas).then(function(conf){return conf.length?confirmarConflitosAg(conf):true;}).then(function(seguir){
+    if(!seguir)throw {cancelado:true};
+    var virtuais=linhas.filter(function(r){return r._virtual;});
+    return virtuais.length?(msgAg('Preparando '+virtuais.length+' pessoas novas na planilha…',false),garantirNaPlanilhaAg(virtuais)):null;
+  }).then(function(){executarSalvarGeradosAg(ixs);}).catch(function(e){
+    busyAg=false;
+    if(e&&e.cancelado){propostaAg={};atualizarBotoesGeracaoAg();renderAg();gerarAg(true,'Nada foi salvo: a planilha tinha mudanças de outra pessoa. As datas foram recalculadas.');return;}
+    msgAg((e&&e.message)||'Não foi possível preparar as pessoas na planilha.',true);
   });
 }
-
-export function saveHistoryArray(arr){
-  window.__historyCache = arr;
-  estadoApp.memoryHistory = arr;
-  if(!STORAGE_AVAILABLE) return Promise.resolve();
-  try{
-    return window.storage.set(STORAGE_KEY, JSON.stringify(arr), false).catch(function(){});
-  }catch(e){
-    return Promise.resolve();
+// Um pedido só por grupo de LOTE_AG pessoas. Resposta esperada: {lote:true, falhas:[{nome,erro}]}.
+function enviarLoteAg(items,progresso){
+  var out={ok:[],falhas:[]},partes=[];
+  for(var i=0;i<items.length;i+=LOTE_AG)partes.push(items.slice(i,i+LOTE_AG));
+  function prox(){
+    if(!partes.length)return Promise.resolve(out);
+    var parte=partes.shift();
+    return apiAg({action:'agendamentos.updateLote',rows:parte.map(function(x){return{nome:x.nome,situacao:x.situacao,dataAgendada:x.dataAgendada,turno:x.turno};})}).then(function(r){
+      if(!r||r.lote!==true)throw {semLote:true};
+      var falhas={};(r.falhas||[]).forEach(function(f){falhas[normAg(f.nome)]=f.erro||'erro';});
+      parte.forEach(function(x){var f=falhas[normAg(x.nome)];if(f)out.falhas.push({ix:x.ix,erro:f});else out.ok.push(x.ix);});
+      progresso(out.ok.length+out.falhas.length);
+      return prox();
+    });
   }
+  return prox();
 }
-
-// Código que rodava no carregamento (ordem original preservada pelo main.js)
-export function init_app_historico(){
-  // (a lista visual de histórico foi removida da aba Tendência;
-  // o armazenamento das leituras continua acima)
+// Plano B (backend sem a ação em lote): um pedido por pessoa, 3 por vez.
+function enviarIndividualAg(items,progresso){
+  var out={ok:[],falhas:[]},fila=items.slice();
+  function proximo(){
+    if(!fila.length)return Promise.resolve();
+    var x=fila.shift();
+    return apiAg({action:'agendamentos.update',nome:x.nome,situacao:x.situacao,dataAgendada:x.dataAgendada,turno:x.turno}).then(function(){out.ok.push(x.ix);}).catch(function(e){
+      var m=(e&&e.message)||'';out.falhas.push({ix:x.ix,erro:m});
+      if(/Sess/i.test(m))fila.length=0; // sessão expirada: não adianta insistir
+    }).then(function(){progresso(out.ok.length+out.falhas.length);return proximo();});
+  }
+  return Promise.all([proximo(),proximo(),proximo()]).then(function(){return out;});
 }
-
-// ===== módulo: js/app/carga.js =====
-// ======================================================================
-// app/carga.js
-// Carga de dados, mês de referência, debug e seletor de equipe
-// (módulo gerado a partir do app.js original — ver MODULOS.md)
-// ======================================================================
-
-
-// ---------- Fetch ----------
-var fetchStatusEl;
-
-var refreshBtn;
-
-var refreshLabel;
-
-function sameData(a,b){
-  if(!a || !b) return false;
-  return JSON.stringify(a) === JSON.stringify(b);
-}
-
-// Dados brutos (já filtrados pela equipe atual, mas SEM filtro de
-// período — o período é aplicado depois, em calcularIndicadoresDoPeriodo)
-// guardados aqui após o último fetch bem-sucedido. Trocar o "Mês de
-// referência" no seletor reusa este cache e recalcula tudo na hora, sem
-// precisar buscar a planilha de novo na rede.
-export var latestWb = null;
-
-// Igual latestWb, mas SEM o filtro por equipe (todas juntas, uma linha
-// por atendimento, por nome real da aba) — usado só pelo filtro de
-// Equipe INDEPENDENTE da aba Análises (analisesEquipes), pra poder
-// trocar de equipe ali sem precisar buscar a planilha de novo (ver
-// fetchAndLoad e construirHistoricosPacientes).
-export var latestRawSheets = {};
-
-// Recalcula M1/M2/pontos/nota + a série de tendência pro mês de
-// referência atual (refMonthDates), a partir do cache latestWb.
-// saveHistory=true (usado logo após um fetch): grava uma nova "leitura"
-// no histórico se os dados mudaram desde a última do mesmo período/equipe.
-// saveHistory=false (usado ao trocar o seletor de mês): só recalcula e
-// renderiza na hora, sem criar entrada nova no histórico de leituras.
-export function aplicarMesReferencia(saveHistory){
-  if(!latestWb) return;
-
-  var extracted, periodo, periodoDatas;
-  if(estadoApp.refMonthDates.length === 1){
-    // Um único mês escolhido: NÃO é só aquele mês isolado — é a janela
-    // móvel de JANELA_MESES meses TERMINANDO nesse mês (ex.: maio →
-    // fev, mar, abr e maio, incluindo os dois extremos), a mesma janela
-    // usada pela série de tendência (ver calcularJanelaPeriodo).
-    var janelaMes = calcularJanelaPeriodo(estadoApp.refMonthDates[0]);
-    extracted = calcularJanelaComOverride(latestWb, estadoApp.refMonthDates[0]);
-    periodo = {inicio: fmtBRDate(janelaMes.inicio), fim: fmtBRDate(janelaMes.fim)};
-    periodoDatas = {inicio: janelaMes.inicio, fim: janelaMes.fim};
-  } else if(estadoApp.refMonthDates.length > 1){
-    // Vários meses escolhidos: o M1/M2 de CADA mês marcado já é o valor
-    // com a janela móvel de JANELA_MESES meses terminando naquele mês
-    // (mesma regra do mês único, acima) — os resultados dos meses
-    // marcados entram na MÉDIA (mesmo princípio da média do
-    // quadrimestre, ver mediaDeMeses), e os totais de contexto/"Pessoas
-    // atendidas" somam o mês isolado (sem janela) de cada um, pra não
-    // sobrepor dados de meses vizinhos quando as janelas se cruzam.
-    var resultadosMensaisSel = estadoApp.refMonthDates.map(function(m){
-      return calcularIndicadoresDoPeriodo(latestWb, periodoMesUnico(m));
-    });
-    var resultadosJanelaSel = estadoApp.refMonthDates.map(function(m){
-      return calcularJanelaComOverride(latestWb, m);
-    });
-    extracted = mediaDeMeses(resultadosMensaisSel, resultadosJanelaSel);
-    periodo = {
-      inicio: fmtBRDate(periodoMesUnico(estadoApp.refMonthDates[0]).inicio),
-      fim: fmtBRDate(periodoMesUnico(estadoApp.refMonthDates[estadoApp.refMonthDates.length-1]).fim)
-    };
-    periodoDatas = {
-      inicio: periodoMesUnico(estadoApp.refMonthDates[0]).inicio,
-      fim: periodoMesUnico(estadoApp.refMonthDates[estadoApp.refMonthDates.length-1]).fim
-    };
-  } else {
-    // Nenhum mês escolhido: média dos meses do quadrimestre selecionado
-    // que JÁ TERMINARAM (mesesElapsedDoQuadrimestre) — os meses futuros
-    // (ainda sem nenhum atendimento/atividade real na planilha) NÃO
-    // entram na média, pra não diluir o resultado com dado inexistente.
-    // Isso equivale, na prática, a projetar os meses que faltam pelo
-    // ritmo médio dos meses já decorridos (preencher um mês futuro com
-    // a própria média dos já decorridos não muda essa média — só
-    // filtrar já dá o mesmo resultado, sem precisar simular nada).
-    // O M1/M2 de CADA mês usado na média já é o valor com a janela móvel
-    // de JANELA_MESES meses terminando naquele mês (mesma regra oficial
-    // usada na seleção de mês individual e no gráfico de tendência) —
-    // por isso calculamos cada mês duas vezes: uma com a janela (pra
-    // entrar na média de M1/M2) e outra isolada, só o mês em si (pra
-    // somar contagens de contexto e montar "Pessoas atendidas" sem
-    // sobrepor dados de meses vizinhos).
-    var meses = mesesDosQuadsSelecionadosUniao();
-    var mesesUsados = mesesElapsedDosQuadsSelecionadosUniao();
-    var mesesProjecaoLabel = mesesUsados.length < meses.length
-      ? mesesUsados.map(monthShortLabel).join('+')
-      : null;
-    var resultadosMensais = mesesUsados.map(function(m){
-      return calcularIndicadoresDoPeriodo(latestWb, periodoMesUnico(m));
-    });
-    var resultadosJanela = mesesUsados.map(function(m){
-      return calcularJanelaComOverride(latestWb, m);
-    });
-    extracted = mediaDeMeses(resultadosMensais, resultadosJanela, mesesProjecaoLabel);
-    periodo = {
-      inicio: fmtBRDate(periodoMesUnico(meses[0]).inicio),
-      fim: fmtBRDate(periodoMesUnico(meses[meses.length-1]).fim)
-    };
-    periodoDatas = {inicio: periodoMesUnico(meses[0]).inicio, fim: periodoMesUnico(meses[meses.length-1]).fim};
-  }
-
-  var performanceProfissionais = calcularPerformanceProfissionais(latestWb, periodoDatas);
-  var analisesData = calcularAnalises();
-
-  populateSheetsCache(latestWb);
-  // "Pessoas atendidas" agora NÃO usa mais extracted.pessoasAtendidas
-  // (ligado ao filtro de Mês do topo) — a lista, na aba Listas, é
-  // recalculada direto por renderListCard/pessoasAtendidasParaMeses,
-  // com o próprio filtro de mês (ver renderListsSection).
-
-  var serie = calcularSerieTendencia(latestWb, anchorMonthDate(), TREND_MESES);
-
-  if(anoMs) anoMs.setSelected(valoresUnicosOrdenados(estadoApp.quadsSelecionados.map(function(c){ return String(c.ano); })));
-  if(quadMs) quadMs.setSelected(valoresUnicosOrdenados(estadoApp.quadsSelecionados.map(function(c){ return String(c.qIndex); })));
-  if(mesMs) mesMs.setSelected(estadoApp.refMonthDates.map(monthOptionValue));
-  var winEl = document.getElementById('refWindowLabel');
-  if(winEl){
-    winEl.innerHTML = estadoApp.refMonthDates.length
-      ? 'Resultado de <b>'+refMonthLabel()+'</b> — janela de '+JANELA_MESES+' meses cada ('+periodo.inicio+' a '+periodo.fim+')'
-      : 'Média de <b>'+labelQuadsSelecionados()+'</b> ('+periodo.inicio+' a '+periodo.fim+')';
-  }
-
-  if(!saveHistory){
-    var base = estadoApp.currentRecordId ? loadHistoryArray().find(function(h){ return h.id === estadoApp.currentRecordId; }) : null;
-    var record = {
-      id: base ? base.id : 'tmp',
-      timestamp: base ? base.timestamp : Date.now(),
-      equipe: extracted.equipe,
-      data: extracted.data,
-      notes: extracted.notes,
-      periodo: periodo
-    };
-    renderDashboard(record, serie, performanceProfissionais, analisesData);
-    return;
-  }
-
-  var now = Date.now();
-  var history = loadHistoryArray();
-  var lastForEquipe = history.filter(function(h){
-    return !h.error && h.equipe === extracted.equipe
-      && h.periodo && h.periodo.inicio === periodo.inicio && h.periodo.fim === periodo.fim;
-  }).sort(function(a,b){ return b.timestamp-a.timestamp; })[0];
-
-  if(lastForEquipe && sameData(lastForEquipe.data, extracted.data)){
-    estadoApp.currentRecordId = lastForEquipe.id;
-    fetchStatusEl.textContent = 'Dados sem alterações desde a última leitura.';
-    renderDashboard(lastForEquipe, serie, performanceProfissionais, analisesData);
-    return;
-  }
-
-  var record = {
-    id: 'u'+now+Math.random().toString(36).slice(2,7),
-    timestamp: now,
-    equipe: extracted.equipe,
-    data: extracted.data,
-    notes: extracted.notes,
-    periodo: periodo
-  };
-  var arr = loadHistoryArray();
-  arr.push(record);
-  saveHistoryArray(arr).then(function(){
-    estadoApp.currentRecordId = record.id;
-    fetchStatusEl.textContent = 'Planilha lida e calculada com sucesso.';
-    renderDashboard(record, serie, performanceProfissionais, analisesData);
+function executarSalvarGeradosAg(ixs){
+  var total=ixs.length,uc=profMapAg(),turnos=turnosAg(uc);
+  var items=ixs.map(function(i){i=Number(i);var r=rowsAg[i];return{ix:i,nome:r.Nome,situacao:'Agendado',dataAgendada:propostaAg[i],turno:turnos[i]?turnos[i].rotulo:''};});
+  var btns=['agendamentosGerar','agendamentosSalvarGerados','agendamentosDescartar'];
+  btns.forEach(function(id){var el=document.getElementById(id);if(el)el.disabled=true;});
+  function progresso(n){msgAg('Salvando agendamentos… '+n+' de '+total,false);}
+  var envio=loteIndisponivelAg?enviarIndividualAg(items,progresso):enviarLoteAg(items,progresso).catch(function(e){
+    if(e&&/Sess/i.test(e.message||''))throw e;
+    loteIndisponivelAg=true;              // backend ainda não tem a ação em lote
+    return enviarIndividualAg(items,progresso);
   });
-}
-
-// ---------- Debug manual (console) ----------
-// window.debugAtendimentosEmulti(): imprime UMA tabela só, pro período
-// EXATO que está selecionado agora no painel (mesma regra usada por
-// aplicarMesReferencia — mês único = janela de 4 meses terminando
-// nele; vários meses = intervalo entre o primeiro e o último; nenhum
-// mês = quadrimestre selecionado inteiro), com a contagem de
-// atendimentos por profissional e se cada um é considerado "da eMulti"
-// (roster da aba PROFISSIONAIS). Chame direto no console do navegador
-// (F12 → Console → digite "debugAtendimentosEmulti()" e Enter) — não
-// fica rodando sozinho a cada recálculo (evita a poluição de outras
-// janelas, como a do gráfico de Tendência), então o período mostrado é
-// sempre exatamente o que está no card "Composição do numerador" no
-// momento em que você chamar.
-function periodoEfetivoAtual(){
-  if(estadoApp.refMonthDates.length === 1){
-    return calcularJanelaPeriodo(estadoApp.refMonthDates[0]);
-  } else if(estadoApp.refMonthDates.length > 1){
-    return {
-      inicio: periodoMesUnico(estadoApp.refMonthDates[0]).inicio,
-      fim: periodoMesUnico(estadoApp.refMonthDates[estadoApp.refMonthDates.length-1]).fim
-    };
+  envio.then(function(out){
+    out.ok.forEach(function(ix){var r=rowsAg[ix];r.Situação='Agendado';r['Data agendada']=propostaAg[ix];var it=items.filter(function(x){return x.ix===ix;})[0];r.Turno=it?it.turno:'';delete propostaAg[ix];});
+    var falhas=out.falhas.length,ultimoErro=falhas?out.falhas[falhas-1].erro:'';
+    finalizar(out.ok.length,falhas,ultimoErro);
+  }).catch(function(e){finalizar(0,total,(e&&e.message)||'');});
+  function finalizar(ok,falhas,ultimoErro){
+    busyAg=false;
+    btns.forEach(function(id){var el=document.getElementById(id);if(el)el.disabled=false;});
+    atualizarBotoesGeracaoAg();renderAg();
+    msgAg(ok+(ok===1?' agendamento salvo':' agendamentos salvos')+(falhas?'; '+falhas+' não foram salvos'+(ultimoErro?' ('+ultimoErro+')':'')+' e continuam como proposta — clique em "Salvar datas geradas" para tentar de novo.':'.'),falhas>0);
   }
-  var meses = mesesDosQuadsSelecionadosUniao();
-  return {inicio: periodoMesUnico(meses[0]).inicio, fim: periodoMesUnico(meses[meses.length-1]).fim};
 }
+function loadAg(){if(busyAg)return;busyAg=true;profCacheAg=null;propostaAg={};atualizarBotoesGeracaoAg();msgAg('Carregando agendamentos…');renderAg();apiAg({action:'agendamentos.list'}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:[];completarVirtuaisAg();msgAg('');}).catch(function(e){msgAg(e.message||'Falha ao carregar.',true);}).finally(function(){busyAg=false;renderAg();renderConfigAg();gerarAg(true);});}
+function syncAg(){if(busyAg)return;profCacheAg=null;var list=window.__emultiPessoasAtendidas&&window.__emultiPessoasAtendidas();if(!list||!Array.isArray(list.rows)||!list.rows.length){msgAg('Atualize os dados do painel para carregar Pessoas atendidas antes de sincronizar.',true);return;}var pessoas=list.rows.filter(function(r){return r.agendavel===true;}).map(function(r){return{nome:String(r[0]||'').trim(),at:Number(r[1])||0,total:Number(r[3])||0,ultimo:r.ultimoAtendimentoAgendaISO||''};}).filter(function(x){return x.nome;});if(!pessoas.length){msgAg('Nenhuma pessoa em Pessoas atendidas. Atualize os dados do painel e tente de novo.',true);return;}busyAg=true;msgAg('Sincronizando '+pessoas.length+' pessoas…');renderAg();var syncMsg='';apiAg({action:'agendamentos.sync',rows:pessoas}).then(function(r){syncMsg='Sincronização concluída: '+(Number(r.inseridos)||0)+' novos; '+(Number(r.atualizados)||0)+' atualizados ('+pessoas.length+' pessoas em Pessoas atendidas).';msgAg(syncMsg);return apiAg({action:'agendamentos.list'});}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:rowsAg;completarVirtuaisAg();}).catch(function(e){msgAg(e.message||'Falha ao sincronizar.',true);}).finally(function(){busyAg=false;renderAg();renderConfigAg();if(syncMsg){propostaAg={};gerarAg(true,syncMsg);}});}
 
-export function fetchAndLoad(){
-  refreshBtn.classList.add('loading');
-  refreshBtn.disabled = true;
-  refreshLabel.textContent = 'Atualizando…';
-  fetchStatusEl.textContent = 'Buscando dados…';
-  fetchStatusEl.className = 'fetch-status';
-
-  Promise.all([fetchAllSheets(), fetchOfficialOverridesSafe(), fetchProfissionaisSafe()])
-    .then(function(arr){
-      var results = arr[0];
-      var faltando = results.filter(function(r){ return !r.ok; });
-      if(faltando.length){
-        // Mostra o motivo REAL devolvido pelo Apps Script (ou pelo navegador)
-        // para cada aba, em vez de só a mensagem genérica.
-        var motivos = [];
-        faltando.forEach(function(r){
-          var m = (r.error && r.error.message) ? r.error.message : 'erro desconhecido';
-          var linha = r.name + ': ' + m;
-          if(motivos.indexOf(linha) < 0) motivos.push(linha);
-          try{ console.error('[painel] falha ao ler a aba "' + r.name + '":', r.error); }catch(e){}
-        });
-        throw new Error('Não foi possível ler a(s) aba(s) "' + faltando.map(function(r){return r.name;}).join('", "')
-          + '". Motivo: ' + motivos.join(' | ') + '.');
-      }
-
-      var wb = {SheetNames:[], Sheets:{}};
-      results.forEach(function(r){
-        var parsedRows = parseCsv(r.csvText);
-        if(!parsedRows.length) return;
-        latestRawSheets[r.name] = parsedRows;
-        // r.name é o nome REAL da aba (sem sufixo). Filtra as linhas pela
-        // equipe selecionada e guarda no workbook sob a chave "sufixada"
-        // — o resto do painel (cálculo, listas) continua lendo por essa
-        // chave, sem precisar saber que a aba é compartilhada entre
-        // equipes. Note: SEM filtro de período aqui — cada mês de
-        // referência filtra por data na hora, em aplicarMesReferencia().
-        var filtradas = filtrarLinhasPorEquipe(parsedRows, estadoApp.currentEquipes);
-        var key = suffixedName(r.name);
-        wb.Sheets[key] = filtradas;
-        wb.SheetNames.push(key);
-      });
-
-      latestWb = wb;
-      aplicarMesReferencia(true);
-    })
-    .catch(function(err){
-      var msg = (err && err.message) ? err.message : 'verifique sua conexão e o link publicado.';
-      fetchStatusEl.textContent = 'Não foi possível ler a planilha: ' + msg;
-      fetchStatusEl.className = 'fetch-status err';
-      var history = loadHistoryArray();
-      if(!history.length){
-        document.getElementById('statusState').innerHTML =
-          '<h2>Não foi possível carregar</h2><p>' + escapeHtml(msg) + '</p>'
-          + '<div class="ficha"><b>Verifique:</b> se a planilha continua publicada em "Arquivo → Compartilhar → Publicar na web" (incluindo todas as abas) e se o link ainda é válido.</div>'
-          + '<button class="retry-btn" id="retryBtn">Tentar de novo</button>';
-        var retry = document.getElementById('retryBtn');
-        if(retry) retry.addEventListener('click', fetchAndLoad);
-      }
-    })
-    .finally(function(){
-      refreshBtn.classList.remove('loading');
-      refreshBtn.disabled = false;
-      refreshLabel.textContent = 'Atualizar';
-    });
-}
-
-function renderEquipeSwitcher(){
-  var TODAS_KEY = 'todas';
-  var equipeMs = createMultiSelect(document.getElementById('equipeMs'), {
-    placeholder: 'Selecione',
-    multi: false,
-    search: false,
-    onChange: function(keys){
-      estadoApp.currentEquipes = keys[0] === TODAS_KEY ? EQUIPES.slice()
-        : EQUIPES.filter(function(eq){ return eq.key === keys[0]; });
-      document.getElementById('statusState').style.display = '';
-      fetchAndLoad();
-    }
+// ---------- Dados para a aba Agenda (calendário) ----------
+// Mesma base da aba Agendamentos: salvos na planilha (Agendado/Realizado) + datas geradas ainda não salvas (Sugerido).
+window.__emultiAgendaDados=function(){
+  var uc=profMapAg();if(!uc)return {eventos:[],pronto:false};
+  var turnos=turnosAg(uc),ev=[];
+  rowsAg.forEach(function(r,ix){
+    if(!uc.elegiveis[normAg(r.Nome)])return;
+    var prop=propostaAg[ix],d=prop||dateAg(r['Data agendada']);if(!d)return;
+    var sit=r.Situação||'Pendente';if(!prop&&!ehAtivoAg(r))return;
+    var k=chaveProfAg(r,uc);if(!k)return;
+    var t=turnos[ix];
+    ev.push({data:d,nome:String(r.Nome||''),prof:nomeProfAg(r,uc),profKey:k,tipo:prop?'sugerido':(sit==='Realizado'?'realizado':'agendado'),situacao:sit,turno:t?t.rotulo:'',ult:ultimoDeAg(r,uc),capDia:capNoDiaAg(capAg(k),d).dia});
   });
-  equipeMs.setOptions(
-    EQUIPES.map(function(eq){ return {value: eq.key, label: eq.label}; })
-      .concat([{value: TODAS_KEY, label: 'Todas'}])
-  );
-  equipeMs.setSelected([estadoApp.currentEquipes.length > 1 ? TODAS_KEY : estadoApp.currentEquipes[0].key]);
+  return {eventos:ev,pronto:true};
+};
+window.__emultiAgendaCarregar=function(){if(rowsAg.length||busyAg){window.dispatchEvent(new Event('emulti:agenda-dados'));return;}loadAg();};
+
+// ---------- Salvar uma linha ----------
+function saveAg(tr){
+  var ix=Number(tr.dataset.agIx),r=rowsAg[ix];if(!r)return;
+  var btn=tr.querySelector('[data-ag-save]'),fields={};
+  tr.querySelectorAll('[data-ag]').forEach(function(el){fields[el.dataset.ag]=el.value;});
+  btn.disabled=true;btn.textContent='Salvando…';
+  var turno='',movidoAg='';
+  verificarConflitosAg([r]).then(function(conf){return conf.length?confirmarConflitosAg(conf):true;}).then(function(seguir){
+    if(!seguir)throw {cancelado:true};
+    return r._virtual?garantirNaPlanilhaAg([r]):null;
+  }).then(function(){
+    // Sem excedente: se o dia escolhido já está lotado para o profissional, vai para o próximo dia com vaga.
+    if(fields.dataAgendada&&fields.situacao!=='Cancelado'&&fields.situacao!=='Faltou'){
+      var ucv=profMapAg();
+      if(ucv&&chaveProfAg(r,ucv)){
+        var livre=proximaVagaAg(ix,fields.dataAgendada,ucv);
+        if(livre!==fields.dataAgendada){movidoAg=brAg(fields.dataAgendada)+' → '+brAg(livre);fields.dataAgendada=livre;}
+      }
+    }
+    turno=turnoFuturoAg(ix,fields.situacao,fields.dataAgendada);
+    return apiAg(Object.assign({action:'agendamentos.update',nome:r.Nome,turno:turno},fields));
+  }).then(function(){
+    r.Situação=fields.situacao;r['Data agendada']=fields.dataAgendada;r.Turno=turno;
+    delete propostaAg[ix];atualizarBotoesGeracaoAg();
+    var aviso='Alterações de '+r.Nome+' salvas.'+(movidoAg?' O dia estava lotado, então a data passou para o próximo dia com vaga ('+movidoAg+').':'');
+    msgAg(aviso);
+    // Faltou: a pessoa volta para a fila e já recebe uma nova data sugerida.
+    if(fields.situacao==='Faltou'){busyAg=false;gerarAg(true,aviso+' Nova data sugerida para o reagendamento.');}
+  }).catch(function(e){
+    if(e&&e.cancelado){msgAg('Alteração não salva: outra pessoa mudou esta linha. A tela mostra o estado atual da planilha.',true);return;}
+    msgAg((e&&e.message)||'Falha ao salvar.',true);
+  }).finally(function(){renderAg();});
 }
 
-// Código que rodava no carregamento (ordem original preservada pelo main.js)
-export function init_app_carga(){
-  fetchStatusEl = document.getElementById('fetchStatus');
+// ---------- Vagas por dia ----------
+function renderVagasAg(uc){
+  var det=document.getElementById('agendamentosVagas'),box=document.getElementById('agendamentosVagasTabela');
+  if(!det||!box||!det.open)return;
+  if(!uc){box.innerHTML='<p class="agendamentos-vazio">Carregue Pessoas atendidas para ver as vagas.</p>';return;}
+  var nomes=agendasAg(uc);
+  var ks=Object.keys(nomes).sort(function(a,b){return nomes[a].localeCompare(nomes[b],'pt-BR');});
+  if(!ks.length){box.innerHTML='<p class="agendamentos-vazio">Sem profissionais identificados.</p>';return;}
+  var oc={};
+  rowsAg.forEach(function(r,ix){var k=chaveProfAg(r,uc),d=propostaAg[ix]||dateAg(r['Data agendada']);if(!k||!d||!ehAtivoAg(r))return;(oc[k]=oc[k]||{})[d]=(oc[k][d]||0)+1;});
+  var caps={};ks.forEach(function(k){caps[k]=capAg(k);});
+  var h=new Date(),d=new Date(h.getFullYear(),h.getMonth(),h.getDate()),dias=[],guard=0;
+  while(dias.length<15&&guard<60){guard++;var dow=d.getDay();if(ks.some(function(k){return caps[k].dias[dow];}))dias.push(d);d=somaDiaAg(d,1);}
+  var html='<div class="table-wrap"><table class="data-table agendamentos-vagas-tab"><thead><tr><th>Dia</th>'+ks.map(function(k){return '<th>'+escAg(nomes[k])+'</th>';}).join('')+'</tr></thead><tbody>';
+  dias.forEach(function(dt){
+    var iso=isoAg(dt);
+    html+='<tr><td class="agendamentos-nome">'+DIAS_SEM_AG[dt.getDay()]+', '+brAg(iso)+'</td>'+ks.map(function(k){
+      var cap=caps[k];if(!cap.dias[dt.getDay()])return '<td class="vaga-off" title="Não atende neste dia">—</td>';
+      var fo=folgaDiaAg(k,iso);if(fo)return '<td class="vaga-off" title="'+escAg(fo)+'">'+(fo.indexOf('Feriado')===0?'feriado':'falta')+'</td>';
+      var cd=capNoDiaAg(cap,iso),n=(oc[k]&&oc[k][iso])||0,cls=n>=cd.dia?'vaga-lotado':(n>=cd.dia*0.75?'vaga-quase':'vaga-livre');
+      return '<td class="'+cls+'" title="'+(cd.dia-n>0?(cd.dia-n)+' vaga(s) livre(s)':'Sem vagas')+(cd.t<1&&cap.t>0?' (só manhã)':'')+'">'+n+'/'+cd.dia+'</td>';
+    }).join('')+'</tr>';
+  });
+  box.innerHTML=html+'</tbody></table></div><p class="agendamentos-filtro-info">Ocupação = pessoas agendadas (salvas ou sugeridas) / vagas do dia. Cancelados e faltosos não contam.</p>';
+}
 
-  refreshBtn = document.getElementById('refreshBtn');
+// ---------- Configuração (painel) ----------
+function renderConfigAg(){
+  var det=document.getElementById('agendamentosConfig');if(!det)return;
+  function set(id,v){var el=document.getElementById(id);if(el)el.value=v;}
+  set('agCfgM',cfgAg.m);set('agCfgT',cfgAg.t);set('agCfgJanela',cfgAg.janela);
+  det.querySelectorAll('.agendamentos-cfg-dias input').forEach(function(cb){cb.checked=!!cfgAg.dias[Number(cb.dataset.dia)];});
+  det.querySelectorAll('.agendamentos-cfg-manha input').forEach(function(cb){cb.checked=!!cfgAg.soManha[Number(cb.dataset.dia)];});
+  var rd=document.getElementById('agCfgRedist');if(rd)rd.checked=!!cfgAg.redistribuir;
+  var box=document.getElementById('agCfgProf');if(!box)return;
+  var uc=profMapAg();
+  if(!uc){box.innerHTML='<p class="agendamentos-filtro-info">Carregue Pessoas atendidas para configurar por profissional.</p>';return;}
+  var nomes=agendasAg(uc);
+  var ks=Object.keys(nomes).sort(function(a,b){return nomes[a].localeCompare(nomes[b],'pt-BR');});
+  box.innerHTML='<div class="table-wrap"><table class="data-table"><thead><tr><th>Profissional</th><th>Vagas manhã</th><th>Vagas tarde</th>'+DIAS_SEM_AG.map(function(n){return '<th>'+n+'</th>';}).join('')+'</tr></thead><tbody>'+ks.map(function(k){
+    var o=cfgAg.prof[k]||{},cap=capAg(k);
+    return '<tr data-k="'+escAg(k)+'"><td class="agendamentos-nome">'+escAg(nomes[k])+'</td>'
+      +'<td><input type="number" min="0" data-campo="m" placeholder="'+cfgAg.m+'" value="'+(o.m==null?'':o.m)+'"></td>'
+      +'<td><input type="number" min="0" data-campo="t" placeholder="'+cfgAg.t+'" value="'+(o.t==null?'':o.t)+'"></td>'
+      +[0,1,2,3,4,5,6].map(function(i){return '<td><input type="checkbox" data-dia="'+i+'"'+(cap.dias[i]?' checked':'')+'></td>';}).join('')+'</tr>';
+  }).join('')+'</tbody></table></div>';
+}
+// Mudou a configuração: guarda, e refaz a sugestão de datas.
+function configMudouAg(){salvarConfigAg();propostaAg={};atualizarBotoesGeracaoAg();renderAg();gerarAg(true);}
 
-  refreshLabel = document.getElementById('refreshLabel');
+// ---------- Feriados e faltas ----------
+function brDataAg(iso){return iso?iso.split('-').reverse().join('/'):'';}
+function periodoAg(a,b){return a===b?brDataAg(a):brDataAg(a)+' a '+brDataAg(b);}
+function renderFolgasAg(){
+  var det=document.getElementById('agendamentosFolgas');if(!det)return;
+  var sel=document.getElementById('agFaltaProf'),uc=profMapAg();
+  if(sel){
+    var atual=sel.value,nomes=uc?uc.nomes:[];
+    sel.innerHTML='<option value="">Profissional…</option>'+nomes.map(function(n){return '<option value="'+escAg(n)+'">'+escAg(n)+'</option>';}).join('');
+    sel.value=atual;
+  }
+  var sc=document.getElementById('agConsultaProf');
+  if(sc&&uc){var at=sc.value,ag=agendasAg(uc),ks=Object.keys(ag).sort(function(a,b){return ag[a].localeCompare(ag[b],'pt-BR');});
+    sc.innerHTML='<option value="">Agenda…</option>'+ks.map(function(k){return '<option value="'+escAg(k)+'">'+escAg(ag[k])+'</option>';}).join('');sc.value=at;}
+  var box=document.getElementById('agFolgasLista');if(!box)return;
+  var itens=[];
+  cfgAg.feriados.forEach(function(f,i){itens.push({ini:f.ini,html:'<li><b>Feriado</b>'+(f.nome?' — '+escAg(f.nome):'')+' · '+periodoAg(f.ini,f.fim)+' <button type="button" class="agendamentos-btn agendamentos-secundario" data-folga="f" data-i="'+i+'">Remover</button></li>'});});
+  cfgAg.faltas.forEach(function(f,i){itens.push({ini:f.ini,html:'<li><b>Falta</b> — '+escAg(f.prof)+(f.motivo?' ('+escAg(f.motivo)+')':'')+' · '+periodoAg(f.ini,f.fim)+' <button type="button" class="agendamentos-btn agendamentos-secundario" data-folga="l" data-i="'+i+'">Remover</button></li>'});});
+  itens.sort(function(a,b){return a.ini<b.ini?-1:a.ini>b.ini?1:0;});
+  box.innerHTML=itens.length?'<ul class="agendamentos-folgas-lista">'+itens.map(function(x){return x.html;}).join('')+'</ul>':'<p class="agendamentos-filtro-info">Nenhum feriado ou falta cadastrado.</p>';
+}
+// Consulta: por que uma agenda (profissional/unidade) aceita ou não agendamento em um dia.
+function motivoDiaAg(k,iso){
+  var dt=isoParaDataAg(iso);if(!dt)return 'Informe uma data válida.';
+  var uc=profMapAg(),cap=capAg(k),nomes=uc?agendasAg(uc):{},nome=nomes[k]||k||'agenda';
+  var dow=dt.getDay(),sem=DIAS_SEM_AG[dow]+', '+brDataAg(iso);
+  var atende=DIAS_SEM_AG.filter(function(n,i){return cap.dias[i];}).join(', ');
+  if(!cap.dias[dow])return 'NÃO aceita — '+nome+' não atende às '+DIAS_SEM_AG[dow]+' (dias configurados: '+atende+').';
+  var fo=folgaDiaAg(k,iso);if(fo)return 'NÃO aceita — '+sem+' está fechado: '+fo+'.';
+  var cd=capNoDiaAg(cap,iso);
+  if(cd.dia<1)return 'NÃO aceita — '+nome+' está com 0 vagas neste dia (confira as vagas da manhã/tarde).';
+  var n=0;if(uc)rowsAg.forEach(function(r,ix){if(chaveProfAg(r,uc)!==k||!ehAtivoAg(r))return;if((propostaAg[ix]||dateAg(r['Data agendada']))===iso)n++;});
+  var tur=cd.t<1&&cap.t>0?' (dia só de manhã)':'';
+  var ini=valAg('agendamentosInicio'),extra='';
+  if(iso<isoAg(amanhaAg()))extra=' Atenção: a data já passou; a geração automática só usa datas a partir de amanhã.';
+  else if(ini&&iso<ini)extra=' Atenção: a geração automática começa em '+brDataAg(ini)+' (campo Início), então este dia não é usado.';
+  if(n>=cd.dia)return 'NÃO aceita — '+sem+' está LOTADO para '+nome+': '+n+'/'+cd.dia+' vagas'+tur+'.'+extra;
+  return 'ACEITA — '+sem+': '+n+'/'+cd.dia+' vagas ocupadas, '+(cd.dia-n)+' livre(s)'+tur+'.'+extra+(n===0?' (a distribuição automática só chega a este dia quando os anteriores já estão cheios ou não bastam para todos).':'');
+}
+function consultarDiaAg(){
+  var out=document.getElementById('agConsultaRes'),k=valAg('agConsultaProf'),iso=valAg('agConsultaData');
+  if(!out)return;
+  if(!k||!iso){out.textContent='Escolha a agenda e a data.';return;}
+  out.textContent=motivoDiaAg(k,iso);
+}
+function folgaMudouAg(){salvarConfigAg();renderFolgasAg();configMudouAg();}
+function addFeriadoAg(){
+  var ini=valAg('agFerIni'),fim=valAg('agFerFim')||ini,nome=valAg('agFerNome').trim();
+  if(!ini){msgAg('Informe a data do feriado.',true);return;}
+  if(fim<ini){msgAg('A data final do feriado é anterior à inicial.',true);return;}
+  cfgAg.feriados.push({ini:ini,fim:fim,nome:nome});
+  ['agFerIni','agFerFim','agFerNome'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
+  folgaMudouAg();
+}
+function addFaltaAg(){
+  var prof=valAg('agFaltaProf'),ini=valAg('agFaltaIni'),fim=valAg('agFaltaFim')||ini,motivo=valAg('agFaltaMotivo').trim();
+  if(!prof||!ini){msgAg('Escolha o profissional e a data da falta.',true);return;}
+  if(fim<ini){msgAg('A data final da falta é anterior à inicial.',true);return;}
+  cfgAg.faltas.push({prof:prof,ini:ini,fim:fim,motivo:motivo});
+  ['agFaltaIni','agFaltaFim','agFaltaMotivo'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
+  folgaMudouAg();
+}
 
-window.debugAtendimentosEmulti = function(){
-    if(!latestWb){
-      console.warn('[debugAtendimentosEmulti] o painel ainda não carregou nenhuma planilha.');
-      return;
-    }
-    var periodo = periodoEfetivoAtual();
-    var ws = latestWb.Sheets[suffixedName("Atendimentos")];
-    var rows = ws ? sheetToRows(ws) : [];
-    var header = rows[0] || [];
-    var iData = colIndex(header, "data_hora");
-    var iNome = colIndex(header, "nome");
-    var iProf = colIndex(header, "profissional");
-    var contagem = {};
-    rows.slice(1).forEach(function(r){
-      var nome = String(r[iNome]||"").trim();
-      if(!nome || !withinPeriod(parseBRDate(r[iData]), periodo.inicio, periodo.fim)) return;
-      var prof = String(r[iProf]||"").trim() || '(profissional em branco)';
-      if(!contagem[prof]){
-        var ehEmulti = profissionaisRoster.some(function(p){ return normalizeText(p.nome) === normalizeText(prof); });
-        contagem[prof] = {atendimentos: 0, "é da eMulti (aba PROFISSIONAIS)": ehEmulti};
+// ---------- Exportar / imprimir ----------
+function linhasAgendaAg(c){
+  var pos=new Map();rowsAg.forEach(function(r,i){pos.set(r,i);});
+  var out=[];
+  c.list.forEach(function(r){
+    var ix=pos.get(r);if(!ehAtivoAg(r))return;
+    var d=propostaAg[ix]||dateAg(r['Data agendada']);if(!d)return;
+    var t=c.turnos[ix];
+    out.push({prof:(c.uc&&nomeProfAg(r,c.uc))||'Sem profissional identificado',data:d,turno:t?t.rotulo:'',tclasse:t?t.classe:'',nome:String(r.Nome||''),ult:ultimoDeAg(r,c.uc),sit:propostaAg[ix]?'Proposta (não salva)':(r.Situação||'Pendente'),at:r.Atendimentos,total:r.Total});
+  });
+  out.sort(function(a,b){
+    return a.prof.localeCompare(b.prof,'pt-BR')||(a.data<b.data?-1:a.data>b.data?1:0)||((TURNO_ORD_AG[a.tclasse]||9)-(TURNO_ORD_AG[b.tclasse]||9))||(a.ult<b.ult?-1:a.ult>b.ult?1:0)||a.nome.localeCompare(b.nome,'pt-BR');
+  });
+  return out;
+}
+function diaSemAg(iso){var d=isoParaDataAg(iso);return d?DIAS_SEM_AG[d.getDay()]:'';}
+function csvCelAg(v){var s=String(v==null?'':v);return /[";\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}
+function exportarCsvAg(){
+  var linhas=linhasAgendaAg(calcularListaAg());
+  if(!linhas.length){msgAg('Nada para exportar: nenhuma pessoa com data na lista atual.',true);return;}
+  var cab=['Profissional','Data','Dia da semana','Turno','Nome','Último atendimento','Situação','Atendimentos'];
+  var txt=[cab].concat(linhas.map(function(l){return [l.prof,brAg(l.data),diaSemAg(l.data),l.turno,l.nome,brAg(l.ult),l.sit,l.at];})).map(function(r){return r.map(csvCelAg).join(';');}).join('\r\n');
+  var blob=new Blob(['\ufeff'+txt],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download='agenda-'+isoAg(new Date())+'.csv';document.body.appendChild(a);a.click();document.body.removeChild(a);
+  setTimeout(function(){URL.revokeObjectURL(url);},2000);
+  msgAg('Agenda exportada: '+linhas.length+(linhas.length===1?' pessoa':' pessoas')+' (respeita os filtros atuais).',false);
+}
+function imprimirAg(){
+  var linhas=linhasAgendaAg(calcularListaAg());
+  if(!linhas.length){msgAg('Nada para imprimir: nenhuma pessoa com data na lista atual.',true);return;}
+  var w=window.open('','_blank');
+  if(!w){msgAg('O navegador bloqueou a janela de impressão. Permita pop-ups para este site e tente de novo.',true);return;}
+  var porProf={},ordemProf=[];
+  linhas.forEach(function(l){if(!porProf[l.prof]){porProf[l.prof]={};ordemProf.push(l.prof);}(porProf[l.prof][l.data]=porProf[l.prof][l.data]||[]).push(l);});
+  var hoje=brAg(isoAg(new Date()));
+  var html='<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><title>Agenda</title><style>'
+    +'body{font:13px/1.4 Arial,sans-serif;color:#1b1b1b;margin:18px}h1{font-size:18px;margin:0 0 2px}h2{font-size:14px;margin:16px 0 4px;background:#EAF3EE;padding:5px 8px}.sub{color:#555;margin:0 0 8px;font-size:12px}'
+    +'table{border-collapse:collapse;width:100%;margin-bottom:6px}th,td{border:1px solid #bbb;padding:4px 7px;text-align:left}th{background:#f2f2f2;font-size:12px}td.c{width:70px}td.av{width:60px}'
+    +'.prof{page-break-before:always}.prof:first-of-type{page-break-before:auto}@media print{body{margin:8mm}}'
+    +'</style></head><body>'
+    +ordemProf.map(function(p){
+      var dias=Object.keys(porProf[p]).sort();
+      return '<section class="prof"><h1>Agenda — '+escAg(p)+'</h1><p class="sub">Gerada em '+hoje+' · '+dias.length+(dias.length===1?' dia':' dias')+'</p>'
+        +dias.map(function(d){
+          var ls=porProf[p][d];
+          return '<h2>'+diaSemAg(d)+', '+brAg(d)+' — '+ls.length+(ls.length===1?' pessoa':' pessoas')+'</h2><table><thead><tr><th>Turno</th><th>Nome</th><th>Último atendimento</th><th>Situação</th><th>Avisado?</th></tr></thead><tbody>'
+            +ls.map(function(l){return '<tr><td class="c">'+escAg(l.turno||'—')+'</td><td>'+escAg(l.nome)+'</td><td>'+escAg(brAg(l.ult))+'</td><td>'+escAg(l.sit)+'</td><td class="av"></td></tr>';}).join('')+'</tbody></table>';
+        }).join('')+'</section>';
+    }).join('')+'</body></html>';
+  w.document.open();w.document.write(html);w.document.close();
+  setTimeout(function(){try{w.focus();w.print();}catch(e){}},350);
+}
+
+// ---------- Eventos ----------
+function limparFiltrosAg(){
+  ['agendamentosBusca','agendamentosProfissional','agendamentosTurno','agendamentosSituacao','agendamentosDe','agendamentosAte'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
+  var d=document.getElementById('agendamentosDias');if(d)d.value='120';
+  var s=document.getElementById('agendamentosSeguir');if(s)s.checked=false;
+  paginaAg=1;salvarFiltrosAg();propostaAg={};atualizarBotoesGeracaoAg();renderAg();gerarAg(true);
+}
+document.addEventListener('DOMContentLoaded',function(){
+  var b=document.getElementById('agendamentosBody');
+  carregarConfigAg();restaurarFiltrosAg();
+  // Filtros só de visualização: voltam para a página 1 e ficam salvos.
+  function visual(){paginaAg=1;salvarFiltrosAg();renderAg();}
+  // Filtros que mudam quem recebe data (dias / seguir lista): refazem a sugestão automática.
+  function refiltrarAg(){paginaAg=1;salvarFiltrosAg();propostaAg={};atualizarBotoesGeracaoAg();renderAg();gerarAg(true);}
+  document.getElementById('agendamentosBusca').addEventListener('input',function(){paginaAg=1;renderAg();});
+  var pf=document.getElementById('agendamentosProfissional');pf.addEventListener('input',visual);pf.addEventListener('focus',fillProfAg);
+  ['agendamentosTurno','agendamentosSituacao','agendamentosPorPagina'].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('change',visual);});
+  ['agendamentosDe','agendamentosAte'].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('change',visual);});
+  var dEl=document.getElementById('agendamentosDias');if(dEl)dEl.addEventListener('input',refiltrarAg);
+  var sEl=document.getElementById('agendamentosSeguir');if(sEl)sEl.addEventListener('change',refiltrarAg);
+  var iEl=document.getElementById('agendamentosInicio');if(iEl)iEl.addEventListener('change',function(){propostaAg={};atualizarBotoesGeracaoAg();renderAg();gerarAg(true);});
+  var lEl=document.getElementById('agendamentosLimpar');if(lEl)lEl.addEventListener('click',limparFiltrosAg);
+  var cEl=document.getElementById('agendamentosCsv');if(cEl)cEl.addEventListener('click',exportarCsvAg);
+  var prEl=document.getElementById('agendamentosImprimir');if(prEl)prEl.addEventListener('click',imprimirAg);
+  var pv=document.getElementById('agendamentosPrev'),pn=document.getElementById('agendamentosNext');
+  if(pv)pv.addEventListener('click',function(){paginaAg--;renderAg();});
+  if(pn)pn.addEventListener('click',function(){paginaAg++;renderAg();});
+  var thead=document.querySelector('#tabAgendamentos .agendamentos-table thead');
+  if(thead)thead.addEventListener('click',function(e){
+    var th=e.target.closest('th[data-ag-sort]');if(!th)return;
+    var col=th.getAttribute('data-ag-sort');
+    sortAg=sortAg.col===col?{col:col,dir:sortAg.dir==='asc'?'desc':'asc'}:{col:col,dir:'asc'};
+    paginaAg=1;salvarFiltrosAg();renderAg();
+  });
+  // Painéis de vagas e configuração
+  var dv=document.getElementById('agendamentosVagas');if(dv)dv.addEventListener('toggle',function(){renderAg();});
+  var dc=document.getElementById('agendamentosConfig');
+  if(dc){
+    dc.addEventListener('toggle',function(){if(dc.open)renderConfigAg();});
+    var gm=document.getElementById('agCfgM'),gt=document.getElementById('agCfgT'),gj=document.getElementById('agCfgJanela');
+    if(gm)gm.addEventListener('change',function(){cfgAg.m=numAg(gm.value,6,0);configMudouAg();});
+    if(gt)gt.addEventListener('change',function(){cfgAg.t=numAg(gt.value,6,0);configMudouAg();});
+    if(gj)gj.addEventListener('change',function(){cfgAg.janela=numAg(gj.value,0,0);configMudouAg();});
+    dc.querySelectorAll('.agendamentos-cfg-dias input').forEach(function(cb){cb.addEventListener('change',function(){cfgAg.dias[Number(cb.dataset.dia)]=cb.checked?1:0;configMudouAg();});});
+    dc.querySelectorAll('.agendamentos-cfg-manha input').forEach(function(cb){cb.addEventListener('change',function(){cfgAg.soManha[Number(cb.dataset.dia)]=cb.checked?1:0;configMudouAg();});});
+    var rdb=document.getElementById('agCfgRedist');
+    if(rdb)rdb.addEventListener('change',function(){cfgAg.redistribuir=rdb.checked;propostaAg={};atualizarBotoesGeracaoAg();renderAg();gerarAg(true);});   // só nesta sessão (não é salvo)
+    var pr=document.getElementById('agCfgProf');
+    if(pr)pr.addEventListener('change',function(e){
+      var tr=e.target.closest('tr[data-k]');if(!tr)return;
+      var k=tr.dataset.k,o=cfgAg.prof[k]||{};
+      if(e.target.dataset.campo){var v=e.target.value;if(v==='')delete o[e.target.dataset.campo];else o[e.target.dataset.campo]=numAg(v,0,0);}
+      else if(e.target.dataset.dia!==undefined){
+        var dias=[0,0,0,0,0,0,0];tr.querySelectorAll('input[data-dia]').forEach(function(cb){dias[Number(cb.dataset.dia)]=cb.checked?1:0;});
+        if(dias.join()===cfgAg.dias.join())delete o.dias;else o.dias=dias;
       }
-      contagem[prof].atendimentos++;
+      if(Object.keys(o).length)cfgAg.prof[k]=o;else delete cfgAg.prof[k];
+      configMudouAg();
     });
-    var totalEmulti = Object.keys(contagem)
-      .filter(function(k){ return contagem[k]["é da eMulti (aba PROFISSIONAIS)"]; })
-      .reduce(function(s,k){ return s + contagem[k].atendimentos; }, 0);
-    console.log('[debugAtendimentosEmulti] equipe(s): '+estadoApp.currentEquipes.map(function(e){ return e.label; }).join(' + ')
-      +' | período: '+fmtBRDate(periodo.inicio)+' a '+fmtBRDate(periodo.fim)
-      +' | TOTAL "Atendimentos individuais" (só eMulti): '+totalEmulti);
-    console.table(contagem);
-    return contagem;
-  };
-
-  // window.debugAtividadesCompartilhadas(): imprime, linha a linha, TODAS
-  // as atividades de "Resumo Atividade Coletiva" dentro do período
-  // efetivo atual (mesma janela usada pelo card "Composição do
-  // numerador"), com o motivo exato pelo qual cada uma ENTROU ou NÃO
-  // entrou na contagem de "Atividades coletivas compartilhadas". Não há
-  // filtro de tipo de atividade aqui (nenhum tipo é excluído nessa aba) —
-  // só entram em jogo "Qtd total de profissionais" >= 2 e a ligação com
-  // Participantes Ativ. Coletiva ("Total de Profissionais da EMulti" >= 1).
-  // Chame no console: debugAtividadesCompartilhadas()
-window.debugAtividadesCompartilhadas = function(){
-    if(!latestWb){
-      console.warn('[debugAtividadesCompartilhadas] o painel ainda não carregou nenhuma planilha.');
-      return;
-    }
-    var periodo = periodoEfetivoAtual();
-    var racWs = latestWb.Sheets[suffixedName("Resumo Atividade Coletiva")];
-    var racRows = racWs ? sheetToRows(racWs) : [];
-    var racHeader = racRows[0] || [];
-    var iRacData = colIndex(racHeader, "data");
-    var iRacTipo = colIndex(racHeader, "tipo_atividade");
-    var iRacTotalProf = colIndex(racHeader, "qtd_total_profissionais");
-    var iRacProfEnv = colIndex(racHeader, "qtd_profissionais_envolvidos");
-    var partWs = latestWb.Sheets[suffixedName("Participantes Ativ. Coletiva")];
-    var partRows = partWs ? sheetToRows(partWs) : [];
-    var ligacaoAtiv = criarLigacaoAtividades(partRows, racHeader);
-    if(!ligacaoAtiv){
-      console.warn('[debugAtividadesCompartilhadas] não foi possível ligar "Total de Profissionais da EMulti" (aba Participantes Ativ. Coletiva) — coluna "Qtd total de profissionais" ainda é checada normalmente, mas a checagem "temEmulti" fica sempre true (não exclui nenhuma linha por isso).');
-    } else {
-      console.log('[debugAtividadesCompartilhadas] ligação Resumo → Participantes usando: ' + ligacaoAtiv.modo);
-    }
-    var linhas = racRows.slice(1)
-      .filter(function(r){ return withinPeriod(parseBRDate(r[iRacData]), periodo.inicio, periodo.fim); })
-      .map(function(r){
-        var totalEmultiPart = ligacaoAtiv ? ligacaoAtiv.total(r) : undefined;
-        var totalProfGeral = (iRacTotalProf>=0 && r[iRacTotalProf]!=="" && r[iRacTotalProf]!==undefined)
-          ? toInt(r[iRacTotalProf])
-          : 1+toInt(r[iRacProfEnv]);
-        var temEmulti = (totalEmultiPart === undefined) ? true : totalEmultiPart >= 1;
-        var tipoRaw = iRacTipo>=0 ? String(r[iRacTipo]||"").trim() : "";
-        var iRacTemaDbg = colIndex(racHeader, "temas_reuniao");
-        var reuniaoSemTema = tipoRaw !== "" && tipoEhReuniao(tipoRaw)
-          && (iRacTemaDbg < 0 || !temaEhDiscussaoCasoPts(r[iRacTemaDbg]));
-        var conta = temEmulti && totalProfGeral >= 2 && !reuniaoSemTema;
-        var motivoExclusao = conta ? "" :
-          (reuniaoSemTema ? 'reunião sem o tema "Discussão de caso / Projeto terapêutico singular"'
-          : totalProfGeral < 2 ? 'qtd_total_profissionais < 2 (' + totalProfGeral + ')'
-          : 'Total de Profissionais da EMulti = 0 (não achou ligação com Participantes)');
-        return {
-          data: iRacData>=0 ? String(r[iRacData]) : "",
-          tipo_atividade: tipoRaw,
-          qtd_total_profissionais: totalProfGeral,
-          "Total Prof. EMulti (ligação)": totalEmultiPart===undefined ? "(sem ligação)" : totalEmultiPart,
-          "CONTA como compartilhada?": conta ? "SIM" : "não",
-          "motivo se não contou": motivoExclusao
-        };
-      });
-    var totalLinhas = linhas.length;
-    var totalCompartilhadas = linhas.filter(function(l){ return l["CONTA como compartilhada?"] === "SIM"; }).length;
-    console.log('[debugAtividadesCompartilhadas] equipe(s): '+estadoApp.currentEquipes.map(function(e){ return e.label; }).join(' + ')
-      +' | período: '+fmtBRDate(periodo.inicio)+' a '+fmtBRDate(periodo.fim)
-      +' | linhas no período: '+totalLinhas+' | contam como compartilhada: '+totalCompartilhadas);
-    console.table(linhas);
-    return linhas;
-
-  };
-
-refreshBtn.addEventListener('click', fetchAndLoad);
-
-renderEquipeSwitcher();
-}
-
-// ===== módulo: js/app/alinhamento-tabelas.js =====
-// ======================================================================
-// app/alinhamento-tabelas.js
-// Alinhamento uniforme das tabelas
-// (módulo gerado a partir do app.js original — ver MODULOS.md)
-// ======================================================================
-
-
-
-
-// Código que rodava no carregamento (ordem original preservada pelo main.js)
-export function init_app_alinhamento_tabelas(){
-  // ---------- Alinhamento uniforme das tabelas ----------
-  // Centraliza cabeçalhos e células; mantém à esquerda apenas os valores
-  // das colunas cujo cabeçalho contém um dos termos metodologicamente definidos.
-(function aplicarAlinhamentoUniformeTabelas(){
-    if(document.getElementById('alinhamentoUniformeTabelasStyles')) return;
-    var style = document.createElement('style');
-    style.id = 'alinhamentoUniformeTabelasStyles';
-    style.textContent =
-      'table th,table td{text-align:center !important;}' +
-      'table thead th{text-align:center !important;}' +
-      'table td[data-align-left="true"]{text-align:left !important;}';
-    document.head.appendChild(style);
-
-    var excecoes = ['profissional','nome','paciente','equipe','responsavel','participante','tipo de atividade'];
-    function normalizarTitulo(texto){
-      return String(texto || '').toLowerCase()
-        .normalize('NFD').replace(/[\\u0300-\\u036f]/g,'')
-        .replace(/\\s+/g,' ').trim();
-    }
-    function alinharTabelas(root){
-      var tabelas = [];
-      if(root && root.matches && root.matches('table')) tabelas.push(root);
-      if(root && root.querySelectorAll){
-        Array.prototype.forEach.call(root.querySelectorAll('table'), function(t){ tabelas.push(t); });
-      }
-      tabelas.forEach(function(table){
-        var headers = Array.prototype.slice.call(table.querySelectorAll('thead th'));
-        if(!headers.length) return;
-        var indicesEsquerda = {};
-        headers.forEach(function(th){
-          var titulo = normalizarTitulo(th.textContent);
-          if(excecoes.some(function(termo){ return titulo.indexOf(termo) >= 0; })){
-            indicesEsquerda[th.cellIndex] = true;
-          }
-        });
-        Array.prototype.forEach.call(table.querySelectorAll('tbody td'), function(td){
-          if(indicesEsquerda[td.cellIndex]) td.setAttribute('data-align-left','true');
-          else td.removeAttribute('data-align-left');
-        });
+    var df=document.getElementById('agendamentosFolgas');
+    if(df){
+      df.addEventListener('toggle',function(){if(df.open)renderFolgasAg();});
+      var bf=document.getElementById('agFerAdd'),bl=document.getElementById('agFaltaAdd'),ls=document.getElementById('agFolgasLista');
+      if(bf)bf.addEventListener('click',addFeriadoAg);
+      if(bl)bl.addEventListener('click',addFaltaAg);
+      var bc=document.getElementById('agConsultaBtn');if(bc)bc.addEventListener('click',consultarDiaAg);
+      if(ls)ls.addEventListener('click',function(e){
+        var b=e.target.closest('button[data-folga]');if(!b)return;
+        var i=Number(b.dataset.i);(b.dataset.folga==='f'?cfgAg.feriados:cfgAg.faltas).splice(i,1);folgaMudouAg();
       });
     }
-    alinharTabelas(document);
-    if(document.body && typeof MutationObserver !== 'undefined'){
-      var observer = new MutationObserver(function(mutations){
-        mutations.forEach(function(m){
-          Array.prototype.forEach.call(m.addedNodes, function(node){
-            if(node.nodeType === 1) alinharTabelas(node);
-          });
-        });
-      });
-      observer.observe(document.body, {childList:true,subtree:true});
-    }
-  })();
-}
-
-// ===== módulo: js/app/init.js =====
-// ======================================================================
-// app/init.js
-// Ponto de entrada: window.iniciarPainelEmulti
-// (módulo gerado a partir do app.js original — ver MODULOS.md)
-// ======================================================================
-
-
-// ---------- Init ----------
-// Só roda DEPOIS do login: o auth.js (mostrarApp) chama
-// window.iniciarPainelEmulti. Antes disso nenhum dado é buscado.
-var painelIniciado = false;
-
-// Código que rodava no carregamento (ordem original preservada pelo main.js)
-export function init_app_init(){
-window.iniciarPainelEmulti = function(){
-    if(painelIniciado) return;
-    painelIniciado = true;
-    refreshHistoryFromStorage(function(arr){
-      if(arr.length){
-        var latest = arr.slice().sort(function(a,b){ return b.timestamp-a.timestamp; })[0];
-        estadoApp.currentRecordId = latest.id;
-        renderDashboard(latest);
-      }
-      fetchAndLoad();
-    });
-  };
-}
-
-// ===== módulo: js/app/main.js =====
-// ======================================================================
-// app/main.js — liga tudo
-// Executa o "init" de cada módulo na MESMA ordem em que o código rodava no
-// app.js original (isso preserva o comportamento). Carregado por app.js.
-// ======================================================================
-init_nucleo_periodos();
-init_nucleo_config();
-init_nucleo_listas_estado();
-init_nucleo_dados();
-init_abas_profissionais();
-init_abas_analises_calculo();
-init_abas_analises_render();
-init_listas_atividade_coletiva();
-init_nucleo_popovers();
-init_visual_gauge();
-init_visual_painel_kpi();
-init_abas_m1_m2();
-init_app_render();
-init_app_historico();
-init_app_carga();
-init_app_alinhamento_tabelas();
-init_app_init();
-
-// ===== ponte com o auth.js =====
-// O index.html define um stub de window.iniciarPainelEmulti que só marca a chamada
-// como pendente (caso o login/sessão válida aconteça antes deste módulo carregar).
-// Aqui a função real (init_app_init) já foi instalada; refaz a chamada pendente.
-if (window.__emultiPendente) {
-  window.__emultiPendente = false;
-  window.iniciarPainelEmulti();
-}
+    var rs=document.getElementById('agCfgReset');
+    if(rs)rs.addEventListener('click',function(){cfgAg={m:6,t:6,dias:DIAS_UTEIS_AG.slice(),janela:0,prof:{},soManha:[0,0,0,0,0,1,0],feriados:cfgAg.feriados,faltas:cfgAg.faltas,redistribuir:false};renderConfigAg();configMudouAg();});
+  }
+  document.getElementById('agendamentosAtualizar').addEventListener('click',loadAg);document.getElementById('agendamentosSincronizar').addEventListener('click',syncAg);
+  // Mudou o filtro em Pessoas atendidas: só importa se a aba está seguindo aquela lista.
+  window.addEventListener('emulti:pessoas-filtro',function(){
+    if(!seguirListaAg())return;
+    var painel=document.getElementById('tabAgendamentos');
+    if(painel&&painel.classList.contains('active'))refiltrarAg();
+    else if(Object.keys(propostaAg).length){propostaAg={};atualizarBotoesGeracaoAg();}
+  });
+  var ini=document.getElementById('agendamentosInicio');if(ini)ini.value=isoAg(diaUtilAg(amanhaAg()));
+  document.getElementById('agendamentosGerar').addEventListener('click',function(){gerarAg(false);});
+  document.getElementById('agendamentosSalvarGerados').addEventListener('click',salvarGeradosAg);
+  document.getElementById('agendamentosDescartar').addEventListener('click',descartarAg);
+  document.querySelector('.tab[data-tab="agendamentos"]').addEventListener('click',loadAg);
+  b.addEventListener('click',function(e){var btn=e.target.closest('[data-ag-save]');if(btn)saveAg(btn.closest('tr'));});
+  b.addEventListener('change',function(e){
+    if(e.target.dataset.ag==='situacao')saveAg(e.target.closest('tr'));
+    // Ajuste manual da data de uma linha gerada: vale como nova proposta (ainda sem salvar).
+    if(e.target.dataset.ag==='dataAgendada'){var tr=e.target.closest('tr'),ix=Number(tr.dataset.agIx);if(propostaAg[ix]!==undefined){if(e.target.value){var ucm=profMapAg(),dm=e.target.value;if(ucm&&chaveProfAg(rowsAg[ix],ucm)){var lv=proximaVagaAg(ix,dm,ucm);if(lv!==dm){dm=lv;msgAg('Dia lotado: a data passou para o próximo dia com vaga ('+brAg(lv)+').',false);}}propostaAg[ix]=dm;}else delete propostaAg[ix];atualizarBotoesGeracaoAg();renderAg();}}
+  });
+  b.addEventListener('keydown',function(e){if(e.key==='Enter'&&e.target.matches('input[data-ag]')){e.preventDefault();saveAg(e.target.closest('tr'));}});
+});
