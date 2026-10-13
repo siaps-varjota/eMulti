@@ -3461,15 +3461,14 @@ export function renderFluxoPacientes(){
     return;
   }
   var meses = f.meses;
-  var max = Math.max.apply(null, meses.map(function(m){ return Math.max(m.entradas, m.saidas||0); }).concat([1]));
-  // Atendimentos (nº de consultas) usam eixo próprio, à direita: a escala é bem maior que a de entradas/saídas.
-  var maxA = Math.max.apply(null, meses.map(function(m){ return m.atendimentos||0; }).concat([1]));
+  // Eixo único: entradas, saídas e atendimentos na mesma escala (alturas proporcionais entre si).
+  var max = Math.max.apply(null, meses.map(function(m){ return Math.max(m.entradas, m.saidas||0, m.atendimentos||0); }).concat([1]));
   // Médias mensais de entradas e saídas, só nos meses fechados (os "obs." ainda não têm saída completa).
   var fechados = meses.filter(function(m){ return m.saidas != null; });
   var mediaE = fechados.length ? fechados.reduce(function(s,m){ return s + m.entradas; }, 0) / fechados.length : null;
   var mediaS = fechados.length ? fechados.reduce(function(s,m){ return s + m.saidas; }, 0) / fechados.length : null;
   var fmtMed = function(v){ return (Math.round(v*10)/10).toLocaleString('pt-BR', {minimumFractionDigits:0, maximumFractionDigits:1}); };
-  var W = 900, H = 235, padL = 36, padR = 46, padT = 22, padB = 54;
+  var W = 900, H = 330, padL = 36, padR = 72, padT = 22, padB = 54;
   var plotH = H - padT - padB, plotW = W - padL - padR;
   var passo = plotW / meses.length, bw = Math.min(22, passo*0.27);
   var COR_E = '#2F6F5E', COR_S = '#B5474B', COR_A = '#3B6EA8';
@@ -3479,15 +3478,14 @@ export function renderFluxoPacientes(){
   [0, 0.5, 1].forEach(function(fr){
     var y = padT + plotH*(1-fr);
     svg += '<line x1="'+padL+'" x2="'+(W-padR)+'" y1="'+y+'" y2="'+y+'" stroke="#DCE4D6" stroke-width="1"/>'
-        +  '<text x="'+(padL-6)+'" y="'+(y+4)+'" text-anchor="end" font-size="11" fill="#51605A">'+fmtInt(Math.round(max*fr))+'</text>'
-        +  '<text x="'+(W-padR+6)+'" y="'+(y+4)+'" text-anchor="start" font-size="11" fill="'+COR_A+'">'+fmtInt(Math.round(maxA*fr))+'</text>';
+        +  '<text x="'+(padL-6)+'" y="'+(y+4)+'" text-anchor="end" font-size="11" fill="#51605A">'+fmtInt(Math.round(max*fr))+'</text>';
   });
   meses.forEach(function(m, i){
     var cx = padL + passo*(i+0.5);
     var hE = plotH * m.entradas / max;
     var rotulo = escapeHtml(monthShortLabel(m.mes));
     var xE = cx - 1.5*bw - 2, xS = cx - 0.5*bw, xA = cx + 0.5*bw + 2;
-    var hA = plotH * (m.atendimentos||0) / maxA;
+    var hA = plotH * (m.atendimentos||0) / max;
     svg += '<g><title>'+rotulo+' — entradas: '+m.entradas+'; saídas: '+(m.saidas==null ? 'em observação' : m.saidas)+'; atendimentos: '+fmtInt(m.atendimentos||0)+'</title>';
     svg += '<rect x="'+xE+'" y="'+(padT+plotH-hE)+'" width="'+bw+'" height="'+hE+'" rx="3" fill="'+COR_E+'"/>';
     if(m.entradas) svg += '<text x="'+(xE+bw/2)+'" y="'+(padT+plotH-hE-4)+'" text-anchor="middle" font-size="10.5" fill="#13241F">'+m.entradas+'</text>';
@@ -3510,20 +3508,20 @@ export function renderFluxoPacientes(){
   // linhas tracejadas: média mensal de entradas e de saídas (meses fechados)
   if(mediaE != null){
     var yME = padT + plotH*(1 - mediaE/max), yMS = padT + plotH*(1 - mediaS/max);
-    var halo = 'paint-order="stroke" stroke="#FFFFFF" stroke-width="3" stroke-linejoin="round"';
+    // rótulos na margem direita (fora das barras); as duas linhas ficam próximas, então um rótulo vai acima e o outro abaixo
     var linhaMedia = function(y, cor, texto, acima){
-      return '<line x1="'+padL+'" x2="'+(W-padR)+'" y1="'+y+'" y2="'+y+'" stroke="'+cor+'" stroke-width="1.5" stroke-dasharray="6 4"/>'
-        + '<text x="'+(W-padR-2)+'" y="'+(acima ? y-4 : y+12)+'" text-anchor="end" font-size="10.5" font-weight="600" fill="'+cor+'" '+halo+'>'+texto+'</text>';
+      return '<line x1="'+padL+'" x2="'+(W-padR+4)+'" y1="'+y+'" y2="'+y+'" stroke="'+cor+'" stroke-width="1.5" stroke-dasharray="6 4"/>'
+        + '<text x="'+(W-padR+8)+'" y="'+(acima ? y-2 : y+11)+'" text-anchor="start" font-size="10.5" font-weight="600" fill="'+cor+'">'+texto+'</text>';
     };
     var entAcima = mediaE >= mediaS;
-    svg += linhaMedia(yME, COR_ME, 'Média entradas: '+fmtMed(mediaE), entAcima)
-        +  linhaMedia(yMS, COR_MS, 'Média saídas: '+fmtMed(mediaS), !entAcima);
+    svg += linhaMedia(yME, COR_ME, 'Méd. ent. '+fmtMed(mediaE), entAcima)
+        +  linhaMedia(yMS, COR_MS, 'Méd. saí. '+fmtMed(mediaS), !entAcima);
   }
   svg += '<text x="'+(padL-6)+'" y="'+(padT+plotH+34)+'" text-anchor="end" font-size="10" fill="#51605A">Saldo</text></svg>';
   var legenda = '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;margin:0 0 6px;">'
     + '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:'+COR_E+';margin-right:6px;"></span>Entradas (1ª consulta)</span>'
     + '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:'+COR_S+';margin-right:6px;"></span>Saídas (sem retorno há '+FLUXO_DIAS_SAIDA+'+ dias)</span>'
-    + '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:'+COR_A+';margin-right:6px;"></span>Atendimentos no mês (eixo à direita)</span>'
+    + '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:'+COR_A+';margin-right:6px;"></span>Atendimentos no mês</span>'
     + (mediaE != null ? '<span><span style="display:inline-block;width:18px;height:0;border-top:2px dashed '+COR_ME+';margin-right:6px;vertical-align:middle;"></span>Média mensal de entradas</span>'
     + '<span><span style="display:inline-block;width:18px;height:0;border-top:2px dashed '+COR_MS+';margin-right:6px;vertical-align:middle;"></span>Média mensal de saídas</span>' : '')
     + '</div>';
@@ -3535,7 +3533,7 @@ export function renderFluxoPacientes(){
       + '<select id="fluxoProfSelect" style="font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);max-width:100%;">'+opcoes+'</select></label>'
     : '';
   el.innerHTML = '<h4 style="margin:0 0 4px;font-size:14.5px;font-weight:500;">Fluxo mensal de pacientes — entrada e saída'+(fluxoProfissional?' — '+escapeHtml(fluxoProfissional):'')+'</h4>'
-    + '<p class="footnote" style="margin:0 0 10px;line-height:1.5;">Segue o filtro de equipe do topo e considera só consultas de profissionais da EMULTI. <strong>Entrada</strong>: paciente cuja 1ª consulta na base foi no mês. <strong>Saída</strong>: paciente cuja última consulta foi no mês e que está há '+FLUXO_DIAS_SAIDA+' dias ou mais sem voltar (até '+f.ultimaData.toLocaleDateString('pt-BR')+', data do último atendimento da base); meses ainda dentro dessa janela aparecem como "obs." (em observação). Com um profissional escolhido, só contam as consultas dele (entrada = 1ª consulta com ele; saída = última consulta com ele e sem voltar a ele). O 1º mês da base não é exibido, pois não dá para separar quem já era paciente antes. Saldo = entradas − saídas. <strong>Atendimentos</strong>: total de consultas de profissionais da EMULTI no mês (escala própria, no eixo da direita; o mês mais recente ainda está em andamento). As <strong>linhas tracejadas</strong> mostram a média mensal de entradas e de saídas, calculada só com os meses fechados (sem "obs.").</p>'
+    + '<p class="footnote" style="margin:0 0 10px;line-height:1.5;">Segue o filtro de equipe do topo e considera só consultas de profissionais da EMULTI. <strong>Entrada</strong>: paciente cuja 1ª consulta na base foi no mês. <strong>Saída</strong>: paciente cuja última consulta foi no mês e que está há '+FLUXO_DIAS_SAIDA+' dias ou mais sem voltar (até '+f.ultimaData.toLocaleDateString('pt-BR')+', data do último atendimento da base); meses ainda dentro dessa janela aparecem como "obs." (em observação). Com um profissional escolhido, só contam as consultas dele (entrada = 1ª consulta com ele; saída = última consulta com ele e sem voltar a ele). O 1º mês da base não é exibido, pois não dá para separar quem já era paciente antes. Saldo = entradas − saídas. <strong>Atendimentos</strong>: total de consultas de profissionais da EMULTI no mês (mesma escala das entradas e saídas; o mês mais recente ainda está em andamento). As <strong>linhas tracejadas</strong> mostram a média mensal de entradas e de saídas, calculada só com os meses fechados (sem "obs.").</p>'
     + filtroProf + legenda + svg;
   var sel = document.getElementById('fluxoProfSelect');
   if(sel) sel.addEventListener('change', function(){
