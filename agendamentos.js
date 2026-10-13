@@ -816,10 +816,6 @@ function limparFiltrosAg(){
 }
 document.addEventListener('DOMContentLoaded',function(){
   var b=document.getElementById('agendamentosBody');
-  // Botões da barra de filtros 30% menores (texto, margens internas e borda juntos).
-  var estiloBtn=document.createElement('style');
-  estiloBtn.textContent='#agendamentosAtualizar,#agendamentosGerar,#agendamentosSincronizar,#agendamentosLimpar,#agendamentosCsv,#agendamentosImprimir{zoom:0.7}';
-  document.head.appendChild(estiloBtn);
   carregarConfigAg();restaurarFiltrosAg();
   // Filtros só de visualização: voltam para a página 1 e ficam salvos.
   function visual(){paginaAg=1;salvarFiltrosAg();renderAg();}
