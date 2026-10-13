@@ -16,6 +16,7 @@ function valAg(id){var el=document.getElementById(id);return el?String(el.value=
 // Padrão: 6 vagas pela manhã + 6 à tarde, seg–sex. Pode ser ajustado por profissional.
 var DIAS_UTEIS_AG=[0,1,1,1,1,1,0];            // índice = Date.getDay() (0 = domingo)
 var DIAS_SEM_AG=['dom','seg','ter','qua','qui','sex','sáb'];
+var redistProfAg='';   // chave da agenda (profissional/unidade) a redistribuir uma única vez (botão "Atualizar" da tabela de configuração)
 var cfgAg={m:6,t:6,dias:DIAS_UTEIS_AG.slice(),janela:0,prof:{},soManha:[0,0,0,0,0,1,0],feriados:[],faltas:[],redistribuir:false};   // feriados: [{ini,fim,nome}] fecham todas as agendas; faltas: [{prof,ini,fim,motivo}] só do profissional.
 // soManha: dias em que só há atendimento de manhã (padrão: sexta)
 function numAg(v,def,min){var n=parseInt(v,10);return isNaN(n)||n<min?def:n;}
@@ -441,7 +442,7 @@ function gerarAg(auto,prefixo){
     var dt=isoParaDataAg(d);if(!dt)return;
     // Redistribuir: todo mundo com data a partir do início volta para a fila (a data só muda se a nova distribuição for diferente).
     var invalido=!capAg(k).dias[dt.getDay()]||!!folgaDiaAg(k,d);
-    if(!invalido&&!(cfgAg.redistribuir&&d>=isoAg(inicio)))return;
+    if(!invalido&&!((cfgAg.redistribuir||redistProfAg===k)&&d>=isoAg(inicio)))return;
     origForaDia[ix]=d;
     if(pq&&normAg(nomeProfAg(r,uc)).indexOf(pq)<0)return;
     foraDia[ix]=true;
@@ -681,7 +682,7 @@ function renderConfigAg(){
   var ks=Object.keys(nomes).sort(function(a,b){return nomes[a].localeCompare(nomes[b],'pt-BR');});
   box.innerHTML='<div class="table-wrap"><table class="data-table"><thead><tr><th>Profissional</th><th>Vagas manhã</th><th>Vagas tarde</th>'+DIAS_SEM_AG.map(function(n){return '<th>'+n+'</th>';}).join('')+'</tr></thead><tbody>'+ks.map(function(k){
     var o=cfgAg.prof[k]||{},cap=capAg(k);
-    return '<tr data-k="'+escAg(k)+'"><td class="agendamentos-nome">'+escAg(nomes[k])+'</td>'
+    return '<tr data-k="'+escAg(k)+'"><td class="agendamentos-nome">'+escAg(nomes[k])+' <button type="button" class="agendamentos-btn agendamentos-secundario" data-redist="'+escAg(k)+'" title="Refaz as datas já agendadas desta agenda (a partir da data de Início) com as vagas e dias atuais. Nada é salvo até clicar em Salvar datas geradas." style="padding:2px 8px;font-size:12px;margin-left:6px">Atualizar</button></td>'
       +'<td><input type="number" min="0" data-campo="m" placeholder="'+cfgAg.m+'" value="'+(o.m==null?'':o.m)+'"></td>'
       +'<td><input type="number" min="0" data-campo="t" placeholder="'+cfgAg.t+'" value="'+(o.t==null?'':o.t)+'"></td>'
       +[0,1,2,3,4,5,6].map(function(i){return '<td><input type="checkbox" data-dia="'+i+'"'+(cap.dias[i]?' checked':'')+'></td>';}).join('')+'</tr>';
@@ -854,6 +855,14 @@ document.addEventListener('DOMContentLoaded',function(){
     var rdb=document.getElementById('agCfgRedist');
     if(rdb)rdb.addEventListener('change',function(){cfgAg.redistribuir=rdb.checked;propostaAg={};atualizarBotoesGeracaoAg();renderAg();gerarAg(true);});   // só nesta sessão (não é salvo)
     var pr=document.getElementById('agCfgProf');
+    // Botão "Atualizar" ao lado do profissional: redistribui só essa agenda (uma vez), sem mexer na caixa global.
+    if(pr)pr.addEventListener('click',function(e){
+      var b=e.target.closest('button[data-redist]');if(!b||busyAg)return;
+      var tr=b.closest('tr[data-k]'),nome=tr?tr.querySelector('.agendamentos-nome').firstChild.textContent.trim():'';
+      redistProfAg=b.dataset.redist;propostaAg={};
+      try{gerarAg(true);}finally{redistProfAg='';}
+      if(!Object.keys(propostaAg).length)msgAg('Nada a mudar em '+nome+': as datas já agendadas seguem a configuração atual (ou estão antes da data de Início).',false);
+    });
     if(pr)pr.addEventListener('change',function(e){
       var tr=e.target.closest('tr[data-k]');if(!tr)return;
       var k=tr.dataset.k,o=cfgAg.prof[k]||{};
