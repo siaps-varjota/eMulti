@@ -3396,7 +3396,8 @@ export function calcularFluxoPacientes(profissionalSel){
   var iNome = colIndex(header, "nome");
   var iProfF = colIndex(header, "profissional");
   if(iData < 0 || iNome < 0) return null;
-  var pac = {}, maxT = 0, minT = Infinity, profs = {};
+  var pac = {}, maxT = 0, minT = Infinity, profs = {}, atend = {};
+  var chaveMes = function(t){ var d = new Date(t); return d.getFullYear()*12 + d.getMonth(); };
   rows.slice(1).forEach(function(r){
     var nome = String(r[iNome]||"").trim();
     var d = parseBRDate(r[iData]);
@@ -3411,13 +3412,15 @@ export function calcularFluxoPacientes(profissionalSel){
     if(t < minT) minT = t;
     if(prof) profs[prof] = true;
     if(profissionalSel && prof !== profissionalSel) return;
+    // atendimentos do mês = total de consultas (respeita equipe, EMULTI e profissional)
+    var mk = chaveMes(t);
+    atend[mk] = (atend[mk]||0) + 1;
     var k = nome.toUpperCase();
     var p = pac[k];
     if(!p) pac[k] = {primeira:t, ultima:t};
     else { if(t < p.primeira) p.primeira = t; if(t > p.ultima) p.ultima = t; }
   });
   if(!maxT) return null;
-  var chaveMes = function(t){ var d = new Date(t); return d.getFullYear()*12 + d.getMonth(); };
   var mesMin = chaveMes(minT), mesMax = chaveMes(maxT);
   var entradas = {}, saidas = {};
   var limiteMs = FLUXO_DIAS_SAIDA * 86400000;
@@ -3437,7 +3440,7 @@ export function calcularFluxoPacientes(profissionalSel){
     var fimMes = new Date(Math.floor(m/12), m%12 + 1, 0, 23,59,59).getTime();
     // mês só tem saída "fechada" quando TODO o mês já passou há >= janela
     var fechado = (maxT - fimMes) >= limiteMs;
-    meses.push({mes:dt, entradas:entradas[m]||0, saidas: fechado ? (saidas[m]||0) : null, parcial: !fechado});
+    meses.push({mes:dt, entradas:entradas[m]||0, saidas: fechado ? (saidas[m]||0) : null, atendimentos: atend[m]||0, parcial: !fechado});
   }
   return {meses:meses, ultimaData:new Date(maxT), profissionais:Object.keys(profs).sort(function(a,b){ return a.localeCompare(b,'pt-BR'); })};
 }
@@ -3459,31 +3462,44 @@ export function renderFluxoPacientes(){
   }
   var meses = f.meses;
   var max = Math.max.apply(null, meses.map(function(m){ return Math.max(m.entradas, m.saidas||0); }).concat([1]));
-  var W = 760, H = 225, padL = 36, padR = 8, padT = 22, padB = 54;
+  // Atendimentos (nº de consultas) usam eixo próprio, à direita: a escala é bem maior que a de entradas/saídas.
+  var maxA = Math.max.apply(null, meses.map(function(m){ return m.atendimentos||0; }).concat([1]));
+  // Médias mensais de entradas e saídas, só nos meses fechados (os "obs." ainda não têm saída completa).
+  var fechados = meses.filter(function(m){ return m.saidas != null; });
+  var mediaE = fechados.length ? fechados.reduce(function(s,m){ return s + m.entradas; }, 0) / fechados.length : null;
+  var mediaS = fechados.length ? fechados.reduce(function(s,m){ return s + m.saidas; }, 0) / fechados.length : null;
+  var fmtMed = function(v){ return (Math.round(v*10)/10).toLocaleString('pt-BR', {minimumFractionDigits:0, maximumFractionDigits:1}); };
+  var W = 900, H = 235, padL = 36, padR = 46, padT = 22, padB = 54;
   var plotH = H - padT - padB, plotW = W - padL - padR;
-  var passo = plotW / meses.length, bw = Math.min(26, passo*0.36);
-  var COR_E = '#2F6F5E', COR_S = '#B5474B';
+  var passo = plotW / meses.length, bw = Math.min(22, passo*0.27);
+  var COR_E = '#2F6F5E', COR_S = '#B5474B', COR_A = '#3B6EA8';
+  var COR_ME = '#1B4A3D', COR_MS = '#8A2E32';
   var svg = '<svg viewBox="0 0 '+W+' '+H+'" width="100%" role="img" aria-label="Entrada e saída mensal de pacientes" style="display:block;max-width:100%;height:auto;font-family:inherit;">';
   // grade: 0, metade, máx
   [0, 0.5, 1].forEach(function(fr){
     var y = padT + plotH*(1-fr);
     svg += '<line x1="'+padL+'" x2="'+(W-padR)+'" y1="'+y+'" y2="'+y+'" stroke="#DCE4D6" stroke-width="1"/>'
-        +  '<text x="'+(padL-6)+'" y="'+(y+4)+'" text-anchor="end" font-size="11" fill="#51605A">'+fmtInt(Math.round(max*fr))+'</text>';
+        +  '<text x="'+(padL-6)+'" y="'+(y+4)+'" text-anchor="end" font-size="11" fill="#51605A">'+fmtInt(Math.round(max*fr))+'</text>'
+        +  '<text x="'+(W-padR+6)+'" y="'+(y+4)+'" text-anchor="start" font-size="11" fill="'+COR_A+'">'+fmtInt(Math.round(maxA*fr))+'</text>';
   });
   meses.forEach(function(m, i){
     var cx = padL + passo*(i+0.5);
     var hE = plotH * m.entradas / max;
     var rotulo = escapeHtml(monthShortLabel(m.mes));
-    svg += '<g><title>'+rotulo+' — entradas: '+m.entradas+'; saídas: '+(m.saidas==null ? 'em observação' : m.saidas)+'</title>';
-    svg += '<rect x="'+(cx-bw-1)+'" y="'+(padT+plotH-hE)+'" width="'+bw+'" height="'+hE+'" rx="3" fill="'+COR_E+'"/>';
-    if(m.entradas) svg += '<text x="'+(cx-bw/2-1)+'" y="'+(padT+plotH-hE-4)+'" text-anchor="middle" font-size="11" fill="#13241F">'+m.entradas+'</text>';
+    var xE = cx - 1.5*bw - 2, xS = cx - 0.5*bw, xA = cx + 0.5*bw + 2;
+    var hA = plotH * (m.atendimentos||0) / maxA;
+    svg += '<g><title>'+rotulo+' — entradas: '+m.entradas+'; saídas: '+(m.saidas==null ? 'em observação' : m.saidas)+'; atendimentos: '+fmtInt(m.atendimentos||0)+'</title>';
+    svg += '<rect x="'+xE+'" y="'+(padT+plotH-hE)+'" width="'+bw+'" height="'+hE+'" rx="3" fill="'+COR_E+'"/>';
+    if(m.entradas) svg += '<text x="'+(xE+bw/2)+'" y="'+(padT+plotH-hE-4)+'" text-anchor="middle" font-size="10.5" fill="#13241F">'+m.entradas+'</text>';
     if(m.saidas != null){
       var hS = plotH * m.saidas / max;
-      svg += '<rect x="'+(cx+1)+'" y="'+(padT+plotH-hS)+'" width="'+bw+'" height="'+hS+'" rx="3" fill="'+COR_S+'"/>';
-      if(m.saidas) svg += '<text x="'+(cx+bw/2+1)+'" y="'+(padT+plotH-hS-4)+'" text-anchor="middle" font-size="11" fill="#13241F">'+m.saidas+'</text>';
+      svg += '<rect x="'+xS+'" y="'+(padT+plotH-hS)+'" width="'+bw+'" height="'+hS+'" rx="3" fill="'+COR_S+'"/>';
+      if(m.saidas) svg += '<text x="'+(xS+bw/2)+'" y="'+(padT+plotH-hS-4)+'" text-anchor="middle" font-size="10.5" fill="#13241F">'+m.saidas+'</text>';
     } else {
-      svg += '<text x="'+(cx+bw/2+1)+'" y="'+(padT+plotH-4)+'" text-anchor="middle" font-size="10" fill="#51605A">obs.</text>';
+      svg += '<text x="'+(xS+bw/2)+'" y="'+(padT+plotH-4)+'" text-anchor="middle" font-size="10" fill="#51605A">obs.</text>';
     }
+    svg += '<rect x="'+xA+'" y="'+(padT+plotH-hA)+'" width="'+bw+'" height="'+hA+'" rx="3" fill="'+COR_A+'"/>';
+    if(m.atendimentos) svg += '<text x="'+(xA+bw/2)+'" y="'+(padT+plotH-hA-4)+'" text-anchor="middle" font-size="10.5" fill="'+COR_A+'">'+fmtInt(m.atendimentos)+'</text>';
     svg += '<text x="'+cx+'" y="'+(padT+plotH+16)+'" text-anchor="middle" font-size="11" fill="#51605A">'+rotulo+'</text>';
     if(m.saidas != null){
       var saldo = m.entradas - m.saidas;
@@ -3491,10 +3507,26 @@ export function renderFluxoPacientes(){
     }
     svg += '</g>';
   });
+  // linhas tracejadas: média mensal de entradas e de saídas (meses fechados)
+  if(mediaE != null){
+    var yME = padT + plotH*(1 - mediaE/max), yMS = padT + plotH*(1 - mediaS/max);
+    var halo = 'paint-order="stroke" stroke="#FFFFFF" stroke-width="3" stroke-linejoin="round"';
+    var linhaMedia = function(y, cor, texto, acima){
+      return '<line x1="'+padL+'" x2="'+(W-padR)+'" y1="'+y+'" y2="'+y+'" stroke="'+cor+'" stroke-width="1.5" stroke-dasharray="6 4"/>'
+        + '<text x="'+(W-padR-2)+'" y="'+(acima ? y-4 : y+12)+'" text-anchor="end" font-size="10.5" font-weight="600" fill="'+cor+'" '+halo+'>'+texto+'</text>';
+    };
+    var entAcima = mediaE >= mediaS;
+    svg += linhaMedia(yME, COR_ME, 'Média entradas: '+fmtMed(mediaE), entAcima)
+        +  linhaMedia(yMS, COR_MS, 'Média saídas: '+fmtMed(mediaS), !entAcima);
+  }
   svg += '<text x="'+(padL-6)+'" y="'+(padT+plotH+34)+'" text-anchor="end" font-size="10" fill="#51605A">Saldo</text></svg>';
   var legenda = '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;margin:0 0 6px;">'
     + '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:'+COR_E+';margin-right:6px;"></span>Entradas (1ª consulta)</span>'
-    + '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:'+COR_S+';margin-right:6px;"></span>Saídas (sem retorno há '+FLUXO_DIAS_SAIDA+'+ dias)</span></div>';
+    + '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:'+COR_S+';margin-right:6px;"></span>Saídas (sem retorno há '+FLUXO_DIAS_SAIDA+'+ dias)</span>'
+    + '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:'+COR_A+';margin-right:6px;"></span>Atendimentos no mês (eixo à direita)</span>'
+    + (mediaE != null ? '<span><span style="display:inline-block;width:18px;height:0;border-top:2px dashed '+COR_ME+';margin-right:6px;vertical-align:middle;"></span>Média mensal de entradas</span>'
+    + '<span><span style="display:inline-block;width:18px;height:0;border-top:2px dashed '+COR_MS+';margin-right:6px;vertical-align:middle;"></span>Média mensal de saídas</span>' : '')
+    + '</div>';
   var opcoes = '<option value="">Todos os profissionais</option>' + f.profissionais.map(function(n){
     return '<option value="'+escapeHtml(n)+'"'+(n===fluxoProfissional?' selected':'')+'>'+escapeHtml(n)+'</option>';
   }).join('');
@@ -3503,7 +3535,7 @@ export function renderFluxoPacientes(){
       + '<select id="fluxoProfSelect" style="font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);max-width:100%;">'+opcoes+'</select></label>'
     : '';
   el.innerHTML = '<h4 style="margin:0 0 4px;font-size:14.5px;font-weight:500;">Fluxo mensal de pacientes — entrada e saída'+(fluxoProfissional?' — '+escapeHtml(fluxoProfissional):'')+'</h4>'
-    + '<p class="footnote" style="margin:0 0 10px;line-height:1.5;">Segue o filtro de equipe do topo e considera só consultas de profissionais da EMULTI. <strong>Entrada</strong>: paciente cuja 1ª consulta na base foi no mês. <strong>Saída</strong>: paciente cuja última consulta foi no mês e que está há '+FLUXO_DIAS_SAIDA+' dias ou mais sem voltar (até '+f.ultimaData.toLocaleDateString('pt-BR')+', data do último atendimento da base); meses ainda dentro dessa janela aparecem como "obs." (em observação). Com um profissional escolhido, só contam as consultas dele (entrada = 1ª consulta com ele; saída = última consulta com ele e sem voltar a ele). O 1º mês da base não é exibido, pois não dá para separar quem já era paciente antes. Saldo = entradas − saídas.</p>'
+    + '<p class="footnote" style="margin:0 0 10px;line-height:1.5;">Segue o filtro de equipe do topo e considera só consultas de profissionais da EMULTI. <strong>Entrada</strong>: paciente cuja 1ª consulta na base foi no mês. <strong>Saída</strong>: paciente cuja última consulta foi no mês e que está há '+FLUXO_DIAS_SAIDA+' dias ou mais sem voltar (até '+f.ultimaData.toLocaleDateString('pt-BR')+', data do último atendimento da base); meses ainda dentro dessa janela aparecem como "obs." (em observação). Com um profissional escolhido, só contam as consultas dele (entrada = 1ª consulta com ele; saída = última consulta com ele e sem voltar a ele). O 1º mês da base não é exibido, pois não dá para separar quem já era paciente antes. Saldo = entradas − saídas. <strong>Atendimentos</strong>: total de consultas de profissionais da EMULTI no mês (escala própria, no eixo da direita; o mês mais recente ainda está em andamento). As <strong>linhas tracejadas</strong> mostram a média mensal de entradas e de saídas, calculada só com os meses fechados (sem "obs.").</p>'
     + filtroProf + legenda + svg;
   var sel = document.getElementById('fluxoProfSelect');
   if(sel) sel.addEventListener('change', function(){
