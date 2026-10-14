@@ -948,7 +948,7 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
   background:#F4F7F1;color:var(--ink-soft);font-size:12px;letter-spacing:.01em;
   padding:10px 14px;border-bottom:1px solid var(--line);
 }
-.data-table tbody td{padding:9px 14px;border-bottom:1px solid var(--line-soft);}
+.data-table tbody td{padding:9px 10px;border-bottom:1px solid var(--line-soft);}
 .data-table tbody tr:nth-child(even){background:rgba(241,244,238,.5);}
 .data-table tbody tr{transition:background .12s ease;}
 .data-table tbody tr:hover{background:rgba(28,109,83,.07);}
