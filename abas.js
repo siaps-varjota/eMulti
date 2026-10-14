@@ -3468,12 +3468,12 @@ export function renderFluxoPacientes(){
   var mediaE = fechados.length ? fechados.reduce(function(s,m){ return s + m.entradas; }, 0) / fechados.length : null;
   var mediaS = fechados.length ? fechados.reduce(function(s,m){ return s + m.saidas; }, 0) / fechados.length : null;
   var fmtMed = function(v){ return (Math.round(v*10)/10).toLocaleString('pt-BR', {minimumFractionDigits:0, maximumFractionDigits:1}); };
-  var W = 900, H = 330, padL = 36, padR = 72, padT = 22, padB = 54;
+  var W = 900, H = 330, padL = 36, padR = 106, padT = 22, padB = 54;
   var plotH = H - padT - padB, plotW = W - padL - padR;
   var passo = plotW / meses.length, bw = Math.min(22, passo*0.27);
   var COR_E = '#2F6F5E', COR_S = '#B5474B', COR_A = '#3B6EA8';
   var COR_ME = '#1B4A3D', COR_MS = '#8A2E32';
-  var svg = '<svg viewBox="0 0 '+W+' '+H+'" width="100%" role="img" aria-label="Entrada e saída mensal de pacientes" style="display:block;max-width:100%;height:auto;font-family:inherit;">';
+  var svg = '<svg viewBox="0 0 '+W+' '+H+'" width="100%" role="img" aria-label="Entrada e saída mensal de pacientes" overflow="visible" style="display:block;max-width:100%;height:auto;font-family:inherit;">';
   // grade: 0, metade, máx
   [0, 0.5, 1].forEach(function(fr){
     var y = padT + plotH*(1-fr);
