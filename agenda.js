@@ -10,6 +10,7 @@ var TURNO_ORD_AGENDA={'Manhã':1,'Tarde':2,'':3};
 var mesAgenda=(function(){var h=new Date();return new Date(h.getFullYear(),h.getMonth(),1);})();
 var semanaAgenda='';   // '' = todo o mês; senão "1".."6" (índice da semana do mês)
 var profAgenda='';     // '' = todos
+var diaAgenda='';      // '' = período inteiro (mês/semana); senão AAAA-MM-DD do dia escolhido p/ PDF, WhatsApp e Imagem
 
 function elAgenda(id){return document.getElementById(id);}
 function escAgenda(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
@@ -61,14 +62,22 @@ function estadoAgenda(){
   var doMes=ev.filter(function(e){return e.dt.getFullYear()===mesAgenda.getFullYear()&&e.dt.getMonth()===mesAgenda.getMonth();});
   var semanas=semanasDoMes(),sem=semanas.filter(function(s){return s.n===semanaAgenda;})[0]||null;
   var filtrados=sem?doMes.filter(function(e){return e.dt>=sem.inicio&&e.dt<=sem.fim;}):doMes;
+  // Dia escolhido: só vale se estiver no mês (e na semana, se uma semana estiver escolhida) exibidos.
+  var diaSel=diaAgenda?isoParaDataAgenda(diaAgenda):null;
+  if(diaSel&&(diaSel.getFullYear()!==mesAgenda.getFullYear()||diaSel.getMonth()!==mesAgenda.getMonth()||(sem&&(diaSel<sem.inicio||diaSel>sem.fim))))diaSel=null;
+  if(!diaSel)diaAgenda='';
+  var dia=diaSel?{chave:diaAgenda,dt:diaSel,eventos:doMes.filter(function(e){return chaveDiaAgenda(e.dt)===diaAgenda;})}:null;
   // Dia lotado: algum profissional com tantas pessoas no dia quanto a vaga diária configurada.
   var lot={};
   ev.forEach(function(e){var k=chaveDiaAgenda(e.dt)+'|'+e.profKey;var o=lot[k]=lot[k]||{n:0,cap:e.capDia};o.n++;});
   var lotados={};Object.keys(lot).forEach(function(k){if(lot[k].cap>0&&lot[k].n>=lot[k].cap)lotados[k.split('|')[0]]=true;});
-  return {pronto:base.pronto,profs:profs,ev:doMes,filtrados:filtrados,semanas:semanas,sem:sem,lotados:lotados};
+  return {pronto:base.pronto,profs:profs,ev:doMes,filtrados:filtrados,semanas:semanas,sem:sem,dia:dia,lotados:lotados};
 }
 
 function contarAgenda(lista,tipo){return lista.filter(function(e){return e.tipo===tipo;}).length;}
+// O que aparece na tela e vai para PDF/WhatsApp/Imagem: o dia escolhido, senão a semana, senão o mês.
+function listaVisivelAgenda(st){return st.dia?st.dia.eventos:(st.sem?st.filtrados:st.ev);}
+function rotuloDiaAgenda(dt){return DIAS_AGENDA_LONGO[dt.getDay()]+', '+brAgenda(dt);}
 
 function renderAgenda(){
   var grade=elAgenda('agendaGrade');if(!grade)return;
@@ -84,13 +93,31 @@ function renderAgenda(){
   if(selS.getAttribute('data-sig')!==htmlS){selS.innerHTML=htmlS;selS.setAttribute('data-sig',htmlS);}
   selS.value=semanaAgenda;
   elAgenda('agendaMes').textContent=MESES_AGENDA[mesAgenda.getMonth()]+' '+mesAgenda.getFullYear();
+  // Seletor de dia (só os dias do período exibido, com a contagem de cada um).
+  var selD=elAgenda('agendaDia');
+  if(selD){
+    var contDia={};st.ev.forEach(function(e){var k=chaveDiaAgenda(e.dt);contDia[k]=(contDia[k]||0)+1;});
+    var iniD=st.sem?st.sem.inicio:new Date(mesAgenda.getFullYear(),mesAgenda.getMonth(),1),fimD=st.sem?st.sem.fim:new Date(mesAgenda.getFullYear(),mesAgenda.getMonth()+1,0);
+    var htmlD='<option value="">Todos os dias</option>';
+    for(var dd=new Date(iniD);dd<=fimD;dd=new Date(dd.getFullYear(),dd.getMonth(),dd.getDate()+1)){
+      var kd=chaveDiaAgenda(dd);
+      htmlD+='<option value="'+kd+'">'+DIAS_AGENDA[dd.getDay()]+', '+pad2Agenda(dd.getDate())+'/'+pad2Agenda(dd.getMonth()+1)+' ('+(contDia[kd]||0)+')</option>';
+    }
+    if(selD.getAttribute('data-sig')!==htmlD){selD.innerHTML=htmlD;selD.setAttribute('data-sig',htmlD);}
+    selD.value=st.dia?st.dia.chave:'';
+  }
+  var rotDia=st.dia?rotuloDiaAgenda(st.dia.dt):'';
+  [['agendaPdf','Gerar PDF'],['agendaZap','Copiar texto para WhatsApp'],['agendaImg','Baixar card em imagem']].forEach(function(b){
+    var el=elAgenda(b[0]);if(el)el.title=b[1]+(st.dia?' — só '+rotDia:'');
+  });
 
-  var lista=st.sem?st.filtrados:st.ev;
+  var lista=listaVisivelAgenda(st);
   elAgenda('agendaLegenda').innerHTML=
     '<span><i style="background:#1C6D53"></i>Agendado ('+contarAgenda(lista,'agendado')+')</span>'
     +'<span><i style="background:#C68A3D"></i>Sugerido ('+contarAgenda(lista,'sugerido')+')</span>'
     +'<span><i style="background:#9AA79F"></i>Realizado ('+contarAgenda(lista,'realizado')+')</span>'
-    +'<span><i style="background:#B5474B"></i>Dia lotado (vagas do dia preenchidas)</span>';
+    +'<span><i style="background:#B5474B"></i>Dia lotado (vagas do dia preenchidas)</span>'
+    +(st.dia?'<span class="agenda-dia-sel">📌 PDF, WhatsApp e Imagem vão usar só '+escAgenda(rotDia)+'. Clique no dia de novo (ou escolha "Todos os dias") para voltar ao período.</span>':'');
 
   if(!st.pronto){
     grade.innerHTML='<p class="agendamentos-vazio" style="padding:22px">Carregando agendamentos… Se não aparecer, atualize os dados do painel para carregar Pessoas atendidas.</p>';
@@ -107,7 +134,8 @@ function renderAgenda(){
     var dia=new Date(mesAgenda.getFullYear(),mesAgenda.getMonth(),d),k=chaveDiaAgenda(dia),evs=porDia[k]||[];
     var fora=st.sem&&(dia<st.sem.inicio||dia>st.sem.fim);
     var fer=window.__emultiFeriadoAg?window.__emultiFeriadoAg(k):'';
-    cel.push('<div class="agenda-dia'+(mesmoDiaAgenda(dia,hoje)?' hoje':st.lotados[k]?' lotado':fer?' feriado':'')+'"'+(fer?' title="'+escAgenda(fer)+'"':'')+'>'
+    var selecionado=!!(st.dia&&st.dia.chave===k);
+    cel.push('<div class="agenda-dia'+(mesmoDiaAgenda(dia,hoje)?' hoje':st.lotados[k]?' lotado':fer?' feriado':'')+(selecionado?' sel':'')+'" data-dia="'+k+'" role="button" tabindex="0" aria-pressed="'+selecionado+'" aria-label="'+escAgenda(rotuloDiaAgenda(dia)+' — '+evs.length+(evs.length===1?' pessoa':' pessoas')+'. Selecionar para gerar PDF, WhatsApp ou imagem só deste dia')+'"'+(fer?' title="'+escAgenda(fer)+'"':'')+'>'
       +'<div class="agenda-dia-topo"><span class="agenda-num">'+d+'</span>'+(st.lotados[k]?'<span class="agenda-lot">LOTADO</span>':fer?'<span class="agenda-fer">FERIADO</span>':'')+'</div>'
       +evs.map(function(e){return '<span class="agenda-ev '+e.tipo+'" title="'+escAgenda(e.nome+' · '+e.prof+(e.turno?' · '+e.turno:'')+' · '+TIPO_ROTULO_AGENDA[e.tipo])+'">'+escAgenda(nomeCurtoAgenda(e.nome))+'</span>';}).join('')
       +'</div>');
@@ -118,10 +146,10 @@ function renderAgenda(){
 
   // Lista detalhada
   var el=elAgenda('agendaLista');
-  if(!lista.length){el.innerHTML='<p class="agendamentos-vazio" style="padding:14px 2px">Nenhum agendamento neste período.</p>';return;}
+  if(!lista.length){el.innerHTML='<p class="agendamentos-vazio" style="padding:14px 2px">Nenhum agendamento '+(st.dia?'neste dia':'neste período')+'.</p>';return;}
   var grupos={},ordem=[];
   lista.forEach(function(e){var k=chaveDiaAgenda(e.dt);if(!grupos[k]){grupos[k]=[];ordem.push(k);}grupos[k].push(e);});
-  el.innerHTML='<h3>Agendamentos do período ('+lista.length+')</h3>'+ordem.map(function(k){
+  el.innerHTML='<h3>Agendamentos '+(st.dia?'do dia':'do período')+' ('+lista.length+')</h3>'+ordem.map(function(k){
     var gs=grupos[k],dt=gs[0].dt;
     return '<div class="agenda-lista-dia">'+DIAS_AGENDA[dt.getDay()]+', '+brAgenda(dt)+' — '+gs.length+(gs.length===1?' pessoa':' pessoas')+'</div>'
       +gs.map(function(e){return '<div class="agenda-lista-linha"><span class="nome">'+escAgenda(e.nome)+'</span><span class="prof">'+escAgenda(e.turno||'—')+' · '+escAgenda(e.prof)+'</span><span class="agenda-tag '+e.tipo+'">'+TIPO_ROTULO_AGENDA[e.tipo]+'</span></div>';}).join('');
@@ -130,12 +158,13 @@ function renderAgenda(){
 
 // ---------- Exportações ----------
 function periodoRotuloAgenda(st){
+  if(st.dia)return rotuloDiaAgenda(st.dia.dt);
   return MESES_AGENDA[mesAgenda.getMonth()]+' '+mesAgenda.getFullYear()+(st.sem?' — '+st.sem.label:'');
 }
 function profRotuloAgenda(st){return profAgenda&&st.profs[profAgenda]?st.profs[profAgenda]:'Todos os profissionais';}
 function listaExportAgenda(){
-  var st=estadoAgenda(),l=st.sem?st.filtrados:st.ev;
-  return {st:st,lista:l};
+  var st=estadoAgenda();
+  return {st:st,lista:listaVisivelAgenda(st)};
 }
 function avisarAgenda(msg){
   var el=elAgenda('agendaLegenda');if(!el)return;
@@ -145,7 +174,7 @@ function avisarAgenda(msg){
 
 function gerarPdfAgenda(){
   var x=listaExportAgenda(),st=x.st,lista=x.lista;
-  if(!lista.length){avisarAgenda('Nenhum agendamento para o PDF.');return;}
+  if(!lista.length){avisarAgenda('Nenhum agendamento '+(st.dia?'neste dia':'neste período')+' para o PDF.');return;}
   var grupos={},ordem=[];
   lista.forEach(function(e){var k=chaveDiaAgenda(e.dt);if(!grupos[k]){grupos[k]=[];ordem.push(k);}grupos[k].push(e);});
   var hoje=brAgenda(new Date());
@@ -165,7 +194,7 @@ function gerarPdfAgenda(){
 
 function copiarWhatsAppAgenda(){
   var x=listaExportAgenda(),st=x.st,lista=x.lista;
-  if(!lista.length){avisarAgenda('Nenhum agendamento para copiar.');return;}
+  if(!lista.length){avisarAgenda('Nenhum agendamento '+(st.dia?'neste dia':'neste período')+' para copiar.');return;}
   var grupos={},ordem=[];
   lista.forEach(function(e){var k=chaveDiaAgenda(e.dt);if(!grupos[k]){grupos[k]=[];ordem.push(k);}grupos[k].push(e);});
   var l=['🩺 *Agenda eMulti — '+periodoRotuloAgenda(st)+'*','👩‍⚕️ '+profRotuloAgenda(st),'✅ '+(contarAgenda(lista,'agendado')+contarAgenda(lista,'realizado'))+' agendado(s)  •  🕐 '+contarAgenda(lista,'sugerido')+' sugerido(s)',''];
@@ -183,7 +212,7 @@ function copiarWhatsAppAgenda(){
 
 function baixarCardAgenda(){
   var x=listaExportAgenda(),st=x.st,lista=x.lista;
-  if(!lista.length){avisarAgenda('Nenhum agendamento para gerar o card.');return;}
+  if(!lista.length){avisarAgenda('Nenhum agendamento '+(st.dia?'neste dia':'neste período')+' para gerar a imagem.');return;}
   var grupos={},ordem=[];
   lista.forEach(function(e){var k=chaveDiaAgenda(e.dt);if(!grupos[k]){grupos[k]=[];ordem.push(k);}grupos[k].push(e);});
   function trunc(s,m){s=String(s||'');return s.length>m?s.slice(0,m-1)+'…':s;}
@@ -228,7 +257,7 @@ function baixarCardAgenda(){
     var c=document.createElement('canvas');c.width=680*2;c.height=H*2;var ctx=c.getContext('2d');ctx.scale(2,2);ctx.drawImage(img,0,0);URL.revokeObjectURL(url);
     c.toBlob(function(b){
       if(!b){avisarAgenda('Erro ao gerar a imagem.');return;}
-      var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='agenda-emulti-'+hoje.toLocaleDateString('pt-BR').replace(/\//g,'-')+'.png';a.click();
+      var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='agenda-emulti-'+(st.dia?brAgenda(st.dia.dt):hoje.toLocaleDateString('pt-BR')).replace(/\//g,'-')+'.png';a.click();
       setTimeout(function(){URL.revokeObjectURL(a.href);},2000);avisarAgenda('Card baixado!');
     },'image/png');
   };
@@ -268,11 +297,18 @@ function iniciarAgenda(){
   pa.addEventListener('click',function(){mostrar(true);});
   window.addEventListener('emulti:agenda-dados',function(){if(ativa())renderAgenda();});
   elAgenda('agendaProf').addEventListener('change',function(e){profAgenda=e.target.value;renderAgenda();});
+  // Escolher o dia que será exportado: pelo seletor ou clicando no dia do calendário (clicar de novo desmarca).
+  var selDiaEl=elAgenda('agendaDia');
+  if(selDiaEl)selDiaEl.addEventListener('change',function(e){diaAgenda=e.target.value;renderAgenda();});
+  var gradeEl=elAgenda('agendaGrade');
+  function alternarDia(c){var k=c&&c.getAttribute('data-dia');if(!k)return;diaAgenda=(diaAgenda===k)?'':k;renderAgenda();}
+  gradeEl.addEventListener('click',function(e){alternarDia(e.target.closest&&e.target.closest('[data-dia]'));});
+  gradeEl.addEventListener('keydown',function(e){if((e.key==='Enter'||e.key===' ')&&e.target.matches&&e.target.matches('[data-dia]')){e.preventDefault();alternarDia(e.target);}});
   elAgenda('agendaSemana').addEventListener('change',function(e){semanaAgenda=e.target.value;renderAgenda();});
   elAgenda('agendaSemPrev').addEventListener('click',function(){irSemanaAgenda(-1);});
   elAgenda('agendaSemNext').addEventListener('click',function(){irSemanaAgenda(1);});
-  elAgenda('agendaPrev').addEventListener('click',function(){mesAgenda=new Date(mesAgenda.getFullYear(),mesAgenda.getMonth()-1,1);semanaAgenda='';renderAgenda();});
-  elAgenda('agendaNext').addEventListener('click',function(){mesAgenda=new Date(mesAgenda.getFullYear(),mesAgenda.getMonth()+1,1);semanaAgenda='';renderAgenda();});
+  elAgenda('agendaPrev').addEventListener('click',function(){mesAgenda=new Date(mesAgenda.getFullYear(),mesAgenda.getMonth()-1,1);semanaAgenda='';diaAgenda='';renderAgenda();});
+  elAgenda('agendaNext').addEventListener('click',function(){mesAgenda=new Date(mesAgenda.getFullYear(),mesAgenda.getMonth()+1,1);semanaAgenda='';diaAgenda='';renderAgenda();});
   elAgenda('agendaPdf').addEventListener('click',gerarPdfAgenda);
   elAgenda('agendaZap').addEventListener('click',copiarWhatsAppAgenda);
   elAgenda('agendaImg').addEventListener('click',baixarCardAgenda);
