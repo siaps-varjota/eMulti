@@ -237,7 +237,7 @@ function renderAg(){
       +'<td>'+escAg(brAg(ultimoDeAg(r,uc)))+'</td>'
       +'<td class="agendamentos-prof">'+escAg(prof)+'</td>'
       +'<td><select data-ag="situacao" aria-label="Situação" style="width:auto;min-width:0;max-width:none;padding:6px 24px 6px 9px">'+['Pendente','Agendado','Realizado','Faltou','Cancelado'].map(function(s){return '<option'+(sit===s?' selected':'')+'>'+s+'</option>';}).join('')+'</select></td>'
-      +'<td><input type="date" data-ag="dataAgendada" style="width:130px;min-width:0;max-width:none;padding:6px 8px" value="'+data+'"></td>'
+      +'<td><input type="date" data-ag="dataAgendada" style="width:auto;min-width:0;max-width:none;padding:6px 8px" value="'+data+'"></td>'
       +'<td>'+turnoHtml+'</td>'
       +'<td class="agendamentos-atualizado">'+escAg(r['Atualizado em']||'')+'</td>'
       +'<td><button type="button" class="agendamentos-salvar" data-ag-save>Salvar</button></td></tr>';
