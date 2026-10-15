@@ -2582,7 +2582,7 @@ function ovEvoHTML(atual, anterior, domainMax, decimals, suffix, bands, classLab
 // com a sua própria janela móvel de JANELA_MESES meses). O selo
 // "Oficial" aparece quando o mês veio da aba Q2-26; senão "Preliminar"
 // (calculado pelo painel) — mesmo critério da tabela da aba Tendência.
-export function ovMesesHTML(kind, pontos){
+export function ovMesesHTML(kind, pontos, larga){
   if(!pontos || !pontos.length) return '';
   var CAL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M8 3v4M16 3v4M3.5 10h17"/></svg>';
   var cards = pontos.map(function(p){
@@ -2615,7 +2615,7 @@ export function ovMesesHTML(kind, pontos){
       + '<span class="ov-mes-fonte'+(oficial?' ov-mes-fonte-ofi':'')+'"><i></i>'+(oficial?'Oficial':'Preliminar')+'</span>'
       + '</div>';
   }).join('');
-  return '<div class="ov-meses">'+cards+'</div>';
+  return '<div class="ov-meses'+(larga ? ' ov-meses-larga' : '')+'">'+cards+'</div>';
 }
 
 export function overviewCardHTML(opts){

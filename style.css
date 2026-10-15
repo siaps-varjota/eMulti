@@ -1160,3 +1160,9 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 .ov-mes-fonte-ofi{background:#E1ECFB;color:#1F4E9C;}
 .ov-mes-fonte-ofi i{background:#3B7DDD;}
 @media (max-width:420px){.ov-meses{grid-template-columns:repeat(2,minmax(0,1fr));}}
+
+/* Versão larga (12 meses) nas abas M1/M2 */
+.ov-meses.ov-meses-larga{grid-template-columns:repeat(6,minmax(0,1fr));margin-bottom:18px;}
+@media (max-width:900px){.ov-meses.ov-meses-larga{grid-template-columns:repeat(4,minmax(0,1fr));}}
+@media (max-width:600px){.ov-meses.ov-meses-larga{grid-template-columns:repeat(3,minmax(0,1fr));}}
+@media (max-width:420px){.ov-meses.ov-meses-larga{grid-template-columns:repeat(2,minmax(0,1fr));}}
