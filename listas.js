@@ -5,7 +5,7 @@
 // ======================================================================
 
 import { profissionaisRoster, ehProfissionalComparativoEmulti, EQUIPES, TOTAL_PROF_EMULTI_HEADER, calcularJanelaPeriodo, colIndex, colRespParticipantes, colTotalProfEmulti, createMultiSelect, dateColIndexForList, debounce, displayListName, equipeColIndex, escapeHtml, estadoApp, fmtBRDate, fmtDec, fmtInt, listDatasExpandidas, listDateColIdx, listModel, listMonthFilters, monthOptionLabel, monthOptionValue, monthOptionsForList, monthShortLabel, nomeEhDaEmulti, normalizeText, parseBRDate, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, withinPeriod } from './nucleo.js';
-import { ACAO_M2_FILTER_VALUE, DIAS_SEM_ATENDIMENTO_HEADER, FAIXAS_DIAS_SEM_ATENDIMENTO, PROF_EMULTI_FILTER_VALUE, RISCO_CFG_BUSCA, buscaAtivaCompute, diasBucketLabel, profissionalBadgeHtml, riscoTableHtml, wireRiscoFiltros } from './abas.js';
+import { ACAO_M2_FILTER_VALUE, DIAS_SEM_ATENDIMENTO_HEADER, FAIXAS_DIAS_SEM_ATENDIMENTO, PROF_EMULTI_FILTER_VALUE, riscoCfgBusca, buscaAtivaCompute, diasBucketLabel, profissionalBadgeHtml, riscoTableHtml, wireRiscoFiltros } from './abas.js';
 import { latestWb } from './app.js';
 
 // ===== módulo: js/pdf/pdf-listas.js =====
@@ -1104,7 +1104,7 @@ function renderListCard(name, containerId){
     return '<div class="card risco-list-card" data-list-card="'+escapeHtml(name)+'" data-state-key="'+escapeHtml(sk)+'">'
       + '<div class="list-card-head"><h4>'+escapeHtml(displayListName(name))+'</h4></div>'
       + '<p class="footnote" style="margin:0 0 10px;line-height:1.5;">Pacientes com mais de 30 e até 120 dias sem atendimento, contados do fim do mês atual (quem está prestes a sair da janela do M1). "Consultas" conta só os atendimentos dos últimos 4 meses; "Dias restantes" é o que falta para completar 120 dias sem atendimento.</p>'
-      + riscoTableHtml(cached.registros || [], RISCO_CFG_BUSCA)
+      + riscoTableHtml(cached.registros || [], riscoCfgBusca(containerId))
       + '</div>';
   } else if(!cached.rows.length && !isPessoasAtendidas){
     body = '<div class="list-placeholder">Esta lista está vazia.</div>';
@@ -1271,7 +1271,7 @@ export function renderListsSection(containerId, names){
   // lista de risco de abandono).
   if(names.indexOf(buscaAtivaName) >= 0){
     var regsBusca = (estadoApp.latestSheets[buscaAtivaName] || {}).registros || [];
-    if(regsBusca.length) wireRiscoFiltros(regsBusca, [], false, regsBusca, RISCO_CFG_BUSCA);
+    if(regsBusca.length) wireRiscoFiltros(regsBusca, [], false, regsBusca, riscoCfgBusca(containerId));
   }
 
   // Só o card da lista ativa (pill selecionada) fica visível — os

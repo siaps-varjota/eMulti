@@ -721,6 +721,17 @@ export var RISCO_CFG_BUSCA = {
   motivo: function(r){ return fmtInt(r.diasDesde)+' dias sem atendimento; janela de busca ativa de 31 a 120 dias (faltam '+fmtInt(r.diasRestantes)+' dias para sair da janela do M1)'; }
 };
 
+// A lista Busca-Ativa aparece nas abas M1 e M2 (mesmas listas relacionadas):
+// cada uma precisa de ids próprios no DOM (sufixo = container, em minúsculas).
+export function riscoCfgBusca(sufixo){
+  sufixo = String(sufixo || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return Object.assign({}, RISCO_CFG_BUSCA, {
+    p: 'busca' + sufixo,
+    btnPdf: 'btnBusca' + sufixo + 'Pdf',
+    btnXlsx: 'btnBusca' + sufixo + 'Xlsx'
+  });
+}
+
 var RISCO_HEADERS = ['Paciente','Profissional','Equipe','Consultas','Última consulta','Dias sem voltar','Dias restantes','Última participação coletiva'];
 
 // Colunas oferecidas no "Filtrar por coluna…" da tabela de risco — cada
