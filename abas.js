@@ -4,7 +4,7 @@
 // Cada seção "=== módulo: ... ===" corresponde a um arquivo original.
 // ======================================================================
 
-import { monthShortLabel, CLASS_BANDS_M1, EQUIPES, OV_ICONS, PONTOS_POR_CLASSE, QUAD_LABELS, TOTAL_PROF_EMULTI_HEADER, addMonths, buildGauge, calcularJanelaPeriodo, calcularSerieTendencia, classificarM1, classificarM2, colIndex, colTotalProfEmulti, createMultiSelect, criarCalculadoraTotalProfEmulti, criarLigacaoAtividades, displayListName, ehProfissionalComparativoEmulti, equipeColIndex, escapeHtml, estadoApp, filtrarLinhasPorEquipe, fmtBRDate, fmtDec, fmtInt, gaugeInterpretationHTML, gaugeLegendHTML, kpiPanelHTML, kpiPanelIcon, mesesDosQuadsSelecionadosUniao, nomeEhDaEmulti, normalizeText, ovIconHTML, ovLegendHTML, ovStatus, parseBRDate, pillHex, profissionaisRoster, quadShortLabel, sheetToRows, suffixedName, ultimoMesDosQuadsSelecionados, withinPeriod } from './nucleo.js';
+import { classificarDesempenho, monthShortLabel, CLASS_BANDS_M1, EQUIPES, OV_ICONS, PONTOS_POR_CLASSE, QUAD_LABELS, TOTAL_PROF_EMULTI_HEADER, addMonths, buildGauge, calcularJanelaPeriodo, calcularSerieTendencia, classificarM1, classificarM2, colIndex, colTotalProfEmulti, createMultiSelect, criarCalculadoraTotalProfEmulti, criarLigacaoAtividades, displayListName, ehProfissionalComparativoEmulti, equipeColIndex, escapeHtml, estadoApp, filtrarLinhasPorEquipe, fmtBRDate, fmtDec, fmtInt, gaugeInterpretationHTML, gaugeLegendHTML, kpiPanelHTML, kpiPanelIcon, mesesDosQuadsSelecionadosUniao, nomeEhDaEmulti, normalizeText, ovIconHTML, ovLegendHTML, ovStatus, parseBRDate, pillHex, profissionaisRoster, quadShortLabel, sheetToRows, suffixedName, ultimoMesDosQuadsSelecionados, withinPeriod } from './nucleo.js';
 import { equipeLabelFromRaw, pdfComNumeracao, pdfLinhaProfissional, profissionalColIndex, slugifyFileName } from './listas.js';
 import { latestRawSheets, latestWb } from './app.js';
 
@@ -2576,9 +2576,52 @@ function ovEvoHTML(atual, anterior, domainMax, decimals, suffix, bands, classLab
 // bloco visualmente único — ver .ov-main/.ov-value no CSS. A legenda
 // "X atendimentos ÷ Y pessoas" vira uma barra de linha única entre
 // esse bloco e a Evolução do quadrimestre.
+// Cards pequenos dos últimos meses (um por mês, mais antigo → mais
+// recente) exibidos ABAIXO de cada card grande da Visão geral. kind:
+// 'm1' | 'm2' | 'nota'. pontos = itens de calcularSerieTendencia (cada mês
+// com a sua própria janela móvel de JANELA_MESES meses). O selo
+// "Oficial" aparece quando o mês veio da aba Q2-26; senão "Preliminar"
+// (calculado pelo painel) — mesmo critério da tabela da aba Tendência.
+export function ovMesesHTML(kind, pontos){
+  if(!pontos || !pontos.length) return '';
+  var CAL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M8 3v4M16 3v4M3.5 10h17"/></svg>';
+  var cards = pontos.map(function(p){
+    var classe, valor, sub, oficial;
+    if(kind === 'm1'){
+      classe = classificarM1(p.m1);
+      valor = p.m1!=null ? fmtDec(p.m1,2) : '—';
+      sub = fmtInt(p.numeradorM1)+' ÷ '+fmtInt(p.denominadorM1);
+      oficial = p.m1Oficial;
+    } else if(kind === 'm2'){
+      classe = classificarM2(p.m2);
+      valor = p.m2!=null ? fmtDec(p.m2,1)+'%' : '—';
+      sub = fmtInt(p.numeradorM2)+' ÷ '+fmtInt(p.denominadorM2);
+      oficial = p.m2Oficial;
+    } else {
+      classe = classificarDesempenho(p.notaFinal);
+      valor = p.notaFinal!=null ? fmtDec(p.notaFinal,1) : '—';
+      var pm1 = PONTOS_POR_CLASSE[classificarM1(p.m1)], pm2 = PONTOS_POR_CLASSE[classificarM2(p.m2)];
+      sub = (pm1!=null && pm2!=null) ? 'M1 '+fmtDec(pm1*6,1)+' · M2 '+fmtDec(pm2*4,1) : '—';
+      oficial = p.m1Oficial || p.m2Oficial;
+    }
+    var st = ovStatus(classe);
+    var d = p.mes;
+    var rotulo = d.toLocaleDateString('pt-BR',{month:'short'}).replace('.','').toUpperCase()+'/'+d.getFullYear();
+    return '<div class="ov-mes" style="--mes-accent:'+st.accent+';--mes-bg:'+st.badgeBg+';--mes-txt:'+st.badgeText+';">'
+      + '<div class="ov-mes-data">'+CAL+'<span>'+escapeHtml(rotulo)+'</span></div>'
+      + '<div class="ov-mes-valor">'+valor+'</div>'
+      + '<div class="ov-mes-sub">'+sub+'</div>'
+      + '<span class="ov-mes-classe">'+escapeHtml(classe||'—')+'</span>'
+      + '<span class="ov-mes-fonte'+(oficial?' ov-mes-fonte-ofi':'')+'"><i></i>'+(oficial?'Oficial':'Preliminar')+'</span>'
+      + '</div>';
+  }).join('');
+  return '<div class="ov-meses">'+cards+'</div>';
+}
+
 export function overviewCardHTML(opts){
   var st = ovStatus(opts.classe);
-  return '<div class="card ov-card" style="border-top:4px solid '+st.accent+';">'
+  var mesesHtml = ovMesesHTML(opts.mesesKind, opts.meses);
+  var card = '<div class="card ov-card" style="border-top:4px solid '+st.accent+';">'
     + '<div class="ov-head">'
     +   '<div class="ov-head-left">'+ovIconHTML(opts.iconKind, st)+'<h3 class="ov-title" title="'+opts.title+'">'+opts.title+'</h3></div>'
     +   '<span class="ov-badge" style="background:'+st.badgeBg+';color:'+st.badgeText+';">'+st.icon+' '+(opts.classe||'—')+'</span>'
@@ -2587,6 +2630,7 @@ export function overviewCardHTML(opts){
     + ovEvoHTML(opts.value, opts.anterior, opts.domainMax, opts.decimals, opts.suffix||'', opts.bands, opts.classe)
     + ovLegendHTML(opts.legend)
     + '</div>';
+  return '<div class="ov-col">'+card+mesesHtml+'</div>';
 }
 
 function gaugeCardHTML(title, formula, value, domainMax, bands, gaugeId, valueHtml, classLabel, note, legend, anterior, decimals, suffix, metaLabel){

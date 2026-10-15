@@ -1141,3 +1141,22 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 .agenda-dia-sel{color:#1C6D53;font-weight:600}
 @media(min-width:1150px) and (max-width:1399px){.agenda-toolbar{flex-wrap:wrap}}
 @media(max-width:700px){.agenda-export{flex:1 1 100%}.agenda-toolbar select#agendaDia{flex:1 1 100%;max-width:none}}
+
+
+/* ---------- Cards mensais (últimos 4 meses) abaixo de cada card da Visão geral ---------- */
+.ov-col{flex:1;min-width:300px;display:flex;flex-direction:column;gap:12px;}
+.ov-col > .ov-card{flex:0 0 auto;min-width:0;}
+.ov-meses{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;}
+.ov-mes{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;text-align:center;
+  padding:9px 6px 9px 9px;border-radius:12px;background:var(--surface);border:1px solid var(--line-soft,#E6ECE1);
+  border-left:4px solid var(--mes-accent);box-shadow:var(--shadow-1,0 1px 2px rgba(19,36,31,.06));}
+.ov-mes-data{display:flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;color:var(--mes-txt);letter-spacing:.02em;}
+.ov-mes-data svg{width:12px;height:12px;flex:0 0 auto;}
+.ov-mes-valor{font-size:19px;font-weight:700;line-height:1.1;color:var(--mes-accent);}
+.ov-mes-sub{font-size:10px;color:var(--ink-soft);line-height:1.2;}
+.ov-mes-classe{margin-top:2px;padding:1px 8px;border-radius:999px;font-size:10px;font-weight:600;background:var(--mes-bg);color:var(--mes-txt);}
+.ov-mes-fonte{display:inline-flex;align-items:center;gap:4px;margin-top:2px;padding:1px 7px;border-radius:999px;font-size:9px;font-weight:600;background:#FFF3D6;color:#8A5A00;}
+.ov-mes-fonte i{width:6px;height:6px;border-radius:50%;background:#F0A020;display:inline-block;}
+.ov-mes-fonte-ofi{background:#E1ECFB;color:#1F4E9C;}
+.ov-mes-fonte-ofi i{background:#3B7DDD;}
+@media (max-width:420px){.ov-meses{grid-template-columns:repeat(2,minmax(0,1fr));}}
