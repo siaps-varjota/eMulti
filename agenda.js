@@ -4,7 +4,7 @@
 var MESES_AGENDA=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 var DIAS_AGENDA=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 var DIAS_AGENDA_LONGO=['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
-var TIPO_ROTULO_AGENDA={agendado:'Agendado',sugerido:'Sugerido',realizado:'Realizado'};
+var TIPO_ROTULO_AGENDA={agendado:'Agendado',sugerido:'Sugerido',realizado:'Realizado',faltou:'Faltou'};
 var TURNO_ORD_AGENDA={'Manhã':1,'Tarde':2,'':3};
 
 var mesAgenda=(function(){var h=new Date();return new Date(h.getFullYear(),h.getMonth(),1);})();
@@ -71,7 +71,7 @@ function estadoAgenda(){
   var dia=diaSel?{chave:diaAgenda,dt:diaSel,eventos:doMes.filter(function(e){return chaveDiaAgenda(e.dt)===diaAgenda;})}:null;
   // Dia lotado: algum profissional com tantas pessoas no dia quanto a vaga diária configurada.
   var lot={};
-  ev.forEach(function(e){var k=chaveDiaAgenda(e.dt)+'|'+e.profKey;var o=lot[k]=lot[k]||{n:0,cap:e.capDia};o.n++;});
+  ev.forEach(function(e){if(e.tipo==='faltou')return;var k=chaveDiaAgenda(e.dt)+'|'+e.profKey;var o=lot[k]=lot[k]||{n:0,cap:e.capDia};o.n++;});
   var lotados={};Object.keys(lot).forEach(function(k){if(lot[k].cap>0&&lot[k].n>=lot[k].cap)lotados[k.split('|')[0]]=true;});
   return {pronto:base.pronto,erro:base.erro,diag:base.diag,todos:todos,evProf:ev,profs:profs,ev:doMes,filtrados:filtrados,semanas:semanas,sem:sem,dia:dia,lotados:lotados};
 }
@@ -135,6 +135,7 @@ function renderAgenda(){
     '<span><i style="background:#1C6D53"></i>Agendado ('+contarAgenda(lista,'agendado')+')</span>'
     +'<span><i style="background:#C68A3D"></i>Sugerido ('+contarAgenda(lista,'sugerido')+')</span>'
     +'<span><i style="background:#9AA79F"></i>Realizado ('+contarAgenda(lista,'realizado')+')</span>'
+    +'<span><i style="background:#8C6BAE"></i>Faltou ('+contarAgenda(lista,'faltou')+')</span>'
     +'<span><i style="background:#B5474B"></i>Dia lotado (vagas do dia preenchidas)</span>'
     +(st.dia?'<span class="agenda-dia-sel">📌 PDF, WhatsApp e Imagem vão usar só '+escAgenda(rotDia)+'. Clique no dia de novo (ou escolha "Todos os dias") para voltar ao período.</span>':'');
 
@@ -224,7 +225,7 @@ function copiarWhatsAppAgenda(){
   ordem.forEach(function(k){
     var gs=grupos[k],dt=gs[0].dt;
     l.push('📆 *'+DIAS_AGENDA[dt.getDay()]+', '+brAgenda(dt)+'*');
-    gs.forEach(function(e){l.push('  '+(e.tipo==='sugerido'?'🕐':'✅')+' '+(e.turno?e.turno+' — ':'')+e.nome+(st.profs&&!profAgenda?' _('+e.prof+')_':''));});
+    gs.forEach(function(e){l.push('  '+(e.tipo==='sugerido'?'🕐':e.tipo==='faltou'?'❌':'✅')+' '+(e.turno?e.turno+' — ':'')+e.nome+(st.profs&&!profAgenda?' _('+e.prof+')_':''));});
     l.push('');
   });
   l.push('_Gerado em '+new Date().toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'})+'_');
