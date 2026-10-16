@@ -344,12 +344,9 @@ export function init_nucleo_periodos(){
   // calcularJanelaPeriodo) e, havendo mais de um, os resultados são
   // combinados pela média (mesma lógica já usada pra média do
   // quadrimestre, ver mediaDeMeses).
-  // PADRÃO: já começa com o mês atual marcado (em vez de vazio/média) —
-  // populateMonthSelectForQuad, mais abaixo, descarta esse valor inicial
-  // se por algum motivo o mês atual não pertencer ao(s) quadrimestre(s)
-  // selecionado(s) (quadsSelecionados também parte do mês atual, então
-  // isso não deve acontecer no carregamento normal da página).
-  estadoApp.refMonthDates = [startOfMonth(new Date())];
+  // PADRÃO: começa SEM nenhum mês marcado (placeholder "Média do
+  // quadrimestre"); o usuário escolhe o(s) mês(es) se quiser.
+  estadoApp.refMonthDates = [];
 }
 
 // ===== módulo: js/indicadores/calculo.js =====
@@ -2665,4 +2662,3 @@ document.addEventListener('click', function(ev){
     abrirLegendInfoPopover(btn, texto);
   });
 }
-
