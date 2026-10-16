@@ -1,7 +1,7 @@
 // Aba de agendamentos: lê/grava a aba Agendamentos pelo backend existente.
 var rowsAg=[]; var busyAg=false; var profCacheAg=null;
 // Histórico de desfechos (aba "Histórico Agendamentos"): uma linha por Realizado/Faltou, nunca sobrescrita.
-var histAg=[]; var historicoIndisponivelAg=false;
+var histAg=[]; var falhaHistAg=null; // falhaHistAg: último erro ao falar com o histórico no backend (null = ok)
 // Datas geradas automaticamente que ainda NÃO foram salvas na planilha:
 // índice da linha em rowsAg -> data (AAAA-MM-DD). Só vão pra planilha quando
 // a pessoa clica em "Salvar datas geradas".
@@ -674,8 +674,22 @@ function loadAg(){if(busyAg)return;busyAg=true;profCacheAg=null;propostaAg={};at
 function syncAg(){if(busyAg)return;profCacheAg=null;var list=window.__emultiPessoasAtendidas&&window.__emultiPessoasAtendidas();if(!list||!Array.isArray(list.rows)||!list.rows.length){msgAg('Atualize os dados do painel para carregar Pessoas atendidas antes de sincronizar.',true);return;}var pessoas=list.rows.filter(function(r){return r.agendavel===true;}).map(function(r){return{nome:String(r[0]||'').trim(),at:Number(r[1])||0,total:Number(r[3])||0,ultimo:r.ultimoAtendimentoAgendaISO||''};}).filter(function(x){return x.nome;});if(!pessoas.length){msgAg('Nenhuma pessoa em Pessoas atendidas. Atualize os dados do painel e tente de novo.',true);return;}busyAg=true;msgAg('Sincronizando '+pessoas.length+' pessoas…');renderAg();var syncMsg='';apiAg({action:'agendamentos.sync',rows:pessoas}).then(function(r){syncMsg='Sincronização concluída: '+(Number(r.inseridos)||0)+' novos; '+(Number(r.atualizados)||0)+' atualizados ('+pessoas.length+' pessoas em Pessoas atendidas).';msgAg(syncMsg);return apiAg({action:'agendamentos.list'});}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:rowsAg;completarVirtuaisAg();}).catch(function(e){msgAg(e.message||'Falha ao sincronizar.',true);}).finally(function(){busyAg=false;renderAg();renderConfigAg();if(syncMsg){propostaAg={};gerarAg(true,syncMsg);}});}
 
 // ---------- Histórico de desfechos (Realizado/Faltou) ----------
-var AVISO_HIST_AG='Atenção: a situação foi salva, mas o histórico não foi gravado na planilha (falta ativar o arquivo historico-agendamentos.gs no Apps Script). A Agenda só guarda o histórico até você recarregar a página.';
+// Cada baixa vira uma linha na aba "Histórico Agendamentos". Se o backend não responder (Apps Script
+// antigo, erro, sem internet), a baixa fica guardada neste navegador e é reenviada sozinha na próxima
+// tentativa — nada se perde enquanto você corrige o Apps Script.
+var HIST_PEND_KEY='emulti_hist_pendente';
+function lerPendHistAg(){try{var a=JSON.parse(localStorage.getItem(HIST_PEND_KEY)||'[]');return Array.isArray(a)?a:[];}catch(e){return [];}}
+function salvarPendHistAg(a){try{if(a.length)localStorage.setItem(HIST_PEND_KEY,JSON.stringify(a));else localStorage.removeItem(HIST_PEND_KEY);}catch(e){}}
 function chaveHistAg(nome,data){return normAg(nome)+'|'+data;}
+function chavePendHistAg(x){return chaveHistAg(x.nome,x.dataAgendada)+'|'+x.desfecho;}
+// Traduz a resposta do backend para uma orientação objetiva.
+function motivoHistAg(e){
+  var m=(e&&e.message)||String(e||'');
+  if(/n[ãa]o reconhecida/i.test(m))return 'o Apps Script publicado não conhece o histórico (versão antiga). Confira se o backend-agendamentos.gs está no arquivo certo, sem outro arquivo com as mesmas funções, e se você fez Implantar → Gerenciar implantações → Editar → Nova versão → Implantar.';
+  if(/Erro no servidor/i.test(m))var det=m.replace(/^Erro no servidor:\s*/i,'');return 'o Apps Script deu erro: '+det+(/\.$/.test(det)?'':'.');
+  return (m||'sem resposta do servidor')+(/\.$/.test(m)?'':'.');
+}
+function avisoHistAg(e){return 'A situação foi salva, mas o histórico NÃO foi gravado na planilha: '+motivoHistAg(e)+' As baixas ficam guardadas neste navegador e são reenviadas sozinhas; depois de corrigir o Apps Script, clique em "Testar histórico".';}
 function mesclarHistoricoAg(rows){
   var ix={};histAg.forEach(function(h,i){ix[chaveHistAg(h.Nome,dateAg(h['Data agendada']))]=i;});
   rows.forEach(function(x){
@@ -683,12 +697,25 @@ function mesclarHistoricoAg(rows){
     if(ix[k]!==undefined)histAg[ix[k]]=h;else{ix[k]=histAg.length;histAg.push(h);}
   });
 }
-// Lê o histórico da planilha (se o backend ainda não tem a ação, a Agenda segue só com a aba Agendamentos).
+// Reenvia o que ficou pendente. Rejeita (e mantém tudo guardado) se o backend recusar.
+function enviarPendHistAg(){
+  var p=lerPendHistAg();if(!p.length)return Promise.resolve();
+  return apiAg({action:'agendamentos.historicoAdd',rows:p}).then(function(){
+    var enviados={};p.forEach(function(x){enviados[chavePendHistAg(x)]=1;});
+    salvarPendHistAg(lerPendHistAg().filter(function(x){return !enviados[chavePendHistAg(x)];}));
+  });
+}
+// Lê o histórico da planilha. Se falhar, a Agenda segue com a aba Agendamentos + o que está pendente aqui.
 function carregarHistoricoAg(){
-  if(historicoIndisponivelAg)return Promise.resolve();
-  return apiAg({action:'agendamentos.historicoList'}).then(function(r){
-    histAg=Array.isArray(r.rows)?r.rows:[];window.dispatchEvent(new Event('emulti:agenda-dados'));
-  }).catch(function(e){if(!/Sess/i.test((e&&e.message)||''))historicoIndisponivelAg=true;});
+  if(falhaHistAg&&Date.now()-falhaHistAg.quando<30000)return Promise.resolve();   // não insiste a cada clique
+  return enviarPendHistAg().then(function(){return apiAg({action:'agendamentos.historicoList'});}).then(function(r){
+    falhaHistAg=null;histAg=Array.isArray(r.rows)?r.rows:[];mesclarHistoricoAg(lerPendHistAg());
+    window.dispatchEvent(new Event('emulti:agenda-dados'));
+  }).catch(function(e){
+    if(/Sess/i.test((e&&e.message)||''))return;
+    falhaHistAg={erro:e,quando:Date.now()};mesclarHistoricoAg(lerPendHistAg());
+    window.dispatchEvent(new Event('emulti:agenda-dados'));
+  });
 }
 // Grava no histórico cada baixa (Realizado/Faltou). Não bloqueia nem desfaz a baixa se falhar.
 function registrarHistoricoAg(itens){
@@ -701,13 +728,31 @@ function registrarHistoricoAg(itens){
   });
   if(!rows.length)return Promise.resolve();
   mesclarHistoricoAg(rows);window.dispatchEvent(new Event('emulti:agenda-dados'));
-  if(historicoIndisponivelAg){setTimeout(function(){msgAg(AVISO_HIST_AG,true);},50);return Promise.resolve();}
-  return apiAg({action:'agendamentos.historicoAdd',rows:rows}).catch(function(e){
+  // guarda como pendente (mesma pessoa+data troca o desfecho) e tenta enviar já
+  var pend=lerPendHistAg(),pos={};pend.forEach(function(x,i){pos[chaveHistAg(x.nome,x.dataAgendada)]=i;});
+  rows.forEach(function(x){var k=chaveHistAg(x.nome,x.dataAgendada);if(pos[k]!==undefined)pend[pos[k]]=x;else{pos[k]=pend.length;pend.push(x);}});
+  salvarPendHistAg(pend);
+  return enviarPendHistAg().then(function(){falhaHistAg=null;}).catch(function(e){
     if(/Sess/i.test((e&&e.message)||''))return;
-    historicoIndisponivelAg=true;
-    msgAg(AVISO_HIST_AG,true);
+    falhaHistAg={erro:e,quando:Date.now()};
+    msgAg(avisoHistAg(e),true);
   });
 }
+// Botão "Testar histórico": cria a aba na planilha (se faltar), lê de volta e mostra o motivo exato se falhar.
+function testarHistoricoAg(){
+  msgAg('Testando o histórico na planilha…',false);
+  return apiAg({action:'agendamentos.historicoAdd',rows:[]}).then(function(){return enviarPendHistAg();}).then(function(){return apiAg({action:'agendamentos.historicoList'});}).then(function(r){
+    falhaHistAg=null;histAg=Array.isArray(r.rows)?r.rows:[];mesclarHistoricoAg(lerPendHistAg());
+    window.dispatchEvent(new Event('emulti:agenda-dados'));
+    var n=histAg.length,pend=lerPendHistAg().length;
+    msgAg('Histórico funcionando: a aba "Histórico Agendamentos" existe na planilha ('+n+(n===1?' registro':' registros')+').'+(pend?' Ainda há '+pend+' baixas pendentes neste navegador.':''),false);
+  }).catch(function(e){
+    if(/Sess/i.test((e&&e.message)||''))return msgAg(e.message,true);
+    falhaHistAg={erro:e,quando:Date.now()};
+    msgAg('Histórico com problema: '+motivoHistAg(e),true);
+  });
+}
+window.testarHistoricoAgendamentos=testarHistoricoAg;
 
 // ---------- Dados para a aba Agenda (calendário) ----------
 // Mesma base da aba Agendamentos: salvos na planilha (Agendado/Realizado) + datas geradas ainda não salvas (Sugerido).
@@ -1022,7 +1067,8 @@ document.addEventListener('DOMContentLoaded',function(){
     var rs=document.getElementById('agCfgReset');
     if(rs)rs.addEventListener('click',function(){cfgAg={m:6,t:6,dias:DIAS_UTEIS_AG.slice(),janela:0,prof:{},soManha:[0,0,0,0,0,1,0],feriados:cfgAg.feriados,faltas:cfgAg.faltas,redistribuir:false};renderConfigAg();configMudouAg();});
   }
-  document.getElementById('agendamentosAtualizar').addEventListener('click',loadAg);document.getElementById('agendamentosSincronizar').addEventListener('click',syncAg);
+  document.getElementById('agendamentosAtualizar').addEventListener('click',loadAg);
+  var btnTestarHist=document.getElementById('agendamentosTestarHist');if(btnTestarHist)btnTestarHist.addEventListener('click',testarHistoricoAg);document.getElementById('agendamentosSincronizar').addEventListener('click',syncAg);
   // Mudou o filtro em Pessoas atendidas: só importa se a aba está seguindo aquela lista.
   window.addEventListener('emulti:pessoas-filtro',function(){
     if(!seguirListaAg())return;
