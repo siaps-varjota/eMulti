@@ -1168,3 +1168,6 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 @media (max-width:900px){.ov-meses.ov-meses-larga{grid-template-columns:repeat(4,minmax(0,1fr));}}
 @media (max-width:600px){.ov-meses.ov-meses-larga{grid-template-columns:repeat(3,minmax(0,1fr));}}
 @media (max-width:420px){.ov-meses.ov-meses-larga{grid-template-columns:repeat(2,minmax(0,1fr));}}
+
+/* Agendamentos - barras de filtros/acoes 20% menores (campos, selects, botoes e rotulos) */
+#tabAgendamentos .agendamentos-toolbar{zoom:.8}
