@@ -1081,6 +1081,7 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 .agenda-ev.agendado{background:#E3F1EB;color:#1F5F4A}
 .agenda-ev.sugerido{background:#FFF0D9;color:#8A5A12}
 .agenda-ev.realizado{background:#E8ECE6;color:#51605A}
+.agenda-ev.faltou{background:#F1E9F6;color:#6B3F85}
 .agenda-lista h3{font-size:14px;margin:18px 0 6px}
 .agenda-lista-dia{margin:10px 0 2px;font-weight:600;font-size:13px;color:var(--header-bg)}
 .agenda-lista-linha{display:flex;gap:10px;align-items:center;padding:5px 2px;border-bottom:1px solid var(--line-soft);font-size:13px}
@@ -1090,6 +1091,7 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 .agenda-tag.agendado{background:#E3F1EB;color:#1F5F4A}
 .agenda-tag.sugerido{background:#FFF0D9;color:#8A5A12}
 .agenda-tag.realizado{background:#E8ECE6;color:#51605A}
+.agenda-tag.faltou{background:#F1E9F6;color:#6B3F85}
 @media(max-width:700px){.agenda-toolbar{justify-content:flex-start}.agenda-toolbar select{flex:1 1 100%}.agenda-dia{min-height:64px;padding:3px}.agenda-ev{font-size:9px;padding:1px 3px}}
 
 .ag-pills{margin:0 0 14px}
