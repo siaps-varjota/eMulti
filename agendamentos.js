@@ -1,5 +1,7 @@
 // Aba de agendamentos: lê/grava a aba Agendamentos pelo backend existente.
 var rowsAg=[]; var busyAg=false; var profCacheAg=null;
+// Histórico de desfechos (aba "Histórico Agendamentos"): uma linha por Realizado/Faltou, nunca sobrescrita.
+var histAg=[]; var historicoIndisponivelAg=false;
 // Datas geradas automaticamente que ainda NÃO foram salvas na planilha:
 // índice da linha em rowsAg -> data (AAAA-MM-DD). Só vão pra planilha quando
 // a pessoa clica em "Salvar datas geradas".
@@ -560,6 +562,7 @@ function reagendarFaltososAg(){
   }).then(function(out){
     var porIx={};mudar.forEach(function(x){porIx[x.ix]=x;});
     out.ok.forEach(function(ix){var r=rowsAg[ix],x=porIx[ix];r.Situação=x.situacao;r['Data agendada']=x.dataAgendada;r.Turno=x.turno;});
+    registrarHistoricoAg(out.ok.map(function(ix){return porIx[ix];}));
     busyAg=false;
     var nOkV=out.ok.filter(function(ix){return porIx[ix].situacao==='Realizado';}).length,nOkF=out.ok.length-nOkV;
     var msg='Presenças atualizadas (PEC até '+brAg(pec)+'): '+nOkV+(nOkV===1?' realizado':' realizados')+', '+nOkF+(nOkF===1?' faltou':' faltaram')+'.'+(out.falhas.length?' '+out.falhas.length+' não puderam ser salvos ('+out.falhas[out.falhas.length-1].erro+').':'')+sufixo;
@@ -667,15 +670,51 @@ function executarSalvarGeradosAg(ixs){
     msgAg(ok+(ok===1?' agendamento salvo':' agendamentos salvos')+(falhas?'; '+falhas+' não foram salvos'+(ultimoErro?' ('+ultimoErro+')':'')+' e continuam como proposta — clique em "Salvar datas geradas" para tentar de novo.':'.'),falhas>0);
   }
 }
-function loadAg(){if(busyAg)return;busyAg=true;profCacheAg=null;propostaAg={};atualizarBotoesGeracaoAg();msgAg('Carregando agendamentos…');renderAg();apiAg({action:'agendamentos.list'}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:[];completarVirtuaisAg();msgAg('');}).catch(function(e){msgAg(e.message||'Falha ao carregar.',true);}).finally(function(){busyAg=false;renderAg();renderConfigAg();try{gerarAg(true);}catch(e){if(window.console)console.error(e);msgAg('Lista carregada, mas não foi possível sugerir datas: '+((e&&e.message)||e),true);}});}
+function loadAg(){if(busyAg)return;busyAg=true;profCacheAg=null;propostaAg={};atualizarBotoesGeracaoAg();msgAg('Carregando agendamentos…');renderAg();apiAg({action:'agendamentos.list'}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:[];completarVirtuaisAg();msgAg('');carregarHistoricoAg();}).catch(function(e){msgAg(e.message||'Falha ao carregar.',true);}).finally(function(){busyAg=false;renderAg();renderConfigAg();try{gerarAg(true);}catch(e){if(window.console)console.error(e);msgAg('Lista carregada, mas não foi possível sugerir datas: '+((e&&e.message)||e),true);}});}
 function syncAg(){if(busyAg)return;profCacheAg=null;var list=window.__emultiPessoasAtendidas&&window.__emultiPessoasAtendidas();if(!list||!Array.isArray(list.rows)||!list.rows.length){msgAg('Atualize os dados do painel para carregar Pessoas atendidas antes de sincronizar.',true);return;}var pessoas=list.rows.filter(function(r){return r.agendavel===true;}).map(function(r){return{nome:String(r[0]||'').trim(),at:Number(r[1])||0,total:Number(r[3])||0,ultimo:r.ultimoAtendimentoAgendaISO||''};}).filter(function(x){return x.nome;});if(!pessoas.length){msgAg('Nenhuma pessoa em Pessoas atendidas. Atualize os dados do painel e tente de novo.',true);return;}busyAg=true;msgAg('Sincronizando '+pessoas.length+' pessoas…');renderAg();var syncMsg='';apiAg({action:'agendamentos.sync',rows:pessoas}).then(function(r){syncMsg='Sincronização concluída: '+(Number(r.inseridos)||0)+' novos; '+(Number(r.atualizados)||0)+' atualizados ('+pessoas.length+' pessoas em Pessoas atendidas).';msgAg(syncMsg);return apiAg({action:'agendamentos.list'});}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:rowsAg;completarVirtuaisAg();}).catch(function(e){msgAg(e.message||'Falha ao sincronizar.',true);}).finally(function(){busyAg=false;renderAg();renderConfigAg();if(syncMsg){propostaAg={};gerarAg(true,syncMsg);}});}
+
+// ---------- Histórico de desfechos (Realizado/Faltou) ----------
+var AVISO_HIST_AG='Atenção: a situação foi salva, mas o histórico não foi gravado na planilha (falta ativar o arquivo historico-agendamentos.gs no Apps Script). A Agenda só guarda o histórico até você recarregar a página.';
+function chaveHistAg(nome,data){return normAg(nome)+'|'+data;}
+function mesclarHistoricoAg(rows){
+  var ix={};histAg.forEach(function(h,i){ix[chaveHistAg(h.Nome,dateAg(h['Data agendada']))]=i;});
+  rows.forEach(function(x){
+    var h={Nome:x.nome,Profissional:x.prof||'',Unidade:x.unidade||'','Data agendada':x.dataAgendada,Turno:x.turno||'',Desfecho:x.desfecho},k=chaveHistAg(x.nome,x.dataAgendada);
+    if(ix[k]!==undefined)histAg[ix[k]]=h;else{ix[k]=histAg.length;histAg.push(h);}
+  });
+}
+// Lê o histórico da planilha (se o backend ainda não tem a ação, a Agenda segue só com a aba Agendamentos).
+function carregarHistoricoAg(){
+  if(historicoIndisponivelAg)return Promise.resolve();
+  return apiAg({action:'agendamentos.historicoList'}).then(function(r){
+    histAg=Array.isArray(r.rows)?r.rows:[];window.dispatchEvent(new Event('emulti:agenda-dados'));
+  }).catch(function(e){if(!/Sess/i.test((e&&e.message)||''))historicoIndisponivelAg=true;});
+}
+// Grava no histórico cada baixa (Realizado/Faltou). Não bloqueia nem desfaz a baixa se falhar.
+function registrarHistoricoAg(itens){
+  var uc=profMapAg(),rows=[];
+  itens.forEach(function(x){
+    if(x.situacao!=='Realizado'&&x.situacao!=='Faltou')return;
+    var r=rowsAg[x.ix];if(!r||!x.dataAgendada)return;
+    var n=normAg(r.Nome);
+    rows.push({nome:String(r.Nome||''),prof:(uc&&uc.ultProf[n])||'',unidade:(uc&&uc.ultUnid&&uc.ultUnid[n])||'',dataAgendada:x.dataAgendada,turno:x.turno||'',desfecho:x.situacao});
+  });
+  if(!rows.length)return Promise.resolve();
+  mesclarHistoricoAg(rows);window.dispatchEvent(new Event('emulti:agenda-dados'));
+  if(historicoIndisponivelAg){setTimeout(function(){msgAg(AVISO_HIST_AG,true);},50);return Promise.resolve();}
+  return apiAg({action:'agendamentos.historicoAdd',rows:rows}).catch(function(e){
+    if(/Sess/i.test((e&&e.message)||''))return;
+    historicoIndisponivelAg=true;
+    msgAg(AVISO_HIST_AG,true);
+  });
+}
 
 // ---------- Dados para a aba Agenda (calendário) ----------
 // Mesma base da aba Agendamentos: salvos na planilha (Agendado/Realizado) + datas geradas ainda não salvas (Sugerido).
 window.__emultiAgendaDados=function(){
   var uc=profMapAg();if(!uc)return {eventos:[],pronto:false};
   var turnos={};try{turnos=turnosAg(uc);}catch(e){if(window.console)console.error('Agenda: falha ao calcular turnos',e);}
-  var ev=[],diag={linhas:rowsAg.length,comData:0,inativas:0,naoElegiveis:0,semProf:0};
+  var ev=[],emitidos={},diag={historico:histAg.length,linhas:rowsAg.length,comData:0,inativas:0,naoElegiveis:0,semProf:0};
   rowsAg.forEach(function(r,ix){
     var prop=propostaAg[ix],d=prop||dateAg(r['Data agendada']);if(!d)return;
     diag.comData++;
@@ -684,7 +723,17 @@ window.__emultiAgendaDados=function(){
     // Sem profissional identificado a pessoa continua na Agenda (antes sumia sem aviso).
     var k=chaveProfAg(r,uc),semProf=!k;if(semProf){k='__sem_profissional';diag.semProf++;}
     var t=turnos[ix];
+    emitidos[chaveHistAg(r.Nome,d)]=true;
     ev.push({data:d,nome:String(r.Nome||''),prof:semProf?'Sem profissional definido':nomeProfAg(r,uc),profKey:k,tipo:prop?'sugerido':(sit==='Realizado'?'realizado':'agendado'),situacao:sit,turno:t?t.rotulo:'',ult:ultimoDeAg(r,uc),capDia:semProf?0:capNoDiaAg(capAg(k),d).dia});
+  });
+  // Desfechos de agendamentos antigos (a linha da pessoa já foi sobrescrita por um novo agendamento).
+  histAg.forEach(function(h){
+    if(h.Desfecho!=='Realizado'&&h.Desfecho!=='Faltou')return;
+    var d=dateAg(h['Data agendada']);if(!d||emitidos[chaveHistAg(h.Nome,d)])return;
+    var pk=normAg(h.Profissional),un=normAg(h.Unidade),sep=pk&&uc.multi&&uc.multi[pk]&&un;
+    var k=pk?(sep?pk+'@'+un:pk):'__sem_profissional';
+    emitidos[chaveHistAg(h.Nome,d)]=true;
+    ev.push({data:d,nome:String(h.Nome||''),prof:pk?(sep?h.Profissional+' — '+h.Unidade:h.Profissional):'Sem profissional definido',profKey:k,tipo:h.Desfecho==='Faltou'?'faltou':'realizado',situacao:h.Desfecho==='Faltou'?'Faltou':'Realizado',turno:String(h.Turno||''),ult:'',capDia:pk?capNoDiaAg(capAg(k),d).dia:0});
   });
   return {eventos:ev,pronto:true,diag:diag};
 };
@@ -714,6 +763,7 @@ function saveAg(tr){
   }).then(function(){
     r.Situação=fields.situacao;r['Data agendada']=fields.dataAgendada;r.Turno=turno;
     delete propostaAg[ix];atualizarBotoesGeracaoAg();
+    registrarHistoricoAg([{ix:ix,situacao:fields.situacao,dataAgendada:fields.dataAgendada,turno:turno}]);
     var aviso='Alterações de '+r.Nome+' salvas.'+(movidoAg?' O dia estava lotado, então a data passou para o próximo dia com vaga ('+movidoAg+').':'');
     msgAg(aviso);
     // Faltou: a pessoa volta para a fila e já recebe uma nova data sugerida.
