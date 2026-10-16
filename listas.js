@@ -297,10 +297,15 @@ function classificarAcaoM2Participacao(headers, row){
 // ---------- "Resumo Atividade Coletiva": AÇÃO M2 + Detalhes ----------
 // Cada linha desta lista é UMA atividade coletiva. O enquadramento segue
 // a mesma regra que alimenta o numerador do M2 (ver "atividadesCompartilhadasListas"):
-// Compartilhada = pelo menos 1 profissional da eMulti (coluna "Total de
-// Profissionais da EMulti", ligada a Participantes Ativ. Coletiva) E 2 ou
-// mais profissionais no total ("Qtd total de profissionais"). Sem a coluna
-// da eMulti para aquela linha, vale só a regra de 2+ profissionais.
+// Só entra na eMulti a atividade com pelo menos 1 profissional da eMulti
+// (coluna "Total de Profissionais da EMulti", ligada a Participantes Ativ.
+// Coletiva, que conta responsável + envolvidos); com 0, a linha nem chega
+// aqui (é removida da lista e do M2 — ver abas.js e nucleo.js).
+// Dentro das que entram:
+//  - responsável da eMulti sozinho (1 profissional no total) = Específica
+//  - responsável da eMulti + outro profissional = Compartilhada
+//  - responsável fora da eMulti + 1+ da eMulti = Compartilhada
+// Sem a coluna da eMulti para aquela linha, vale só a regra de 2+ profissionais.
 export function ehListaResumoAtividadeColetiva(name){
   return displayListName(name) === "Resumo Atividade Coletiva";
 }
@@ -392,7 +397,7 @@ function montarDetalhesAtividadeHTML(headers, row){
   } else if(classificacao.motivo === 'reuniaosemtema'){
     notaClassificacao = 'Reunião sem o tema "Discussão de caso / Projeto terapêutico singular" — não conta como Ação Compartilhada (M2).';
   } else if(classificacao.motivo === 'sememulti'){
-    notaClassificacao = classificacao.qtd+' profissionais na atividade, mas nenhum da eMulti — não conta como Ação Compartilhada (M2).';
+    notaClassificacao = classificacao.qtd+' profissionais na atividade, mas nenhum da eMulti — a atividade não entra na eMulti.';
   } else if(classificacao.classe === 'especifica'){
     notaClassificacao = 'Apenas 1 profissional na atividade — conta como Ação Específica (individual).';
   } else {

@@ -644,13 +644,30 @@ export function calcularIndicadoresDoPeriodo(wb, periodo){
   // Coletiva Compartilhada" pra M2, desde que bata os critérios de
   // profissionais abaixo. A restrição de tipo só se aplica a reuniões
   // (aba Resumo Reuniões — ver TIPOS_REUNIAO_COMPARTILHADA mais abaixo).
-  var racFiltradas = racRows.slice(1).filter(function(r){
-    return withinPeriod(parseBRDate(r[iRacData]), periodo.inicio, periodo.fim);
-  });
   // "Total de Profissionais da EMulti": passa a vir da aba Participantes
   // Ativ. Coletiva, ligada ao Resumo por ID da atividade (ou, sem ID, por
   // data + equipe + responsável + tipo) — ver criarLigacaoAtividades.
+  // Calculado ANTES do filtro abaixo porque a regra de entrada precisa dele.
   var ligacaoAtiv = criarLigacaoAtividades(partRows, racHeader);
+  // REGRA DE ENTRADA da atividade coletiva na eMulti (vale para o
+  // denominador do M2 e para a tabela "Resumo Atividade Coletiva"):
+  //  - responsável da eMulti, sem outro profissional  -> ESPECÍFICA
+  //  - responsável da eMulti, com outro profissional  -> COMPARTILHADA
+  //  - responsável FORA da eMulti, com 1+ profissional da eMulti -> COMPARTILHADA
+  //  - responsável FORA da eMulti, sem nenhum da eMulti (com ou sem outros
+  //    profissionais) -> NÃO ENTRA na eMulti.
+  // "Total de Profissionais da EMulti" já conta responsável + envolvidos
+  // da eMulti, então 0 significa "ninguém da eMulti na atividade" = não entra.
+  // Sem ligação com Participantes (total indefinido) não dá pra checar:
+  // a atividade é mantida, como antes.
+  function atividadeEntraNaEmulti(r){
+    var totalEmultiPart = ligacaoAtiv ? ligacaoAtiv.total(r) : undefined;
+    return (totalEmultiPart === undefined) ? true : totalEmultiPart >= 1;
+  }
+  var racFiltradas = racRows.slice(1).filter(function(r){
+    return withinPeriod(parseBRDate(r[iRacData]), periodo.inicio, periodo.fim)
+      && atividadeEntraNaEmulti(r);
+  });
   if(!ligacaoAtiv){
     console.warn('[Participantes Ativ. Coletiva] não foi possível ligar "Total de Profissionais da EMulti" ao Resumo Atividade Coletiva — usando a coluna da própria aba Resumo. cabeçalho Resumo:', racHeader, '| cabeçalho Participantes:', partHeader);
   }

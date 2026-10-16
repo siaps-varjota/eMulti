@@ -1529,6 +1529,15 @@ export function populateSheetsCache(wb){
           if(v !== undefined) nova[iTot] = v;
           else if(acrescentar) nova[iTot] = "";
           return nova;
+        }).filter(function(r){
+          // Atividade sem NENHUM profissional da eMulti (responsável fora da
+          // eMulti e nenhum envolvido da eMulti) não entra na eMulti — nem
+          // como específica nem como compartilhada — então sai da tabela.
+          // Total vazio/indefinido (sem ligação) mantém a linha.
+          var x = r[iTot];
+          if(x === undefined || x === null || String(x).trim() === "") return true;
+          var n = parseInt(String(x), 10);
+          return isNaN(n) ? true : n >= 1;
         });
       } else {
         console.warn('[Resumo Atividade Coletiva] não foi possível ligar às linhas de Participantes Ativ. Coletiva (sem ID em comum e sem data/equipe/responsável nas duas abas). cabeçalho Resumo:', headers, '| cabeçalho Participantes:', partRowsBrutas[0]);

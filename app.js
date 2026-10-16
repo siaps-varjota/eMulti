@@ -760,7 +760,7 @@ window.debugAtividadesCompartilhadas = function(){
         var motivoExclusao = conta ? "" :
           (reuniaoSemTema ? 'reunião sem o tema "Discussão de caso / Projeto terapêutico singular"'
           : totalProfGeral < 2 ? 'qtd_total_profissionais < 2 (' + totalProfGeral + ')'
-          : 'Total de Profissionais da EMulti = 0 (não achou ligação com Participantes)');
+          : 'Total de Profissionais da EMulti = 0 (nenhum profissional da eMulti na atividade: NÃO ENTRA na eMulti)');
         return {
           data: iRacData>=0 ? String(r[iRacData]) : "",
           tipo_atividade: tipoRaw,
