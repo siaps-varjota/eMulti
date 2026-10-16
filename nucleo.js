@@ -928,12 +928,40 @@ export function fetchSheetCsv(sheetName){
     });
 }
 
+// O Apps Script limita execuções simultâneas e, quando estoura o limite
+// (ou dá erro/timeout), devolve uma página de erro SEM cabeçalho CORS — o
+// navegador mostra isso como "Failed to fetch". Por isso: no máximo 2
+// abas por vez e até 3 tentativas por aba, com espera crescente.
+// Erros de sessão (login) NÃO são repetidos.
+var FETCH_MAX_TENTATIVAS = 3;
+var FETCH_CONCORRENCIA = 2;
+function esperar(ms){ return new Promise(function(res){ setTimeout(res, ms); }); }
+function fetchSheetCsvComRetry(name, tentativa){
+  tentativa = tentativa || 1;
+  return fetchSheetCsv(name).catch(function(err){
+    var msg = String(err && err.message || err);
+    var semRetry = /Sessão/.test(msg) || /Sess\u00e3o/.test(msg);
+    if(semRetry || tentativa >= FETCH_MAX_TENTATIVAS) throw err;
+    return esperar(1200 * tentativa).then(function(){ return fetchSheetCsvComRetry(name, tentativa+1); });
+  });
+}
+
 export function fetchAllSheets(){
-  return Promise.all(requiredSheetNames().map(function(name){
-    return fetchSheetCsv(name)
-      .then(function(csvText){ return {name:name, csvText:csvText, ok:true}; })
-      .catch(function(err){ return {name:name, error:err, ok:false}; });
-  }));
+  var nomes = requiredSheetNames();
+  var resultados = new Array(nomes.length);
+  var proximo = 0;
+  function worker(){
+    if(proximo >= nomes.length) return Promise.resolve();
+    var i = proximo++;
+    var name = nomes[i];
+    return fetchSheetCsvComRetry(name)
+      .then(function(csvText){ resultados[i] = {name:name, csvText:csvText, ok:true}; })
+      .catch(function(err){ resultados[i] = {name:name, error:err, ok:false}; })
+      .then(worker);
+  }
+  var workers = [];
+  for(var w=0; w<Math.min(FETCH_CONCORRENCIA, nomes.length); w++) workers.push(worker());
+  return Promise.all(workers).then(function(){ return resultados; });
 }
 
 export var CLASS_PILL_HEX = {"Ótimo":"#2F6F5E","Bom":"#6B8F71","Suficiente":"#C68A3D","Regular":"#B5474B"};
