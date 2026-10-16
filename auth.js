@@ -8,7 +8,7 @@
 // ASSUNÇÃO: reaproveitando o mesmo Apps Script/planilha "LOGINS"
 // (ABA_USUARIOS) do Sistema de Suporte Clínico e-SUS - SESAVAR,
 // já que foi o modelo enviado como referência. Se o Painel eMulti
-// precisar de um backend/planilha próprios, troque só estas duas
+// precisar de um backconst URL_DO_WEB_APPend/planilha próprios, troque só estas duas
 // constantes pela URL e chave do novo Apps Script.
 const URL_DO_WEB_APP = 'https://script.google.com/macros/s/AKfycbwUYvq-rXzFGz_2kfc0bg751TV_f3orwr_Dkbx97hO3vUccGjaHZwD8xAP9VLMnPkypyA/exec';
 const CHAVE_SECRETA = 'scamander'; // precisa ser igual à do Apps Script
