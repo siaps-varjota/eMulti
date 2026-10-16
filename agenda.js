@@ -30,7 +30,8 @@ function nomeCurtoAgenda(nome){
 // Eventos com Date, ordenados por dia, turno e nome.
 function eventosAgenda(){
   var f=window.__emultiAgendaDados;if(!f)return {eventos:[],pronto:false};
-  var r=f();
+  var r;
+  try{r=f();}catch(e){if(window.console)console.error('Agenda: falha ao montar os eventos',e);return {eventos:[],pronto:true,erro:(e&&e.message)||String(e)};}
   var ev=(r.eventos||[]).map(function(e){return Object.assign({},e,{dt:isoParaDataAgenda(e.data)});}).filter(function(e){return e.dt;});
   ev.sort(function(a,b){
     if(a.dt-b.dt)return a.dt-b.dt;
@@ -38,7 +39,7 @@ function eventosAgenda(){
     if(ta!==tb)return ta-tb;
     return a.nome.localeCompare(b.nome,'pt-BR');
   });
-  return {eventos:ev,pronto:r.pronto!==false};
+  return {eventos:ev,pronto:r.pronto!==false,diag:r.diag||null,erro:''};
 }
 
 // Semanas (domingo a sábado) que tocam o mês exibido.
@@ -58,6 +59,7 @@ function semanasDoMes(){
 function estadoAgenda(){
   var base=eventosAgenda(),todos=base.eventos;
   var profs={};todos.forEach(function(e){profs[e.profKey]=e.prof;});
+  if(profAgenda&&!profs[profAgenda]&&todos.length)profAgenda='';   // filtro de um profissional que não tem mais agendamentos: volta para "Todos"
   var ev=todos.filter(function(e){return !profAgenda||e.profKey===profAgenda;});
   var doMes=ev.filter(function(e){return e.dt.getFullYear()===mesAgenda.getFullYear()&&e.dt.getMonth()===mesAgenda.getMonth();});
   var semanas=semanasDoMes(),sem=semanas.filter(function(s){return s.n===semanaAgenda;})[0]||null;
@@ -71,13 +73,30 @@ function estadoAgenda(){
   var lot={};
   ev.forEach(function(e){var k=chaveDiaAgenda(e.dt)+'|'+e.profKey;var o=lot[k]=lot[k]||{n:0,cap:e.capDia};o.n++;});
   var lotados={};Object.keys(lot).forEach(function(k){if(lot[k].cap>0&&lot[k].n>=lot[k].cap)lotados[k.split('|')[0]]=true;});
-  return {pronto:base.pronto,profs:profs,ev:doMes,filtrados:filtrados,semanas:semanas,sem:sem,dia:dia,lotados:lotados};
+  return {pronto:base.pronto,erro:base.erro,diag:base.diag,todos:todos,evProf:ev,profs:profs,ev:doMes,filtrados:filtrados,semanas:semanas,sem:sem,dia:dia,lotados:lotados};
 }
 
 function contarAgenda(lista,tipo){return lista.filter(function(e){return e.tipo===tipo;}).length;}
 // O que aparece na tela e vai para PDF/WhatsApp/Imagem: o dia escolhido, senão a semana, senão o mês.
 function listaVisivelAgenda(st){return st.dia?st.dia.eventos:(st.sem?st.filtrados:st.ev);}
 function rotuloDiaAgenda(dt){return DIAS_AGENDA_LONGO[dt.getDay()]+', '+brAgenda(dt);}
+
+
+// Quando a Agenda fica vazia, explica o motivo (outro mês, linhas fora da Agenda etc.).
+function motivoVazioAgenda(st){
+  var m=[],d=st.diag;
+  if(st.todos.length&&!st.evProf.length){m.push('Nenhum agendamento do profissional escolhido.');}
+  else if(st.todos.length&&!st.dia){
+    var fora=st.evProf.filter(function(e){return !(e.dt.getFullYear()===mesAgenda.getFullYear()&&e.dt.getMonth()===mesAgenda.getMonth());});
+    if(fora.length){var primeiro=fora.map(function(e){return e.dt;}).sort(function(a,b){return a-b;})[0];m.push('Há '+fora.length+' agendamento(s) em outros meses (o mais próximo, em '+brAgenda(primeiro)+'). Use ‹ › para mudar de mês.');}
+  }
+  if(d&&!st.todos.length){
+    if(!d.linhas)m.push('A tabela de Agendamentos ainda não foi carregada.');
+    else if(!d.comData)m.push('Nenhuma linha da tabela tem data agendada.');
+    else m.push('A tabela tem '+d.comData+' linha(s) com data, mas nenhuma entrou na Agenda'+(d.inativas?': '+d.inativas+' Cancelado/Faltou':'')+(d.naoElegiveis?(d.inativas?'; ':': ')+d.naoElegiveis+' fora de Pessoas atendidas pela eMulti':'')+'.');
+  }
+  return m.length?' '+m.join(' '):'';
+}
 
 function renderAgenda(){
   var grade=elAgenda('agendaGrade');if(!grade)return;
@@ -119,6 +138,10 @@ function renderAgenda(){
     +'<span><i style="background:#B5474B"></i>Dia lotado (vagas do dia preenchidas)</span>'
     +(st.dia?'<span class="agenda-dia-sel">📌 PDF, WhatsApp e Imagem vão usar só '+escAgenda(rotDia)+'. Clique no dia de novo (ou escolha "Todos os dias") para voltar ao período.</span>':'');
 
+  if(st.erro){
+    grade.innerHTML='<p class="agendamentos-vazio" style="padding:22px">Não foi possível montar a Agenda: '+escAgenda(st.erro)+'. Clique em "Atualizar lista" na tabela e abra a Agenda de novo.</p>';
+    elAgenda('agendaLista').innerHTML='';return;
+  }
   if(!st.pronto){
     grade.innerHTML='<p class="agendamentos-vazio" style="padding:22px">Carregando agendamentos… Se não aparecer, atualize os dados do painel para carregar Pessoas atendidas.</p>';
     elAgenda('agendaLista').innerHTML='';return;
@@ -146,7 +169,7 @@ function renderAgenda(){
 
   // Lista detalhada
   var el=elAgenda('agendaLista');
-  if(!lista.length){el.innerHTML='<p class="agendamentos-vazio" style="padding:14px 2px">Nenhum agendamento '+(st.dia?'neste dia':'neste período')+'.</p>';return;}
+  if(!lista.length){el.innerHTML='<p class="agendamentos-vazio" style="padding:14px 2px">Nenhum agendamento '+(st.dia?'neste dia':'neste período')+'.'+motivoVazioAgenda(st)+'</p>';return;}
   var grupos={},ordem=[];
   lista.forEach(function(e){var k=chaveDiaAgenda(e.dt);if(!grupos[k]){grupos[k]=[];ordem.push(k);}grupos[k].push(e);});
   el.innerHTML='<h3>Agendamentos '+(st.dia?'do dia':'do período')+' ('+lista.length+')</h3>'+ordem.map(function(k){
