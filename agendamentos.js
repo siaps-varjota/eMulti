@@ -671,6 +671,7 @@ function enviarIndividualAg(items,progresso){
 function executarSalvarGeradosAg(ixs){
   var total=ixs.length,uc=profMapAg(),turnos=turnosAg(uc);
   var items=ixs.map(function(i){i=Number(i);var r=rowsAg[i];return{ix:i,nome:r.Nome,situacao:'Agendado',dataAgendada:propostaAg[i],turno:turnos[i]?turnos[i].rotulo:''};});
+  var antes={};ixs.forEach(function(i){i=Number(i);var r=rowsAg[i];antes[i]={sit:r.Situação||'Pendente',data:dateAg(r['Data agendada']),turno:r.Turno||''};});   // para registrar Remarcado
   var btns=['agendamentosGerar','agendamentosSalvarGerados','agendamentosDescartar'];
   btns.forEach(function(id){var el=document.getElementById(id);if(el)el.disabled=true;});
   function progresso(n){msgAg('Salvando agendamentos… '+n+' de '+total,false);}
@@ -680,6 +681,9 @@ function executarSalvarGeradosAg(ixs){
     return enviarIndividualAg(items,progresso);
   });
   envio.then(function(out){
+    var remarcados=[];
+    out.ok.forEach(function(ix){var an=antes[ix];if(an&&an.data&&an.data!==propostaAg[ix]&&(an.sit==='Agendado'||an.sit==='Pendente'))remarcados.push({ix:ix,situacao:'Remarcado',dataAgendada:an.data,turno:an.turno});});
+    if(remarcados.length)registrarHistoricoAg(remarcados);
     out.ok.forEach(function(ix){var r=rowsAg[ix];r.Situação='Agendado';r['Data agendada']=propostaAg[ix];var it=items.filter(function(x){return x.ix===ix;})[0];r.Turno=it?it.turno:'';delete propostaAg[ix];});
     var falhas=out.falhas.length,ultimoErro=falhas?out.falhas[falhas-1].erro:'';
     finalizar(out.ok.length,falhas,ultimoErro);
@@ -738,11 +742,13 @@ function carregarHistoricoAg(){
     window.dispatchEvent(new Event('emulti:agenda-dados'));
   });
 }
-// Grava no histórico cada baixa (Realizado/Faltou). Não bloqueia nem desfaz a baixa se falhar.
+// Desfechos que entram no histórico. Remarcado = a data que a pessoa tinha foi trocada por outra.
+var DESFECHOS_HIST_AG=['Realizado','Faltou','Cancelado','Remarcado'];
+// Grava no histórico cada desfecho (Realizado, Faltou, Cancelado, Remarcado). Não bloqueia nem desfaz a alteração se falhar.
 function registrarHistoricoAg(itens){
   var uc=profMapAg(),rows=[];
   itens.forEach(function(x){
-    if(x.situacao!=='Realizado'&&x.situacao!=='Faltou')return;
+    if(DESFECHOS_HIST_AG.indexOf(x.situacao)===-1)return;
     var r=rowsAg[x.ix];if(!r||!x.dataAgendada)return;
     var n=normAg(r.Nome);
     rows.push({nome:String(r.Nome||''),prof:(uc&&uc.ultProf[n])||'',unidade:(uc&&uc.ultUnid&&uc.ultUnid[n])||'',dataAgendada:x.dataAgendada,turno:x.turno||'',desfecho:x.situacao});
@@ -766,6 +772,43 @@ function textoVersaoAg(){
     :'Apps Script em uso: versão antiga, sem identificação. Publique a versão nova do backend (Implantar → Gerenciar implantações → Editar → Nova versão) para ele passar a informar a versão aqui.';
 }
 // Botão "Testar histórico": cria a aba na planilha (se faltar), lê de volta e mostra o motivo exato se falhar.
+// Importação única: traz para o histórico o que já está como Realizado, Faltou ou Cancelado com data na aba Agendamentos.
+// Parcial: ali só fica a última consulta de cada pessoa. Pode repetir sem duplicar (mesma pessoa + data = uma linha).
+function importarHistoricoAg(){
+  if(busyAg)return;
+  var uc=profMapAg();
+  if(!uc){msgAg('Atualize os dados do painel (PEC) para carregar Pessoas atendidas antes de importar: o profissional e a unidade vêm de lá.',true);return;}
+  var hoje=isoAg(new Date()),rows=[],cont={Realizado:0,Faltou:0,Cancelado:0};
+  rowsAg.forEach(function(r){
+    if(r._virtual)return;
+    var sit=r.Situação||'Pendente';if(!cont.hasOwnProperty(sit))return;
+    var d=dateAg(r['Data agendada']);if(!d)return;
+    if(sit!=='Cancelado'&&d>hoje)return;
+    var n=normAg(r.Nome);
+    cont[sit]++;
+    rows.push({nome:String(r.Nome||''),prof:uc.ultProf[n]||'',unidade:(uc.ultUnid&&uc.ultUnid[n])||'',dataAgendada:d,turno:r.Turno||'',desfecho:sit});
+  });
+  if(!rows.length){msgAg('Não há registros Realizado, Faltou ou Cancelado com data na aba Agendamentos para importar.',true);return;}
+  if(!window.confirm('Importar para o histórico o que já está na aba Agendamentos?\n\n• '+cont.Realizado+' Realizado\n• '+cont.Faltou+' Faltou\n• '+cont.Cancelado+' Cancelado\n\nSó existe a última consulta de cada pessoa, então a importação é parcial. Quem já está no histórico não duplica; se o desfecho for diferente, vale o da aba Agendamentos.'))return;
+  busyAg=true;
+  var btn=document.getElementById('agendamentosImportarHist');if(btn)btn.disabled=true;
+  var partes=[],adicionados=0,atualizados=0,feitos=0;
+  for(var i=0;i<rows.length;i+=300)partes.push(rows.slice(i,i+300));
+  function prox(){
+    if(!partes.length)return Promise.resolve();
+    var parte=partes.shift();
+    msgAg('Importando para o histórico… '+feitos+' de '+rows.length,false);
+    return apiAg({action:'agendamentos.historicoAdd',rows:parte}).then(function(r){adicionados+=Number(r.adicionados)||0;atualizados+=Number(r.atualizados)||0;feitos+=parte.length;return prox();});
+  }
+  prox().then(function(){return apiAg({action:'agendamentos.historicoList'});}).then(function(r){
+    falhaHistAg=null;histAg=Array.isArray(r.rows)?r.rows:[];mesclarHistoricoAg(lerPendHistAg());
+    window.dispatchEvent(new Event('emulti:agenda-dados'));
+    var iguais=rows.length-adicionados-atualizados;
+    msgAg('Importação concluída: '+adicionados+(adicionados===1?' registro novo':' registros novos')+', '+atualizados+(atualizados===1?' atualizado':' atualizados')+' e '+iguais+(iguais===1?' já estava':' já estavam')+' no histórico.',false);
+  }).catch(function(e){
+    msgAg('Não foi possível importar: '+((e&&e.message)||e),true);
+  }).finally(function(){busyAg=false;if(btn)btn.disabled=false;});
+}
 function testarHistoricoAg(){
   msgAg('Testando o histórico na planilha…',false);
   return apiAg({action:'agendamentos.historicoAdd',rows:[]}).then(function(){return enviarPendHistAg();}).then(function(){return apiAg({action:'agendamentos.historicoList'});}).then(function(r){
@@ -815,18 +858,34 @@ window.__emultiAgendaDados=function(){
 window.__emultiAgendaCarregar=function(){if(rowsAg.length||busyAg){window.dispatchEvent(new Event('emulti:agenda-dados'));return;}loadAg();};
 
 // ---------- Salvar uma linha ----------
+// Aviso antes de salvar quando a data escolhida à mão não tem vaga (dia lotado, fechado ou sem atendimento).
+// Se a pessoa continuar, a data passa para o próximo dia com vaga (regra "sem excedente").
+function avisoDiaLotadoAg(ix,r,fields,antData){
+  var d=fields.dataAgendada,sit=fields.situacao;
+  if(!d||d===antData||sit==='Cancelado'||sit==='Faltou'||sit==='Realizado')return '';
+  var uc=profMapAg();if(!uc)return '';
+  var k=chaveProfAg(r,uc);if(!k)return '';
+  var livre=proximaVagaAg(ix,d,uc);
+  if(livre===d)return '';
+  var m=String(motivoDiaAg(k,d)||'');
+  m=/^ACEITA/.test(m)?'o dia '+brAg(d)+' não tem vaga disponível para este profissional.':m.replace(/^N[ÃA]O aceita\s*—\s*/i,'');
+  return 'Atenção: '+m+'\n\nSe continuar, '+String(r.Nome||'')+' será salvo(a) em '+brAg(livre)+' (próximo dia com vaga), e não em '+brAg(d)+'.\n\nContinuar?';
+}
 function saveAg(tr){
   var ix=Number(tr.dataset.agIx),r=rowsAg[ix];if(!r)return;
+  var antSit=r.Situação||'Pendente',antData=dateAg(r['Data agendada']),antTurno=r.Turno||'';   // estado antes de salvar (para o histórico)
   var btn=tr.querySelector('[data-ag-save]'),fields={};
   tr.querySelectorAll('[data-ag]').forEach(function(el){fields[el.dataset.ag]=el.value;});
   btn.disabled=true;btn.textContent='Salvando…';
   var turno='',movidoAg='';
   verificarConflitosAg([r]).then(function(conf){return conf.length?confirmarConflitosAg(conf):true;}).then(function(seguir){
     if(!seguir)throw {cancelado:true};
+    var av=avisoDiaLotadoAg(ix,r,fields,antData);
+    if(av&&!window.confirm(av))throw {cancelado:true,lotado:true};
     return r._virtual?garantirNaPlanilhaAg([r]):null;
   }).then(function(){
     // Sem excedente: se o dia escolhido já está lotado para o profissional, vai para o próximo dia com vaga.
-    if(fields.dataAgendada&&fields.situacao!=='Cancelado'&&fields.situacao!=='Faltou'){
+    if(fields.dataAgendada&&fields.situacao!=='Cancelado'&&fields.situacao!=='Faltou'&&fields.situacao!=='Realizado'){
       var ucv=profMapAg();
       if(ucv&&chaveProfAg(r,ucv)){
         var livre=proximaVagaAg(ix,fields.dataAgendada,ucv);
@@ -838,13 +897,16 @@ function saveAg(tr){
   }).then(function(){
     r.Situação=fields.situacao;r['Data agendada']=fields.dataAgendada;r.Turno=turno;
     delete propostaAg[ix];atualizarBotoesGeracaoAg();
-    registrarHistoricoAg([{ix:ix,situacao:fields.situacao,dataAgendada:fields.dataAgendada,turno:turno}]);
+    var histSave=[{ix:ix,situacao:fields.situacao,dataAgendada:fields.situacao==='Cancelado'?(fields.dataAgendada||antData):fields.dataAgendada,turno:turno||antTurno}];
+    // Trocou a data de quem estava Pendente/Agendado: a data anterior entra no histórico como Remarcado.
+    if(antData&&(antSit==='Agendado'||antSit==='Pendente')&&(fields.situacao==='Agendado'||fields.situacao==='Pendente')&&fields.dataAgendada&&fields.dataAgendada!==antData)histSave.push({ix:ix,situacao:'Remarcado',dataAgendada:antData,turno:antTurno});
+    registrarHistoricoAg(histSave);
     var aviso='Alterações de '+r.Nome+' salvas.'+(movidoAg?' O dia estava lotado, então a data passou para o próximo dia com vaga ('+movidoAg+').':'');
     msgAg(aviso);
     // Faltou: a pessoa volta para a fila e já recebe uma nova data sugerida.
     if(fields.situacao==='Faltou'){busyAg=false;gerarAg(true,aviso+' Nova data sugerida para o reagendamento.');}
   }).catch(function(e){
-    if(e&&e.cancelado){msgAg('Alteração não salva: outra pessoa mudou esta linha. A tela mostra o estado atual da planilha.',true);return;}
+    if(e&&e.cancelado){msgAg(e.lotado?'Alteração não salva: o dia escolhido não tem vaga. Escolha outra data.':'Alteração não salva: outra pessoa mudou esta linha. A tela mostra o estado atual da planilha.',true);return;}
     msgAg((e&&e.message)||'Falha ao salvar.',true);
   }).finally(function(){renderAg();});
 }
@@ -1234,7 +1296,7 @@ document.addEventListener('DOMContentLoaded',function(){
     if(rs)rs.addEventListener('click',function(){cfgAg={m:6,t:6,dias:DIAS_UTEIS_AG.slice(),janela:0,prof:{},soManha:[0,0,0,0,0,1,0],feriados:cfgAg.feriados,faltas:cfgAg.faltas,folgas:cfgAg.folgas,redistribuir:false};renderConfigAg();configMudouAg();});
   }
   document.getElementById('agendamentosAtualizar').addEventListener('click',loadAg);
-  var btnTestarHist=document.getElementById('agendamentosTestarHist');if(btnTestarHist)btnTestarHist.addEventListener('click',testarHistoricoAg);document.getElementById('agendamentosSincronizar').addEventListener('click',syncAg);
+  var btnTestarHist=document.getElementById('agendamentosTestarHist');if(btnTestarHist)btnTestarHist.addEventListener('click',testarHistoricoAg);var btnImpHist=document.getElementById('agendamentosImportarHist');if(btnImpHist)btnImpHist.addEventListener('click',importarHistoricoAg);document.getElementById('agendamentosSincronizar').addEventListener('click',syncAg);
   // Mudou o filtro em Pessoas atendidas: só importa se a aba está seguindo aquela lista.
   window.addEventListener('emulti:pessoas-filtro',function(){
     if(!seguirListaAg())return;
