@@ -357,14 +357,18 @@
     </div>
     <div id="agVisaoFaltas" hidden>
     <div class="card faltas-card">
-      <div class="agendamentos-toolbar faltas-toolbar"><label class="agendamentos-dias" for="faltasProf">Profissional</label><select id="faltasProf" aria-label="Filtrar por profissional"><option value="">Todos</option></select><label class="agendamentos-dias" for="faltasDe">Período de</label><input id="faltasDe" type="date"><label class="agendamentos-dias" for="faltasAte">até</label><input id="faltasAte" type="date"><button id="faltasLimpar" type="button" class="agendamentos-secundario">Limpar filtros</button><button id="faltasAtualizar" type="button">Atualizar</button></div>
+      <div class="agendamentos-toolbar faltas-toolbar"><label class="agendamentos-dias" for="faltasProf">Profissional</label><select id="faltasProf" aria-label="Filtrar por profissional"><option value="">Todos</option></select><label class="agendamentos-dias" for="faltasDe">Período de</label><input id="faltasDe" type="date"><label class="agendamentos-dias" for="faltasAte">até</label><input id="faltasAte" type="date"><input id="faltasBusca" type="search" placeholder="Buscar paciente…" aria-label="Buscar paciente"><button id="faltasLimpar" type="button" class="agendamentos-secundario">Limpar filtros</button><button id="faltasAtualizar" type="button">Atualizar</button></div>
+      <label class="agendamentos-seguir"><input type="checkbox" id="faltasSemData"> Só quem ainda não tem nova data agendada (vale para as duas listas)</label>
       <p id="faltasInfo" class="agendamentos-feedback" role="status"></p>
       <div id="faltasResumo" class="faltas-resumo"></div>
       <div id="faltasTabelas" class="faltas-grid"></div>
+      <h3 class="faltas-h">Pacientes que faltaram</h3>
+      <p class="faltas-nota">Uma linha por paciente, com as datas das faltas dentro do período e do profissional escolhidos acima.</p>
+      <div class="agendamentos-toolbar faltas-toolbar"><button id="faltasFaltososCsv" type="button" class="agendamentos-secundario">Exportar CSV</button></div>
+      <div id="faltasFaltosos"></div>
       <h3 class="faltas-h">Faltas repetidas (busca ativa)</h3>
       <p class="faltas-nota">Conta as faltas seguidas mais recentes de cada pessoa; a contagem zera quando há um Realizado. Usa todo o histórico, sem o filtro de período acima.</p>
       <div class="agendamentos-toolbar faltas-toolbar"><label class="agendamentos-dias" for="faltasLimiar">A partir de</label><select id="faltasLimiar" aria-label="Quantidade de faltas seguidas"><option value="2">2 faltas seguidas</option><option value="3">3 faltas seguidas</option><option value="4">4 faltas seguidas</option><option value="5">5 ou mais</option></select><button id="faltasCsv" type="button" class="agendamentos-secundario">Exportar CSV</button></div>
-      <label class="agendamentos-seguir"><input type="checkbox" id="faltasSemData"> Só quem ainda não tem nova data agendada</label>
       <div id="faltasRepetidas"></div>
     </div>
     </div>
