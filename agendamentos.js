@@ -67,6 +67,12 @@ function capAg(k){
 //  '1' = toda semana · '2'/'3'/'4' = a cada N semanas, contando a partir da semana de "desde" ·
 //  'mes' = só nas semanas escolhidas do mês (1ª, 2ª… ocorrência desse dia da semana no mês).
 var UNIDADES_AG=['Ararinha','Centro','Vila Naiara','Croatá','Empréstimos'];
+// Unidades em que cada profissional atende (nome normalizado -> unidades). Quem está aqui tem uma agenda por unidade
+// (vagas, dias e lotação separados) mesmo que ainda não haja atendimento ou regra cadastrada em todas elas.
+// Para incluir outro profissional que atende em 2+ unidades, basta acrescentar uma linha.
+var PROF_UNIDADES_AG={
+  'aline de sousa rosa':['Centro','Ararinha','Vila Naiara']
+};
 // Unidade da regra x unidade vinda do PEC (coluna equipe): igual ou uma contém a outra ("EMULTI Vila Naiara" casa com "Vila Naiara").
 function unidCasaAg(a,b){var x=normAg(a),y=normAg(b);return !!x&&!!y&&(x===y||x.indexOf(y)>=0||y.indexOf(x)>=0);}
 function nomeUnidAg(n){for(var i=0;i<UNIDADES_AG.length;i++)if(unidCasaAg(UNIDADES_AG[i],n))return UNIDADES_AG[i];return String(n||'');}
@@ -157,6 +163,7 @@ function profMapAg(){
   // Profissional que atendeu em 2+ unidades: vagas, dias e lotação passam a valer por unidade.
   var multi={};Object.keys(unidsDe).forEach(function(pk){if(Object.keys(unidsDe[pk]).length>1)multi[pk]=true;});
   // Profissional com regras em 2+ unidades também tem uma agenda por unidade.
+  Object.keys(PROF_UNIDADES_AG).forEach(function(b){if(PROF_UNIDADES_AG[b].length>1)multi[b]=true;});
   Object.keys(cfgAg.prof).forEach(function(b){var ru=cfgAg.prof[b]&&cfgAg.prof[b].regras;if(!Array.isArray(ru))return;var su={};ru.forEach(function(r){if(r&&r.unid)su[normAg(nomeUnidAg(r.unid))]=1;});if(Object.keys(su).length>1)multi[b]=true;});
   profCacheAg={map:map,ult:ult,ultProf:ultProf,ultUnid:ultUnid,multi:multi,elegiveis:elegiveis,rows:list.rows.filter(function(r){return r.agendavel===true;}),nomes:Object.keys(nomes).sort(function(a,b){return a.localeCompare(b,'pt-BR');})};
   return profCacheAg;
@@ -417,9 +424,13 @@ function agendasAg(uc){
   Object.keys(uc.ultProf).forEach(function(n){var r={Nome:n};var k=chaveProfAg(r,uc);if(k)o[k]=nomeProfAg(r,uc);});
   // Unidades configuradas nas regras de atendimento também têm agenda própria (ex.: Ararinha e Vila Naiara),
   // mesmo que nenhum paciente tenha sido atendido ali ainda. Só vale para quem atende em 2+ unidades.
-  Object.keys(cfgAg.prof).forEach(function(base){
-    var ru=cfgAg.prof[base]&&cfgAg.prof[base].regras;if(!Array.isArray(ru)||!ru.length)return;
-    var unids=[];ru.forEach(function(r){var u=r&&r.unid?nomeUnidAg(r.unid):'';if(u&&unids.map(normAg).indexOf(normAg(u))<0)unids.push(u);});
+  var bases={};Object.keys(cfgAg.prof).forEach(function(b){bases[b]=1;});Object.keys(PROF_UNIDADES_AG).forEach(function(b){bases[b]=1;});
+  Object.keys(bases).forEach(function(base){
+    var ru=(cfgAg.prof[base]&&Array.isArray(cfgAg.prof[base].regras))?cfgAg.prof[base].regras:[];
+    var unids=[];
+    function add(u){u=u?nomeUnidAg(u):'';if(u&&unids.map(normAg).indexOf(normAg(u))<0)unids.push(u);}
+    (PROF_UNIDADES_AG[base]||[]).forEach(add);
+    ru.forEach(function(r){if(r&&r.unid)add(r.unid);});
     if(!(unids.length>1||(uc.multi&&uc.multi[base])))return;
     var nome='';Object.keys(o).forEach(function(k){if(!nome&&k.split('@')[0]===base)nome=o[k].split(' — ')[0];});
     if(!nome)uc.nomes.forEach(function(n){if(!nome&&normAg(n)===base)nome=n;});
