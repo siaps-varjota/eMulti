@@ -301,7 +301,7 @@
   </div>
 
   <div id="tabAgendamentos" class="tab-panel">
-    <div class="ip-header"><div class="ip-header-text"><h2>Agendamentos <span class="ag-info" tabindex="0" role="button" aria-label="Como funciona esta tela"><span class="ag-info-i" aria-hidden="true">i</span><span class="ag-info-tip" role="tooltip">Mostra por padrão as pessoas cujo último atendimento foi nos últimos 120 dias (ajuste os dias ao lado; 0 mostra todas). Clique no título de uma coluna para ordenar (por padrão, o agendamento mais recente fica no topo). Marque “Também seguir os filtros da lista Pessoas atendidas” para respeitar também os filtros aplicados lá (Mês, colunas e busca). Os filtros ficam lembrados neste navegador. Situação “Faltou” devolve a pessoa para a fila de reagendamento. A situação e a data agendada ficam registradas na planilha. Use “Gerar datas automaticamente” para distribuir as pessoas pendentes por profissional da última consulta (mais antiga primeiro, segunda a sexta, até 6 pela manhã e 6 à tarde por dia).</span></span></h2></div><div class="pill-group ag-pills" role="tablist" aria-label="Visão"><button type="button" class="pill-btn active" id="agPillLista" role="tab" aria-selected="true">Agendamentos</button><button type="button" class="pill-btn" id="agPillAgenda" role="tab" aria-selected="false">Agenda</button></div></div>
+    <div class="ip-header"><div class="ip-header-text"><h2>Agendamentos <span class="ag-info" tabindex="0" role="button" aria-label="Como funciona esta tela"><span class="ag-info-i" aria-hidden="true">i</span><span class="ag-info-tip" role="tooltip">Mostra por padrão as pessoas cujo último atendimento foi nos últimos 120 dias (ajuste os dias ao lado; 0 mostra todas). Clique no título de uma coluna para ordenar (por padrão, o agendamento mais recente fica no topo). Marque “Também seguir os filtros da lista Pessoas atendidas” para respeitar também os filtros aplicados lá (Mês, colunas e busca). Os filtros ficam lembrados neste navegador. Situação “Faltou” devolve a pessoa para a fila de reagendamento. A situação e a data agendada ficam registradas na planilha. Use “Gerar datas automaticamente” para distribuir as pessoas pendentes por profissional da última consulta (mais antiga primeiro, segunda a sexta, até 6 pela manhã e 6 à tarde por dia).</span></span></h2></div><div class="pill-group ag-pills" role="tablist" aria-label="Visão"><button type="button" class="pill-btn active" id="agPillLista" role="tab" aria-selected="true">Agendamentos</button><button type="button" class="pill-btn" id="agPillAgenda" role="tab" aria-selected="false">Agenda</button><button type="button" class="pill-btn" id="agPillFaltas" role="tab" aria-selected="false">Faltas</button></div></div>
     <div id="agVisaoLista">
     <div class="card agendamentos-card">
       <div class="agendamentos-toolbar"><input id="agendamentosBusca" type="search" placeholder="Buscar pessoa…" aria-label="Buscar pessoa"><input id="agendamentosProfissional" type="search" list="agendamentosProfissionais" placeholder="Filtrar por profissional…" aria-label="Filtrar por profissional" autocomplete="off"><datalist id="agendamentosProfissionais"></datalist><select id="agendamentosTurno" aria-label="Filtrar por turno"><option value="">Todos os turnos</option><option value="manha">Manhã</option><option value="tarde">Tarde</option><option value="sem">Sem turno</option></select><label class="agendamentos-dias" for="agendamentosDias">Último atendimento nos últimos</label><input id="agendamentosDias" type="number" min="0" step="1" value="120" inputmode="numeric" aria-label="Dias desde o último atendimento (0 = todos)"><span class="agendamentos-dias">dias</span><span id="agendamentosContagem">—</span><button id="agendamentosAtualizar" type="button">Atualizar lista</button></div>
@@ -355,6 +355,19 @@
       <div class="agenda-lista" id="agendaLista"></div>
     </div>
     </div>
+    <div id="agVisaoFaltas" hidden>
+    <div class="card faltas-card">
+      <div class="agendamentos-toolbar faltas-toolbar"><label class="agendamentos-dias" for="faltasProf">Profissional</label><select id="faltasProf" aria-label="Filtrar por profissional"><option value="">Todos</option></select><label class="agendamentos-dias" for="faltasDe">Período de</label><input id="faltasDe" type="date"><label class="agendamentos-dias" for="faltasAte">até</label><input id="faltasAte" type="date"><button id="faltasLimpar" type="button" class="agendamentos-secundario">Limpar filtros</button><button id="faltasAtualizar" type="button">Atualizar</button></div>
+      <p id="faltasInfo" class="agendamentos-feedback" role="status"></p>
+      <div id="faltasResumo" class="faltas-resumo"></div>
+      <div id="faltasTabelas" class="faltas-grid"></div>
+      <h3 class="faltas-h">Faltas repetidas (busca ativa)</h3>
+      <p class="faltas-nota">Conta as faltas seguidas mais recentes de cada pessoa; a contagem zera quando há um Realizado. Usa todo o histórico, sem o filtro de período acima.</p>
+      <div class="agendamentos-toolbar faltas-toolbar"><label class="agendamentos-dias" for="faltasLimiar">A partir de</label><select id="faltasLimiar" aria-label="Quantidade de faltas seguidas"><option value="2">2 faltas seguidas</option><option value="3">3 faltas seguidas</option><option value="4">4 faltas seguidas</option><option value="5">5 ou mais</option></select><button id="faltasCsv" type="button" class="agendamentos-secundario">Exportar CSV</button></div>
+      <label class="agendamentos-seguir"><input type="checkbox" id="faltasSemData"> Só quem ainda não tem nova data agendada</label>
+      <div id="faltasRepetidas"></div>
+    </div>
+    </div>
   </div>
 
   <div id="tabNotas" class="tab-panel">
@@ -373,6 +386,7 @@
 <script type="module" src="app.js"></script>
 <script type="module" src="agendamentos.js"></script>
 <script type="module" src="agenda.js"></script>
+<script type="module" src="faltas.js"></script>
 <script src="auth.js"></script>
 </body>
 </html>
