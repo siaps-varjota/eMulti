@@ -1247,6 +1247,19 @@ document.addEventListener('DOMContentLoaded',function(){
   });
   // Painéis de vagas e configuração
   var dv=document.getElementById('agendamentosVagas');if(dv)dv.addEventListener('toggle',function(){renderAg();});
+  // Três botões na mesma linha abrem um painel por vez (os <details> continuam sendo o painel; só o título deles fica oculto).
+  var paineisAg=[['agBtnVagas','agendamentosVagas'],['agBtnConfig','agendamentosConfig'],['agBtnFolgas','agendamentosFolgas']];
+  function sincPaineisAg(){paineisAg.forEach(function(p){var b=document.getElementById(p[0]),d=document.getElementById(p[1]);if(!b||!d)return;var on=!!d.open;b.classList.toggle('agendamentos-secundario',!on);b.setAttribute('aria-expanded',on?'true':'false');});}
+  paineisAg.forEach(function(p){
+    var b=document.getElementById(p[0]);if(!b)return;
+    b.addEventListener('click',function(){
+      var alvo=document.getElementById(p[1]),abrir=!!alvo&&!alvo.open;
+      paineisAg.forEach(function(q){var d=document.getElementById(q[1]);if(d)d.open=false;});
+      if(alvo&&abrir)alvo.open=true;
+      sincPaineisAg();
+    });
+  });
+  sincPaineisAg();
   var dc=document.getElementById('agendamentosConfig');
   if(dc){
     dc.addEventListener('toggle',function(){if(dc.open)renderConfigAg();});
