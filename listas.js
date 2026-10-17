@@ -595,68 +595,6 @@ var TIPO_EVENTO_ATENDIMENTO = 'Atendimento';
 
 var TIPO_EVENTO_PARTICIPACAO = 'Participação em Atividade Coletiva';
 
-// Classificação de Fluxo ("Entrada"/"Saída") da tabela "Pessoas
-// Atendidas": SEMPRE calculada sobre o HISTÓRICO COMPLETO da pessoa
-// (Atendimentos + Participantes Ativ. Coletiva — TODAS as datas, sem o
-// filtro de Mês próprio dessa tabela) e sobre a janela móvel de
-// JANELA_MESES (4) meses terminando no ÚLTIMO DIA do mês ATUAL real
-// (hoje), não no mês filtrado no topo da página — mesmo critério de
-// referência temporal já usado pela Busca-Ativa (ver
-// buscaAtivaCompute/calcularJanelaPeriodo).
-// - "Entrada": o PRIMEIRO atendimento/participação de TODO o histórico
-//   da pessoa caiu dentro dessa janela (pessoa nova no indicador).
-// - "Saída": a pessoa NÃO tem nenhum atendimento/participação dentro
-//   dessa janela (mesmo tendo histórico anterior a ela).
-// - Qualquer outro caso (já vinha de antes da janela E também tem
-//   evento dentro dela — segue ativa/estável) fica sem rótulo (célula
-//   vazia) — assim a lista de valores do filtro "Fluxo" mostra só as
-//   duas opções pedidas (Entrada/Saída), sem um 3º valor "no meio".
-function calcularFluxoPorPessoa(){
-  var hoje = new Date();
-  var mesAtual = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-  var janela = calcularJanelaPeriodo(mesAtual);
-  var mapa = {}; // nome maiúsculo -> {primeira:Date|null, temNaJanela:bool}
-  function registrar(nome, d){
-    if(!nome || !d) return;
-    var chave = nome.toUpperCase();
-    if(!mapa[chave]) mapa[chave] = {primeira:null, temNaJanela:false};
-    var info = mapa[chave];
-    if(!info.primeira || d < info.primeira) info.primeira = d;
-    if(withinPeriod(d, janela.inicio, janela.fim)) info.temNaJanela = true;
-  }
-  var atCachedFluxo = estadoApp.latestSheets[suffixedName("Atendimentos")];
-  if(atCachedFluxo){
-    var iDataFluxo = colIndex(atCachedFluxo.headers, "data_hora");
-    var iNomeFluxo = colIndex(atCachedFluxo.headers, "nome");
-    if(iDataFluxo >= 0 && iNomeFluxo >= 0){
-      atCachedFluxo.rows.forEach(function(r){
-        registrar(String(r[iNomeFluxo]||"").trim(), parseBRDate(r[iDataFluxo]));
-      });
-    }
-  }
-  var partCachedFluxo = estadoApp.latestSheets[suffixedName("Participantes Ativ. Coletiva")];
-  if(partCachedFluxo){
-    var iPDataFluxo = colIndex(partCachedFluxo.headers, "data");
-    var iPNomeFluxo = colIndex(partCachedFluxo.headers, "participante");
-    if(iPDataFluxo >= 0 && iPNomeFluxo >= 0){
-      partCachedFluxo.rows.forEach(function(r){
-        var nome = String(r[iPNomeFluxo]||"").trim();
-        if(!nome || nome.indexOf("(sem lista nominal") === 0) return;
-        registrar(nome, parseBRDate(r[iPDataFluxo]));
-      });
-    }
-  }
-  return {mapa: mapa, janela: janela};
-}
-
-function fluxoLabelPara(fluxoInfo, nome){
-  var info = fluxoInfo.mapa[String(nome||"").toUpperCase()];
-  if(!info) return "";
-  if(info.primeira && withinPeriod(info.primeira, fluxoInfo.janela.inicio, fluxoInfo.janela.fim)) return "Entrada";
-  if(!info.temNaJanela) return "Saída";
-  return "";
-}
-
 // Profissional da eMulti: pelo cadastro da aba PROFISSIONAIS; se ele ainda não carregou, cai no critério comparativo.
 function ehEmultiAgenda(nome){
   return profissionaisRoster.length ? nomeEhDaEmulti(nome) : ehProfissionalComparativoEmulti(nome);
@@ -715,7 +653,16 @@ export function pessoasAtendidasParaMeses(monthValues){
     }
   }
   function novaPessoa(nome){
-    return {nome:nome, at:0, part:0, datas:[], profissionais:{}, infoPorProf:{}, ultimaData:null, ultimoTipo:null, ultimoProfissionalPrincipal:null, atEmulti:0, ultAgData:null, ultAgProf:'', ultAgUnid:'', mesesAg:{}};
+    return {nome:nome, at:0, part:0, datas:[], profissionais:{}, infoPorProf:{}, ultimaData:null, ultimoTipo:null, ultimoProfissionalPrincipal:null, atEmulti:0, ultAgData:null, ultAgProf:'', ultAgUnid:'', mesesAg:{}, ultEquipe:'', ultEquipeData:null};
+  }
+  // Equipe/Unidade da pessoa = a do evento mais recente (Atendimento ou Participação em Atividade
+  // Coletiva) que tenha equipe preenchida; em empate de data, vale a que apareceu primeiro.
+  function registrarEquipe(p, d, equipe){
+    if(!equipe) return;
+    if(!p.ultEquipe || (d && (!p.ultEquipeData || d.getTime() > p.ultEquipeData.getTime()))){
+      p.ultEquipe = equipe;
+      if(d) p.ultEquipeData = d;
+    }
   }
   var atCached = estadoApp.latestSheets[suffixedName("Atendimentos")];
   if(atCached){
@@ -733,6 +680,7 @@ export function pessoasAtendidasParaMeses(monthValues){
         var p = pessoasSet[chave];
         p.at++;
         if(d) p.datas.push(d);
+        registrarEquipe(p, d, iUnidAt >= 0 ? String(r[iUnidAt]||'').trim() : '');
         var prof = iProfAt >= 0 ? String(r[iProfAt]||"").trim() : '';
         if(prof){
           registrarProf(p, prof, d, TIPO_EVENTO_ATENDIMENTO);
@@ -758,6 +706,8 @@ export function pessoasAtendidasParaMeses(monthValues){
   if(partCached){
     var iPData = colIndex(partCached.headers, "data");
     var iPNome = colIndex(partCached.headers, "participante");
+    var iPEquipe = colIndex(partCached.headers, "equipe_unidade");
+    if(iPEquipe < 0) iPEquipe = equipeColIndex(partCached.headers);
     // colsProfissionaisParticipantes traz o Responsável primeiro (quando
     // preenchido), seguido de profissional 1..5 — profsDoEvento[0] abaixo
     // é sempre o primeiro NOME NÃO VAZIO nessa ordem, então já é o
@@ -774,6 +724,7 @@ export function pessoasAtendidasParaMeses(monthValues){
         var p = pessoasSet[chave];
         p.part++;
         if(d) p.datas.push(d);
+        registrarEquipe(p, d, iPEquipe >= 0 ? String(r[iPEquipe]||'').trim() : '');
         var profsDoEvento = [];
         iProfPartCols.forEach(function(idx){
           var prof = String(r[idx]||"").trim();
@@ -799,11 +750,8 @@ export function pessoasAtendidasParaMeses(monthValues){
   maxDatas = Math.min(maxDatas, MAX_DATAS_PESSOA_ATENDIDA);
   var dataHeaders = [];
   for(var i=1;i<=maxDatas;i++){ dataHeaders.push("Data "+i); }
-  // Fluxo: calculado sobre o histórico COMPLETO (não limitado por
-  // monthValues) — ver calcularFluxoPorPessoa acima.
-  var fluxoInfo = calcularFluxoPorPessoa();
   return {
-    headers: ["Nome","Atendimentos","Participantes Ativ. Coletiva","Total","Fluxo","Profissional"].concat(dataHeaders),
+    headers: ["Nome","Atendimentos","Participantes Ativ. Coletiva","Total","Equipe","Profissional"].concat(dataHeaders),
     rows: pessoasLista.map(function(p){
       // profissionalCol: lista completa (todo mundo que já atendeu essa
       // pessoa, histórico inteiro) — continua igual a antes, usada só
@@ -813,7 +761,7 @@ export function pessoasAtendidasParaMeses(monthValues){
       // alfabética.
       var listaProf = Object.keys(p.profissionais).sort(prioridadeMenor);
       var profissionalCol = listaProf.length ? listaProf.join(', ') : '—';
-      var row = [p.nome, p.at, p.part, p.at+p.part, fluxoLabelPara(fluxoInfo, p.nome), profissionalCol];
+      var row = [p.nome, p.at, p.part, p.at+p.part, p.ultEquipe || '—', profissionalCol];
       for(var i=0;i<maxDatas;i++){
         row.push(p.datas[i] ? fmtBRDate(p.datas[i]) : "—");
       }
