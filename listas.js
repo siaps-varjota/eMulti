@@ -746,7 +746,7 @@ export function pessoasAtendidasParaMeses(monthValues){
               p.ultAgData = d; p.ultAgProf = prof;
               // Unidade (equipe) onde foi esse último atendimento — profissional que atende em 2 unidades.
               var rawUn = iUnidAt >= 0 ? String(r[iUnidAt]||'').trim() : '';
-              p.ultAgUnid = rawUn ? equipeLabelFromRaw(rawUn) : '';
+              p.ultAgUnid = rawUn ? unidadeAgendaFromRaw(rawUn) : '';
             }
           }
         }
@@ -886,6 +886,17 @@ export function monthOptionsParaPessoasAtendidas(){
 // usando o mesmo matchKeyword de EQUIPES/filtrarLinhasPorEquipe. Usado
 // pra exibir a equipe na lista de Busca-Ativa quando "Todas" as equipes
 // estão selecionadas ao mesmo tempo.
+// Unidade para a aba Agendamentos/Agenda. A equipe da eMulti vem como "EMULTI CENTRO - ARARINHA" ou
+// "EMULTI CENTRO - VILA NAIARA": contém "CENTRO", mas o atendimento foi na unidade citada depois.
+// Por isso a unidade específica tem prioridade; sem ela, vale a equipe (Centro/Croatá).
+var UNIDADES_ESPECIFICAS_AGENDA = [['ARARINHA','Ararinha'],['VILA NAIARA','Vila Naiara'],['EMPRESTIMOS','Empréstimos']];
+export function unidadeAgendaFromRaw(raw){
+  var valor = normalizeText(raw);
+  for(var i=0;i<UNIDADES_ESPECIFICAS_AGENDA.length;i++){
+    if(valor.indexOf(UNIDADES_ESPECIFICAS_AGENDA[i][0]) !== -1) return UNIDADES_ESPECIFICAS_AGENDA[i][1];
+  }
+  return equipeLabelFromRaw(raw);
+}
 export function equipeLabelFromRaw(raw){
   var valor = normalizeText(raw);
   for(var i=0;i<EQUIPES.length;i++){
