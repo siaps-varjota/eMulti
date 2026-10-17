@@ -46,13 +46,13 @@ function capAg(k){
   if(!dias.some(function(x){return x;}))dias=DIAS_UTEIS_AG;
   return {m:m,t:t,dia:m+t,dias:dias,soManha:cfgAg.soManha,k:k||''};
 }
-// Motivo de o dia estar fechado para a agenda k (feriado para todos; falta ou folga só do profissional,
+// Motivo de o dia estar fechado para a agenda k (feriado para todos; imprevisto ou folga só do profissional,
 // em todas as unidades dele). '' = dia normal.
 function folgaDiaAg(k,iso){
   var i,f;
   for(i=0;i<cfgAg.feriados.length;i++){f=cfgAg.feriados[i];if(iso>=f.ini&&iso<=f.fim)return 'Feriado'+(f.nome?': '+f.nome:'');}
   var base=String(k||'').split('@')[0];
-  if(base)for(i=0;i<cfgAg.faltas.length;i++){f=cfgAg.faltas[i];if(normAg(f.prof)===base&&iso>=f.ini&&iso<=f.fim)return 'Falta do profissional'+(f.motivo?': '+f.motivo:'');}
+  if(base)for(i=0;i<cfgAg.faltas.length;i++){f=cfgAg.faltas[i];if(normAg(f.prof)===base&&iso>=f.ini&&iso<=f.fim)return 'Imprevisto do profissional'+(f.motivo?': '+f.motivo:'');}
   if(base)for(i=0;i<cfgAg.folgas.length;i++){f=cfgAg.folgas[i];if(normAg(f.prof)===base&&iso>=f.ini&&iso<=f.fim)return 'Folga do profissional'+(f.motivo?': '+f.motivo:'');}
   return '';
 }
@@ -849,7 +849,7 @@ function renderVagasAg(uc){
     var iso=isoAg(dt);
     html+='<tr><td class="agendamentos-nome">'+DIAS_SEM_AG[dt.getDay()]+', '+brAg(iso)+'</td>'+ks.map(function(k){
       var cap=caps[k];if(!cap.dias[dt.getDay()])return '<td class="vaga-off" title="Não atende neste dia">—</td>';
-      var fo=folgaDiaAg(k,iso);if(fo)return '<td class="vaga-off" title="'+escAg(fo)+'">'+(fo.indexOf('Feriado')===0?'feriado':'falta')+'</td>';
+      var fo=folgaDiaAg(k,iso);if(fo)return '<td class="vaga-off" title="'+escAg(fo)+'">'+(fo.indexOf('Feriado')===0?'feriado':(fo.indexOf('Folga')===0?'folga':'imprevisto'))+'</td>';
       var cd=capNoDiaAg(cap,iso),n=(oc[k]&&oc[k][iso])||0,cls=n>=cd.dia?'vaga-lotado':(n>=cd.dia*0.75?'vaga-quase':'vaga-livre');
       return '<td class="'+cls+'" title="'+(cd.dia-n>0?(cd.dia-n)+' vaga(s) livre(s)':'Sem vagas')+(cd.t<1&&cap.t>0?' (só manhã)':'')+'">'+n+'/'+cd.dia+'</td>';
     }).join('')+'</tr>';
@@ -881,7 +881,7 @@ function renderConfigAg(){
 // Mudou a configuração: guarda, e refaz a sugestão de datas.
 function configMudouAg(){salvarConfigAg();propostaAg={};atualizarBotoesGeracaoAg();renderAg();gerarAg(true);}
 
-// ---------- Feriados e faltas ----------
+// ---------- Feriados, imprevistos e folgas ----------
 function brDataAg(iso){return iso?iso.split('-').reverse().join('/'):'';}
 function periodoAg(a,b){return a===b?brDataAg(a):brDataAg(a)+' a '+brDataAg(b);}
 function renderFolgasAg(){
@@ -904,10 +904,10 @@ function renderFolgasAg(){
   var box=document.getElementById('agFolgasLista');if(!box)return;
   var itens=[];
   cfgAg.feriados.forEach(function(f,i){itens.push({ini:f.ini,html:'<li><b>Feriado</b>'+(f.nome?' — '+escAg(f.nome):'')+' · '+periodoAg(f.ini,f.fim)+' <button type="button" class="agendamentos-btn agendamentos-secundario" data-folga="f" data-i="'+i+'">Remover</button></li>'});});
-  cfgAg.faltas.forEach(function(f,i){itens.push({ini:f.ini,html:'<li><b>Falta</b> — '+escAg(f.prof)+(f.motivo?' ('+escAg(f.motivo)+')':'')+' · '+periodoAg(f.ini,f.fim)+' <button type="button" class="agendamentos-btn agendamentos-secundario" data-folga="l" data-i="'+i+'">Remover</button></li>'});});
+  cfgAg.faltas.forEach(function(f,i){itens.push({ini:f.ini,html:'<li><b>Imprevisto</b> — '+escAg(f.prof)+(f.motivo?' ('+escAg(f.motivo)+')':'')+' · '+periodoAg(f.ini,f.fim)+' <button type="button" class="agendamentos-btn agendamentos-secundario" data-folga="l" data-i="'+i+'">Remover</button></li>'});});
   cfgAg.folgas.forEach(function(f,i){itens.push({ini:f.ini,html:'<li><b>Folga</b> — '+escAg(f.prof)+(f.motivo?' ('+escAg(f.motivo)+')':'')+' · '+periodoAg(f.ini,f.fim)+' <button type="button" class="agendamentos-btn agendamentos-secundario" data-folga="g" data-i="'+i+'">Remover</button></li>'});});
   itens.sort(function(a,b){return a.ini<b.ini?-1:a.ini>b.ini?1:0;});
-  box.innerHTML=itens.length?'<ul class="agendamentos-folgas-lista">'+itens.map(function(x){return x.html;}).join('')+'</ul>':'<p class="agendamentos-filtro-info">Nenhum feriado, falta ou folga cadastrado.</p>';
+  box.innerHTML=itens.length?'<ul class="agendamentos-folgas-lista">'+itens.map(function(x){return x.html;}).join('')+'</ul>':'<p class="agendamentos-filtro-info">Nenhum feriado, imprevisto ou folga cadastrado.</p>';
 }
 // Consulta: por que uma agenda (profissional/unidade) aceita ou não agendamento em um dia.
 function motivoDiaAg(k,iso){
@@ -944,8 +944,8 @@ function addFeriadoAg(){
 }
 function addFaltaAg(){
   var prof=valAg('agFaltaProf'),ini=valAg('agFaltaIni'),fim=valAg('agFaltaFim')||ini,motivo=valAg('agFaltaMotivo').trim();
-  if(!prof||!ini){msgAg('Escolha o profissional e a data da falta.',true);return;}
-  if(fim<ini){msgAg('A data final da falta é anterior à inicial.',true);return;}
+  if(!prof||!ini){msgAg('Escolha o profissional e a data do imprevisto.',true);return;}
+  if(fim<ini){msgAg('A data final do imprevisto é anterior à inicial.',true);return;}
   cfgAg.faltas.push({prof:prof,ini:ini,fim:fim,motivo:motivo});
   ['agFaltaIni','agFaltaFim','agFaltaMotivo'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
   folgaMudouAg();
