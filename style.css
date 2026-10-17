@@ -1220,3 +1220,14 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 #tabAgendamentos .agenda-toolbar{zoom:.8}
 #tabAgendamentos .agenda-toolbar button{padding:8px 12px;font-weight:600;color:#153F35;border-color:#153F35}
 #tabAgendamentos .agenda-toolbar select{padding:8px 10px}
+
+/* Agendamentos — regras de atendimento por agenda */
+.ag-regras-linha>td{background:#F7FAF6;text-align:left!important}
+.ag-regras{padding:6px 4px}
+.ag-regra{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:6px 0;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:13px}
+.ag-regra label{display:flex;align-items:center;gap:6px}
+.ag-regra-sem{display:flex;gap:8px}
+.ag-regra input[type=number]{width:78px}
+.ag-regra-invalida{border-color:#C98A00;background:#FFF8E1}
+.ag-regras-resumo{font-size:12px;font-weight:600;color:var(--ink-soft)}
+.ag-regras-cel{white-space:nowrap}
