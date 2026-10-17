@@ -1202,3 +1202,6 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 .agendamentos-detalhe>summary{display:none}
 .agendamentos-detalhe:not([open]){display:none}
 @media (max-width:520px){.agendamentos-paineis button{padding:7px 6px;font-size:12.5px}}
+
+/* Agendamentos - paginação abaixo da tabela */
+.table-wrap+.agendamentos-pager{margin-top:10px}
