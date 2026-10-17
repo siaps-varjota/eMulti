@@ -148,11 +148,11 @@ function profMapAg(){
   if(profCacheAg)return profCacheAg;
   var list=window.__emultiPessoasAtendidas&&window.__emultiPessoasAtendidas();
   if(!list||!Array.isArray(list.rows)||!list.rows.length)return null;
-  var map={},nomes={},ult={},ultProf={},ultUnid={},elegiveis={},unidsDe={};
+  var map={},nomes={},ult={},ultProf={},ultUnid={},elegiveis={},unidsDe={},mesesDe={};
   list.rows.forEach(function(r){
     // Só entra quem teve atendimento individual com profissional da eMulti (sem participação só em atividade coletiva).
     if(r.agendavel!==true)return;
-    var k=normAg(r[0]);elegiveis[k]=true;
+    var k=normAg(r[0]);elegiveis[k]=true;if(Array.isArray(r.mesesAtendimentoAgenda))mesesDe[k]=r.mesesAtendimentoAgenda;
     var u=r.ultimoAtendimentoAgendaISO||''; if(u)ult[k]=u;
     // Profissional (da eMulti) do atendimento mais recente — base da distribuição automática de datas.
     var up=String(r.ultimoProfissionalAgenda==null?'':r.ultimoProfissionalAgenda).trim();
@@ -165,7 +165,7 @@ function profMapAg(){
   // Profissional com regras em 2+ unidades também tem uma agenda por unidade.
   Object.keys(PROF_UNIDADES_AG).forEach(function(b){if(PROF_UNIDADES_AG[b].length>1)multi[b]=true;});
   Object.keys(cfgAg.prof).forEach(function(b){var ru=cfgAg.prof[b]&&cfgAg.prof[b].regras;if(!Array.isArray(ru))return;var su={};ru.forEach(function(r){if(r&&r.unid)su[normAg(nomeUnidAg(r.unid))]=1;});if(Object.keys(su).length>1)multi[b]=true;});
-  profCacheAg={map:map,ult:ult,ultProf:ultProf,ultUnid:ultUnid,multi:multi,elegiveis:elegiveis,rows:list.rows.filter(function(r){return r.agendavel===true;}),nomes:Object.keys(nomes).sort(function(a,b){return a.localeCompare(b,'pt-BR');})};
+  profCacheAg={mesesDe:mesesDe,map:map,ult:ult,ultProf:ultProf,ultUnid:ultUnid,multi:multi,elegiveis:elegiveis,rows:list.rows.filter(function(r){return r.agendavel===true;}),nomes:Object.keys(nomes).sort(function(a,b){return a.localeCompare(b,'pt-BR');})};
   return profCacheAg;
 }
 // Filtro de profissional: texto livre ("Aline") ou uma agenda completa do tipo "Profissional — Unidade".
@@ -201,19 +201,29 @@ function ocupaAg(r,ix){return ehAtivoAg(r)||(r.Situação==='Faltou'&&propostaAg
 // Filtro próprio da aba: último atendimento nos últimos N dias (padrão 120; 0/vazio = todos).
 // Filtro próprio da aba: meses do último atendimento (vários; nenhum marcado = todos os meses).
 var mesesSelAg=[];   // 'AAAA-MM'
+var mesesModoAg='qualquer';   // 'qualquer' = teve atendimento (eMulti) em algum dos meses · 'ultimo' = o último atendimento caiu num deles
+function mesesDaPessoaAg(r,uc){
+  var n=normAg(r.Nome),a=mesesModoAg==='qualquer'&&uc&&uc.mesesDe&&uc.mesesDe[n];
+  if(a&&a.length)return a;
+  var u=String(ultimoDeAg(r,uc)||'').slice(0,7);return u?[u]:[];
+}
 var MESES_ABREV_AG=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 function rotuloMesAg(m){var p=String(m).split('-');return MESES_ABREV_AG[Number(p[1])-1]+'/'+p[0];}
 function limiteDiasAg(){if(!mesesSelAg.length)return '';var set={};mesesSelAg.forEach(function(m){set[m]=true;});return {set:set,n:mesesSelAg.length};}
-function dentroDiasAg(r,uc,lim){if(!lim)return true;var u=ultimoDeAg(r,uc);return !!u&&!!lim.set[String(u).slice(0,7)];}
+function dentroDiasAg(r,uc,lim){if(!lim)return true;return mesesDaPessoaAg(r,uc).some(function(m){return !!lim.set[m];});}
 // Monta a lista de meses (mais recente primeiro) a partir do último atendimento de cada pessoa elegível.
 var mesesSigAg='';
 function atualizarMesesAg(){
   var box=document.getElementById('agendamentosMesesLista'),res=document.getElementById('agendamentosMesesResumo');if(!box||!res)return;
   var uc=profMapAg(),tem={};
-  if(uc)Object.keys(uc.ult).forEach(function(n){var m=String(uc.ult[n]||'').slice(0,7);if(/^\d{4}-\d\d$/.test(m))tem[m]=(tem[m]||0)+1;});
+  if(uc)Object.keys(uc.ult).forEach(function(n){
+    var a=(mesesModoAg==='qualquer'&&uc.mesesDe&&uc.mesesDe[n]&&uc.mesesDe[n].length)?uc.mesesDe[n]:[String(uc.ult[n]||'').slice(0,7)];
+    a.forEach(function(m){if(/^\d{4}-\d\d$/.test(m))tem[m]=(tem[m]||0)+1;});
+  });
   mesesSelAg.forEach(function(m){if(!tem[m])tem[m]=0;});
-  var ms=Object.keys(tem).sort().reverse(),sig=ms.map(function(m){return m+':'+tem[m]+(mesesSelAg.indexOf(m)>=0?'*':'');}).join(',');
-  res.textContent=!mesesSelAg.length?'Último atendimento: todos os meses':'Último atendimento: '+(mesesSelAg.length<=2?mesesSelAg.slice().sort().reverse().map(rotuloMesAg).join(', '):mesesSelAg.length+' meses');
+  var ms=Object.keys(tem).sort().reverse(),sig=mesesModoAg+'|'+ms.map(function(m){return m+':'+tem[m]+(mesesSelAg.indexOf(m)>=0?'*':'');}).join(',');
+  var pre=mesesModoAg==='qualquer'?'Atendidos em: ':'Último atendimento: ';
+  res.textContent=!mesesSelAg.length?pre+'todos os meses':pre+(mesesSelAg.length<=2?mesesSelAg.slice().sort().reverse().map(rotuloMesAg).join(', '):mesesSelAg.length+' meses');
   if(sig===mesesSigAg)return;mesesSigAg=sig;
   box.innerHTML=ms.length?ms.map(function(m){return '<label><input type="checkbox" data-mes="'+m+'"'+(mesesSelAg.indexOf(m)>=0?' checked':'')+'> '+rotuloMesAg(m)+' <small>('+tem[m]+')</small></label>';}).join(''):'<small>Carregue Pessoas atendidas para listar os meses.</small>';
 }
@@ -228,11 +238,12 @@ function filtroListaAg(){
 }
 var FILTROS_IDS_AG={prof:'agendamentosProfissional',turno:'agendamentosTurno',sit:'agendamentosSituacao',de:'agendamentosDe',ate:'agendamentosAte',pp:'agendamentosPorPagina'};
 // Lembra os filtros (não a busca por nome) entre aberturas do painel.
-function salvarFiltrosAg(){var o={sort:sortAg,seguir:seguirListaAg(),meses:mesesSelAg.slice()};Object.keys(FILTROS_IDS_AG).forEach(function(k){o[k]=valAg(FILTROS_IDS_AG[k]);});lsSetAg(LS_FILTROS_AG,o);}
+function salvarFiltrosAg(){var o={sort:sortAg,seguir:seguirListaAg(),meses:mesesSelAg.slice(),mesesModo:mesesModoAg};Object.keys(FILTROS_IDS_AG).forEach(function(k){o[k]=valAg(FILTROS_IDS_AG[k]);});lsSetAg(LS_FILTROS_AG,o);}
 function restaurarFiltrosAg(){
   var o=lsGetAg(LS_FILTROS_AG);if(!o||typeof o!=='object')return;
   Object.keys(FILTROS_IDS_AG).forEach(function(k){var el=document.getElementById(FILTROS_IDS_AG[k]);if(el&&o[k]!=null)el.value=o[k];});
   var sg=document.getElementById('agendamentosSeguir');if(sg)sg.checked=!!o.seguir;
+  if(o.mesesModo==='ultimo'||o.mesesModo==='qualquer')mesesModoAg=o.mesesModo;
   if(Array.isArray(o.meses))mesesSelAg=o.meses.filter(function(m){return /^\d{4}-\d\d$/.test(m);});
   if(o.sort&&typeof o.sort.col==='string'&&(o.sort.dir==='asc'||o.sort.dir==='desc'))sortAg={col:o.sort.col,dir:o.sort.dir};
 }
@@ -330,7 +341,7 @@ function renderAg(){
   var c=calcularListaAg(),uc=c.uc,list=c.list,turnos=c.turnos,lf=c.lf,lim=c.lim;
   document.getElementById('agendamentosContagem').textContent=list.length+(list.length===1?' pessoa':' pessoas');
   var info=document.getElementById('agendamentosFiltroInfo');
-  if(info){var txtDias=lim?('Último atendimento em '+(lim.n<=3?mesesSelAg.slice().sort().reverse().map(rotuloMesAg).join(', '):lim.n+' meses selecionados')):'Todos os períodos';info.textContent=txtDias+(lf?' · seguindo também a lista Pessoas atendidas (aba '+lf.origem+'): '+lf.n+(lf.n===1?' pessoa':' pessoas')+' · '+(lf.meses.length?lf.meses.length+(lf.meses.length===1?' mês selecionado':' meses selecionados'):'todos os meses')+'.':'.');}
+  if(info){var txtDias=lim?((mesesModoAg==='qualquer'?'Atendidos em ':'Último atendimento em ')+(lim.n<=3?mesesSelAg.slice().sort().reverse().map(rotuloMesAg).join(', '):lim.n+' meses selecionados')):'Todos os períodos';info.textContent=txtDias+(lf?' · seguindo também a lista Pessoas atendidas (aba '+lf.origem+'): '+lf.n+(lf.n===1?' pessoa':' pessoas')+' · '+(lf.meses.length?lf.meses.length+(lf.meses.length===1?' mês selecionado':' meses selecionados'):'todos os meses')+'.':'.');}
   // Paginação
   var porPag=parseInt(valAg('agendamentosPorPagina'),10)||0,total=list.length,paginas=porPag?Math.max(1,Math.ceil(total/porPag)):1;
   if(paginaAg>paginas)paginaAg=paginas;if(paginaAg<1)paginaAg=1;
@@ -1387,6 +1398,8 @@ document.addEventListener('DOMContentLoaded',function(){
   var pf=document.getElementById('agendamentosProfissional');pf.addEventListener('input',visual);pf.addEventListener('focus',fillProfAg);
   ['agendamentosTurno','agendamentosSituacao','agendamentosPorPagina'].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('change',visual);});
   ['agendamentosDe','agendamentosAte'].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('change',visual);});
+  var mModo=document.getElementById('agendamentosMesesModo');
+  if(mModo){mModo.value=mesesModoAg;mModo.addEventListener('change',function(){mesesModoAg=mModo.value==='ultimo'?'ultimo':'qualquer';mesesSigAg='';refiltrarAg();});}
   var mBox=document.getElementById('agendamentosMesesLista');
   if(mBox)mBox.addEventListener('change',function(e){var cb=e.target.closest('input[data-mes]');if(!cb)return;var m=cb.dataset.mes,i=mesesSelAg.indexOf(m);if(cb.checked&&i<0)mesesSelAg.push(m);else if(!cb.checked&&i>=0)mesesSelAg.splice(i,1);mesesSigAg='';refiltrarAg();});
   var mLimpa=document.getElementById('agendamentosMesesLimpar');
