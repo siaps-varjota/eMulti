@@ -81,7 +81,8 @@ function filtroF() {
     de: elF('faltasDe').value,
     ate: elF('faltasAte').value,
     limiar: parseInt(elF('faltasLimiar').value, 10) || 2,
-    semData: !!elF('faltasSemData').checked
+    semData: !!elF('faltasSemData').checked,
+    busca: normF(elF('faltasBusca').value)
   };
 }
 
@@ -139,7 +140,64 @@ function renderAbsenteismoF(regs, f) {
     ' registros: a taxa oscila muito e não deve orientar decisões sozinha.</p>';
 }
 
-// ---------- 2) faltas repetidas ----------
+// ---------- 2a) todos os pacientes que faltaram ----------
+var ultimaFaltososF = [];
+
+function faltososF(regs, linhas, f) {
+  var porPessoa = {}, ordem = [];
+  regs.forEach(function (r) {
+    if (!r.falta) return;
+    if (f.prof && r.prof !== f.prof) return;
+    if (f.de && r.data < f.de) return;
+    if (f.ate && r.data > f.ate) return;
+    if (f.busca && normF(r.nome).indexOf(f.busca) === -1) return;
+    if (!porPessoa[r.chave]) { porPessoa[r.chave] = []; ordem.push(r.chave); }
+    porPessoa[r.chave].push(r);
+  });
+  var mapaLinhas = {};
+  (linhas || []).forEach(function (r) { mapaLinhas[normF(r.Nome)] = r; });
+  var hoje = hojeF(), saida = [];
+
+  ordem.forEach(function (chave) {
+    var rs = porPessoa[chave].slice().sort(function (a, b) { return a.data < b.data ? -1 : (a.data > b.data ? 1 : 0); });
+    var ultimo = rs[rs.length - 1], sit = situacaoAtualF(chave, mapaLinhas, hoje);
+    if (f.semData && !sit.semData) return;
+    saida.push({
+      nome: ultimo.nome, faltas: rs.length, datas: rs.map(function (r) { return r.data; }), ultFalta: ultimo.data,
+      prof: ultimo.prof, unid: ultimo.unid, situacao: sit.texto, semData: sit.semData
+    });
+  });
+  saida.sort(function (a, b) {
+    return b.faltas - a.faltas || (a.ultFalta < b.ultFalta ? 1 : (a.ultFalta > b.ultFalta ? -1 : 0)) ||
+      a.nome.localeCompare(b.nome, 'pt-BR');
+  });
+  return saida;
+}
+
+function datasTextoF(datas, max) {
+  var t = datas.map(function (d) { return brF(d).slice(0, 5) + '/' + d.slice(2, 4); });
+  return t.length > max ? t.slice(-max).join(', ') + ' (+' + (t.length - max) + ' antes)' : t.join(', ');
+}
+
+function renderFaltososF(regs, d, f) {
+  var lista = faltososF(regs, d.linhas, f);
+  ultimaFaltososF = lista;
+  var box = elF('faltasFaltosos');
+  if (!lista.length) {
+    box.innerHTML = '<p class="faltas-vazio">Nenhum paciente com falta neste filtro.</p>';
+    return;
+  }
+  var corpo = lista.map(function (p) {
+    return '<tr><td>' + escF(p.nome) + '</td><td>' + p.faltas + '</td><td>' + escF(datasTextoF(p.datas, 8)) + '</td><td>' +
+      escF(p.prof) + '</td><td>' + escF(p.unid) + '</td><td' + (p.semData ? ' class="faltas-sem-data"' : '') + '>' +
+      escF(p.situacao) + '</td></tr>';
+  }).join('');
+  box.innerHTML = '<p class="faltas-vazio"><b>' + lista.length + '</b> ' + (lista.length === 1 ? 'paciente' : 'pacientes') + '.</p>' +
+    '<div class="table-wrap"><table class="data-table"><thead><tr><th>Paciente</th><th>Faltas</th><th>Datas das faltas</th>' +
+    '<th>Profissional</th><th>Unidade</th><th>Situação atual</th></tr></thead><tbody>' + corpo + '</tbody></table></div>';
+}
+
+// ---------- 2b) faltas repetidas ----------
 var ultimaListaF = []; // linhas exibidas, usadas na exportação
 
 function situacaoAtualF(chave, mapaLinhas, hoje) {
@@ -171,6 +229,7 @@ function repetidasF(regs, linhas, f) {
     var ultimo = rs[rs.length - 1];
     if (seguidas < f.limiar) return;
     if (f.prof && ultimo.prof !== f.prof) return;
+    if (f.busca && normF(ultimo.nome).indexOf(f.busca) === -1) return;
     var sit = situacaoAtualF(chave, mapaLinhas, hoje);
     if (f.semData && !sit.semData) return;
     saida.push({
@@ -205,19 +264,30 @@ function renderRepetidasF(regs, d, f) {
     '<th>Última falta</th><th>Profissional</th><th>Unidade</th><th>Situação atual</th></tr></thead><tbody>' + corpo + '</tbody></table></div>';
 }
 
-function exportarCsvF() {
-  if (!ultimaListaF.length) return;
+function baixarCsvF(linhas, nomeArquivo) {
   function cel(v) { var s = String(v == null ? '' : v); return /[";\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
-  var linhas = [['Pessoa', 'Faltas seguidas', 'Total de faltas', 'Última falta', 'Profissional', 'Unidade', 'Situação atual']];
-  ultimaListaF.forEach(function (p) {
-    linhas.push([p.nome, p.seguidas, p.total, brF(p.ultFalta), p.prof, p.unid, p.situacao]);
-  });
   var csv = '\ufeff' + linhas.map(function (l) { return l.map(cel).join(';'); }).join('\r\n');
   var a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-  a.download = 'faltas-repetidas-' + hojeF() + '.csv';
+  a.download = nomeArquivo + '-' + hojeF() + '.csv';
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+}
+
+function exportarRepetidasF() {
+  if (!ultimaListaF.length) return;
+  var linhas = [['Pessoa', 'Faltas seguidas', 'Total de faltas', 'Última falta', 'Profissional', 'Unidade', 'Situação atual']];
+  ultimaListaF.forEach(function (p) { linhas.push([p.nome, p.seguidas, p.total, brF(p.ultFalta), p.prof, p.unid, p.situacao]); });
+  baixarCsvF(linhas, 'faltas-repetidas');
+}
+
+function exportarFaltososF() {
+  if (!ultimaFaltososF.length) return;
+  var linhas = [['Paciente', 'Faltas', 'Datas das faltas', 'Última falta', 'Profissional', 'Unidade', 'Situação atual']];
+  ultimaFaltososF.forEach(function (p) {
+    linhas.push([p.nome, p.faltas, p.datas.map(brF).join(', '), brF(p.ultFalta), p.prof, p.unid, p.situacao]);
+  });
+  baixarCsvF(linhas, 'pacientes-que-faltaram');
 }
 
 // ---------- tela ----------
@@ -234,14 +304,16 @@ function renderF() {
       : 'Ainda não há baixas no histórico. Os dados começam a aparecer quando uma situação é marcada como Realizado ou Faltou.';
     elF('faltasResumo').innerHTML = '';
     elF('faltasTabelas').innerHTML = '';
+    elF('faltasFaltosos').innerHTML = '';
     elF('faltasRepetidas').innerHTML = '';
-    ultimaListaF = [];
+    ultimaListaF = []; ultimaFaltososF = [];
     return;
   }
 
   info.className = 'agendamentos-feedback';
   info.textContent = regs.length + ' baixas no histórico' + (d.versao ? ' · Apps Script versão ' + d.versao : '') + '.';
   renderAbsenteismoF(regs, f);
+  renderFaltososF(regs, d, f);
   renderRepetidasF(regs, d, f);
 }
 
@@ -275,14 +347,16 @@ function iniciarF() {
   ['faltasProf', 'faltasDe', 'faltasAte', 'faltasLimiar', 'faltasSemData'].forEach(function (id) {
     elF(id).addEventListener('change', renderF);
   });
+  elF('faltasBusca').addEventListener('input', renderF);
   elF('faltasLimpar').addEventListener('click', function () {
-    elF('faltasProf').value = ''; elF('faltasDe').value = ''; elF('faltasAte').value = '';
+    elF('faltasProf').value = ''; elF('faltasDe').value = ''; elF('faltasAte').value = ''; elF('faltasBusca').value = '';
     renderF();
   });
   elF('faltasAtualizar').addEventListener('click', function () {
     if (window.__emultiFaltasAtualizar) window.__emultiFaltasAtualizar();
   });
-  elF('faltasCsv').addEventListener('click', exportarCsvF);
+  elF('faltasCsv').addEventListener('click', exportarRepetidasF);
+  elF('faltasFaltososCsv').addEventListener('click', exportarFaltososF);
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciarF);
