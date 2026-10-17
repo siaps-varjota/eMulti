@@ -56,6 +56,13 @@ function folgaDiaAg(k,iso){
   if(base)for(i=0;i<cfgAg.folgas.length;i++){f=cfgAg.folgas[i];if(normAg(f.prof)===base&&iso>=f.ini&&iso<=f.fim)return 'Folga do profissional'+(f.motivo?': '+f.motivo:'');}
   return '';
 }
+// Primeiro dia DEPOIS do período fechado (feriado/imprevisto/folga) que cobre iso para a agenda k.
+// Quem tinha consulta num dia fechado só pode ser remanejado a partir daí, para não mexer em quem já estava agendado antes.
+function diaAposFechamentoAg(k,iso){
+  var dt=isoParaDataAg(iso),n=0;
+  while(dt&&n<400&&folgaDiaAg(k,isoAg(dt))){dt=somaDiaAg(dt,1);n++;}
+  return dt?isoAg(dt):iso;
+}
 // Capacidade do profissional em um dia específico: nos dias "só manhã" (padrão: sexta) só valem as vagas da manhã.
 function capNoDiaAg(cap,iso){
   if(folgaDiaAg(cap.k,iso))return {m:0,t:0,dia:0,dias:cap.dias,soManha:cap.soManha,k:cap.k,fechado:true};
@@ -441,7 +448,7 @@ function gerarAg(auto,prefixo){
   var inicio=diaUtilAg(ini||amanhaAg());
   var pq=auto?'':normAg(valAg('agendamentosProfissional'));
   var lf=filtroListaAg(),lim=limiteDiasAg();
-  var ocupados={},nomes={},cands=[],faltList=[],semProf=0,jaTem=0,faltosos=0;
+  var ocupados={},nomes={},cands=[],faltList=[],bloqList=[],semProf=0,jaTem=0,faltosos=0;
   rowsAg.forEach(function(r){
     var k=chaveProfAg(r,uc),d=dateAg(r['Data agendada']);
     if(!k||!d||!ehAtivoAg(r))return;
@@ -463,7 +470,9 @@ function gerarAg(auto,prefixo){
     foraDia[ix]=true;
     if(ocupados[k]&&ocupados[k][d])ocupados[k][d]--;
     nomes[k]=nomeProfAg(r,uc);nForaDia++;
-    cands.push({ix:ix,prof:k,nome:String(r.Nome||''),ult:ultimoDeAg(r,uc),pri:1});
+    // Dia fechado (feriado, imprevisto ou folga): só vai para DEPOIS do período fechado (nunca para antes).
+    if(folgaDiaAg(k,d))bloqList.push({ix:ix,k:k,nome:String(r.Nome||''),ult:ultimoDeAg(r,uc),orig:d,apos:diaAposFechamentoAg(k,d)});
+    else cands.push({ix:ix,prof:k,nome:String(r.Nome||''),ult:ultimoDeAg(r,uc),pri:1});
   });
   var turnosAtuais=turnosAg(uc),excedentes=[];
   Object.keys(turnosAtuais).forEach(function(i){
@@ -490,9 +499,17 @@ function gerarAg(auto,prefixo){
     if(sit==='Faltou'){faltosos++;faltList.push({ix:ix,k:k,nome:String(r.Nome||''),ult:ultimoDeAg(r,uc),falta:dateAg(r['Data agendada'])});return;}
     cands.push({ix:ix,prof:k,nome:String(r.Nome||''),ult:ultimoDeAg(r,uc),pri:1});
   });
-  if(!cands.length&&!excedentes.length&&!faltList.length){propostaAg={};atualizarBotoesGeracaoAg();renderAg();if(auto){if(prefixo)msgAg(prefixo,false);return;}msgAg('Nenhuma pessoa pendente para agendar'+(pq?' deste profissional':'')+'.'+(jaTem?' '+jaTem+' já têm data.':''),false);return;}
+  if(!cands.length&&!excedentes.length&&!faltList.length&&!bloqList.length){propostaAg={};atualizarBotoesGeracaoAg();renderAg();if(auto){if(prefixo)msgAg(prefixo,false);return;}msgAg('Nenhuma pessoa pendente para agendar'+(pq?' deste profissional':'')+'.'+(jaTem?' '+jaTem+' já têm data.':''),false);return;}
   // Faltosos primeiro (têm prioridade nas vagas da semana seguinte); depois o restante da fila.
   var pf={};propostaAg={};
+  // Quem tinha consulta marcada em dia fechado vem primeiro: primeira vaga a partir do dia seguinte ao fechamento.
+  bloqList.sort(function(a,b){return a.orig<b.orig?-1:a.orig>b.orig?1:(a.ult<b.ult?-1:a.ult>b.ult?1:a.nome.localeCompare(b.nome,'pt-BR'));}).forEach(function(b){
+    var piso=isoAg(inicio),alvo=b.apos;
+    if(alvo<piso)alvo=piso;
+    var d=proximaVagaAg(b.ix,alvo,uc);
+    pf[b.ix]=d;propostaAg[b.ix]=d;
+    (ocupados[b.k]=ocupados[b.k]||{})[d]=((ocupados[b.k]||{})[d]||0)+1;
+  });
   faltList.sort(function(a,b){return (a.falta||'')<(b.falta||'')?-1:(a.falta||'')>(b.falta||'')?1:(a.ult<b.ult?-1:a.ult>b.ult?1:a.nome.localeCompare(b.nome,'pt-BR'));}).forEach(function(f){
     var piso=isoAg(inicio),alvo=f.falta?isoAg(somaDiaAg(isoParaDataAg(f.falta),7)):piso;
     if(alvo<piso)alvo=piso;
@@ -513,7 +530,7 @@ function gerarAg(auto,prefixo){
   var datas=Object.keys(propostaAg).map(function(i){return propostaAg[i];}).sort();
   if(!datas.length){renderAg();atualizarBotoesGeracaoAg();msgAg((prefixo?prefixo+' ':'')+'Nada a mudar: a distribuição atual já está de acordo com a configuração.',false);return;}
   renderAg();atualizarBotoesGeracaoAg();resumoGeradoAg(uc,nomes);
-  var totalDist=cands.length+faltList.length-semMudar;
+  var totalDist=cands.length+faltList.length+bloqList.length-semMudar;
   msgAg((prefixo?prefixo+' ':'')+totalDist+(totalDist===1?' pessoa distribuída':' pessoas distribuídas')+(faltosos?' ('+faltosos+(faltosos===1?' faltoso reagendado':' faltosos reagendados')+')':'')+(nForaDia?' ('+nForaDia+(nForaDia===1?' já agendada mudou':' já agendadas mudaram')+' de data: dia sem atendimento ou redistribuição)':'')+' de '+brAg(datas[0])+' a '+brAg(datas[datas.length-1])+' (dias de atendimento e vagas por profissional conforme a configuração). Revise e clique em "Salvar datas geradas".'+(semProf?' '+semProf+' sem profissional identificado ficaram de fora.':''),false);
 }
 function descartarAg(){propostaAg={};atualizarBotoesGeracaoAg();renderAg();msgAg('Datas geradas descartadas.',false);}
