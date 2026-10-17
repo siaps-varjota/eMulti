@@ -1059,7 +1059,7 @@ function renderConfigAg(){
   var ks=Object.keys(nomes).sort(function(a,b){return nomes[a].localeCompare(nomes[b],'pt-BR');});
   var editorFeitoAg={};
   box.innerHTML='<div class="table-wrap"><table class="data-table"><thead><tr><th>Profissional</th><th>Vagas manhã</th><th>Vagas tarde</th>'+DIAS_SEM_AG.map(function(n){return '<th>'+n+'</th>';}).join('')+'<th>Regras</th></tr></thead><tbody>'+ks.map(function(k){
-    var o=cfgAg.prof[k]||{},cap=capAg(k),temRegras=!!(cap.regras&&cap.regras.length),base=k.split('@')[0],aberto=!!regrasAbertasAg[base]&&!editorFeitoAg[base];if(aberto)editorFeitoAg[base]=true;
+    var o=cfgAg.prof[k]||{},cap=capAg(k),temRegras=!!(cap.regras&&cap.regras.length),base=k.split('@')[0],unRow=k.indexOf('@')<0?'':nomeUnidAg(k.slice(k.indexOf('@')+1)),aberto=!!regrasAbertasAg[base]&&!editorFeitoAg[base]&&unRow===(regrasUnidPadraoAg[base]||'');if(aberto)editorFeitoAg[base]=true;
     return '<tr data-k="'+escAg(k)+'"><td class="agendamentos-nome">'+escAg(nomes[k])+' <button type="button" class="agendamentos-btn agendamentos-secundario" data-redist="'+escAg(k)+'" title="Refaz as datas já agendadas desta agenda (a partir da data de Início) com as vagas e dias atuais. Nada é salvo até clicar em Salvar datas geradas." style="padding:2px 8px;font-size:12px;margin-left:6px">Atualizar</button></td>'
       +'<td><input type="number" min="0" data-campo="m" placeholder="'+cfgAg.m+'" value="'+(o.m==null?'':o.m)+'"></td>'
       +'<td><input type="number" min="0" data-campo="t" placeholder="'+cfgAg.t+'" value="'+(o.t==null?'':o.t)+'"></td>'
@@ -1424,7 +1424,7 @@ document.addEventListener('DOMContentLoaded',function(){
     function salvarRegrasAg(k,o){if(o.regras&&!o.regras.length)delete o.regras;if(Object.keys(o).length)cfgAg.prof[k]=o;else delete cfgAg.prof[k];}
     if(pr)pr.addEventListener('click',function(e){
       var t=e.target.closest('button');if(!t)return;
-      if(t.dataset.regrasToggle!==undefined){var kk=t.dataset.regrasToggle;regrasAbertasAg[kk]=!regrasAbertasAg[kk];regrasUnidPadraoAg[kk]=t.dataset.un||'';renderConfigAg();return;}
+      if(t.dataset.regrasToggle!==undefined){var kk=t.dataset.regrasToggle,un=t.dataset.un||'';if(regrasAbertasAg[kk]&&(regrasUnidPadraoAg[kk]||'')!==un){regrasUnidPadraoAg[kk]=un;}else{regrasAbertasAg[kk]=!regrasAbertasAg[kk];regrasUnidPadraoAg[kk]=un;}renderConfigAg();return;}
       var tr=t.closest('tr[data-kr]');if(!tr)return;
       var k=tr.dataset.kr,o=cfgAg.prof[k]||{};o.regras=Array.isArray(o.regras)?o.regras:[];
       if(t.dataset.rfAdd){o.regras.push({unid:regrasUnidPadraoAg[k]||'',dia:1,freq:'1',turno:'ambos'});}
