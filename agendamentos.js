@@ -226,6 +226,7 @@ function calcularListaAg(){
   return {uc:uc,list:list,turnos:turnos,lf:lf,lim:lim,semProf:semProf,filtrado:!!(q||pq||lf||lim||tf||sf||de||ate)};
 }
 function renderAg(){
+  atualizarBotoesGeracaoAg();
   renderAfetadosAg();
   setTimeout(function(){window.dispatchEvent(new Event('emulti:agenda-dados'));},0);
   var body=document.getElementById('agendamentosBody'); if(!body)return;
@@ -438,9 +439,13 @@ function resumoGeradoAg(uc,nomes){
 }
 // auto=true: geração automática (ao abrir a aba / mudar filtros). Não depende do filtro de
 // profissional da tela e fica em silêncio quando não há o que gerar. prefixo: texto a manter no aviso.
-function gerarAg(auto,prefixo){
+function gerarAg(auto,prefixo,tentativa){
   if(auto!==true)auto=false;
-  if(busyAg)return;
+  if(busyAg){
+    // Ocupado (salvando/carregando): quem chamou pode já ter zerado as datas geradas; tenta de novo quando liberar.
+    if(auto&&!(tentativa>=8))setTimeout(function(){gerarAg(true,prefixo,(tentativa||0)+1);},500);
+    return;
+  }
   var uc=profMapAg();
   if(!uc||!Object.keys(uc.ultProf).length){if(!auto)msgAg('Atualize os dados do painel para carregar Pessoas atendidas antes de gerar as datas.',true);return;}
   if(!rowsAg.length){if(!auto)msgAg('Não há registros em Agendamentos. Clique em "Sincronizar Pessoas atendidas" primeiro.',true);return;}
@@ -499,7 +504,7 @@ function gerarAg(auto,prefixo){
     if(sit==='Faltou'){faltosos++;faltList.push({ix:ix,k:k,nome:String(r.Nome||''),ult:ultimoDeAg(r,uc),falta:dateAg(r['Data agendada'])});return;}
     cands.push({ix:ix,prof:k,nome:String(r.Nome||''),ult:ultimoDeAg(r,uc),pri:1});
   });
-  if(!cands.length&&!excedentes.length&&!faltList.length&&!bloqList.length){propostaAg={};atualizarBotoesGeracaoAg();renderAg();if(auto){if(prefixo)msgAg(prefixo,false);return;}msgAg('Nenhuma pessoa pendente para agendar'+(pq?' deste profissional':'')+'.'+(jaTem?' '+jaTem+' já têm data.':''),false);return;}
+  if(!cands.length&&!excedentes.length&&!faltList.length&&!bloqList.length){propostaAg={};atualizarBotoesGeracaoAg();renderAg();if(auto){if(prefixo)msgAg(prefixo,false);else{var fb=document.getElementById('agendamentosFeedback');if(fb&&/Salvar datas geradas/.test(fb.textContent||''))msgAg('Nenhuma pessoa pendente para agendar no momento.',false);}return;}msgAg('Nenhuma pessoa pendente para agendar'+(pq?' deste profissional':'')+'.'+(jaTem?' '+jaTem+' já têm data.':''),false);return;}
   // Faltosos primeiro (têm prioridade nas vagas da semana seguinte); depois o restante da fila.
   var pf={};propostaAg={};
   // Quem tinha consulta marcada em dia fechado vem primeiro: primeira vaga a partir do dia seguinte ao fechamento.
