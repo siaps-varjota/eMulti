@@ -34,7 +34,7 @@ function carregarConfigAg(){
   cfgAg.faltas=Array.isArray(c.faltas)?c.faltas.filter(function(x){return per(x)&&x.prof;}):[];
   cfgAg.folgas=Array.isArray(c.folgas)?c.folgas.filter(function(x){return per(x)&&x.prof;}):[];
 }
-function salvarConfigAg(){var c=Object.assign({},cfgAg);delete c.redistribuir;lsSetAg(LS_CONFIG_AG,c);}
+function salvarConfigAg(){var c=Object.assign({},cfgAg);delete c.redistribuir;if(bloqueiosModoAg==='servidor'){delete c.feriados;delete c.faltas;delete c.folgas;}lsSetAg(LS_CONFIG_AG,c);}
 // A visão Agenda (agenda.js) marca os feriados no calendário.
 window.__emultiFeriadoAg=function(iso){return folgaDiaAg('',iso);};
 // Capacidade efetiva de um profissional (chave = nome normalizado).
@@ -219,6 +219,7 @@ function calcularListaAg(){
   return {uc:uc,list:list,turnos:turnos,lf:lf,lim:lim,semProf:semProf,filtrado:!!(q||pq||lf||lim||tf||sf||de||ate)};
 }
 function renderAg(){
+  renderAfetadosAg();
   setTimeout(function(){window.dispatchEvent(new Event('emulti:agenda-dados'));},0);
   var body=document.getElementById('agendamentosBody'); if(!body)return;
   marcarOrdemAg();
@@ -253,7 +254,7 @@ function renderAg(){
       +'<td><select data-ag="situacao" aria-label="Situação" style="width:auto;min-width:0;max-width:none;padding:6px 24px 6px 9px">'+['Pendente','Agendado','Realizado','Faltou','Cancelado'].map(function(s){return '<option'+(sit===s?' selected':'')+'>'+s+'</option>';}).join('')+'</select></td>'
       +'<td><input type="date" data-ag="dataAgendada" style="width:auto;min-width:0;max-width:none;padding:6px 8px" value="'+data+'"></td>'
       +'<td>'+turnoHtml+'</td>'
-      +'<td class="agendamentos-atualizado">'+escAg(r['Atualizado em']||'')+'</td>'
+      +'<td class="agendamentos-atualizado">'+escAg(r['Atualizado em']||'')+(r['Atualizado por']?'<br><small>'+escAg(r['Atualizado por'])+'</small>':'')+'</td>'
       +'<td><button type="button" class="agendamentos-salvar" data-ag-save>Salvar</button></td></tr>';
   }).join('');
 }
@@ -673,7 +674,7 @@ function executarSalvarGeradosAg(ixs){
     msgAg(ok+(ok===1?' agendamento salvo':' agendamentos salvos')+(falhas?'; '+falhas+' não foram salvos'+(ultimoErro?' ('+ultimoErro+')':'')+' e continuam como proposta — clique em "Salvar datas geradas" para tentar de novo.':'.'),falhas>0);
   }
 }
-function loadAg(){if(busyAg)return;busyAg=true;profCacheAg=null;propostaAg={};atualizarBotoesGeracaoAg();msgAg('Carregando agendamentos…');renderAg();apiAg({action:'agendamentos.list'}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:[];completarVirtuaisAg();msgAg('');carregarHistoricoAg();}).catch(function(e){msgAg(e.message||'Falha ao carregar.',true);}).finally(function(){busyAg=false;renderAg();renderConfigAg();try{gerarAg(true);}catch(e){if(window.console)console.error(e);msgAg('Lista carregada, mas não foi possível sugerir datas: '+((e&&e.message)||e),true);}});}
+function loadAg(){if(busyAg)return;busyAg=true;profCacheAg=null;propostaAg={};atualizarBotoesGeracaoAg();msgAg('Carregando agendamentos…');renderAg();carregarBloqueiosAg().then(function(){return apiAg({action:'agendamentos.list'});}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:[];completarVirtuaisAg();msgAg('');carregarHistoricoAg();}).catch(function(e){msgAg(e.message||'Falha ao carregar.',true);}).finally(function(){busyAg=false;renderAg();renderConfigAg();try{gerarAg(true);}catch(e){if(window.console)console.error(e);msgAg('Lista carregada, mas não foi possível sugerir datas: '+((e&&e.message)||e),true);}});}
 function syncAg(){if(busyAg)return;profCacheAg=null;var list=window.__emultiPessoasAtendidas&&window.__emultiPessoasAtendidas();if(!list||!Array.isArray(list.rows)||!list.rows.length){msgAg('Atualize os dados do painel para carregar Pessoas atendidas antes de sincronizar.',true);return;}var pessoas=list.rows.filter(function(r){return r.agendavel===true;}).map(function(r){return{nome:String(r[0]||'').trim(),at:Number(r[1])||0,total:Number(r[3])||0,ultimo:r.ultimoAtendimentoAgendaISO||''};}).filter(function(x){return x.nome;});if(!pessoas.length){msgAg('Nenhuma pessoa em Pessoas atendidas. Atualize os dados do painel e tente de novo.',true);return;}busyAg=true;msgAg('Sincronizando '+pessoas.length+' pessoas…');renderAg();var syncMsg='';apiAg({action:'agendamentos.sync',rows:pessoas}).then(function(r){syncMsg='Sincronização concluída: '+(Number(r.inseridos)||0)+' novos; '+(Number(r.atualizados)||0)+' atualizados ('+pessoas.length+' pessoas em Pessoas atendidas).';msgAg(syncMsg);return apiAg({action:'agendamentos.list'});}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:rowsAg;completarVirtuaisAg();}).catch(function(e){msgAg(e.message||'Falha ao sincronizar.',true);}).finally(function(){busyAg=false;renderAg();renderConfigAg();if(syncMsg){propostaAg={};gerarAg(true,syncMsg);}});}
 
 // ---------- Histórico de desfechos (Realizado/Faltou) ----------
@@ -903,9 +904,9 @@ function renderFolgasAg(){
     sc.innerHTML='<option value="">Agenda…</option>'+ks.map(function(k){return '<option value="'+escAg(k)+'">'+escAg(ag[k])+'</option>';}).join('');sc.value=at;}
   var box=document.getElementById('agFolgasLista');if(!box)return;
   var itens=[];
-  cfgAg.feriados.forEach(function(f,i){itens.push({ini:f.ini,html:'<li><b>Feriado</b>'+(f.nome?' — '+escAg(f.nome):'')+' · '+periodoAg(f.ini,f.fim)+' <button type="button" class="agendamentos-btn agendamentos-secundario" data-folga="f" data-i="'+i+'">Remover</button></li>'});});
-  cfgAg.faltas.forEach(function(f,i){itens.push({ini:f.ini,html:'<li><b>Imprevisto</b> — '+escAg(f.prof)+(f.motivo?' ('+escAg(f.motivo)+')':'')+' · '+periodoAg(f.ini,f.fim)+' <button type="button" class="agendamentos-btn agendamentos-secundario" data-folga="l" data-i="'+i+'">Remover</button></li>'});});
-  cfgAg.folgas.forEach(function(f,i){itens.push({ini:f.ini,html:'<li><b>Folga</b> — '+escAg(f.prof)+(f.motivo?' ('+escAg(f.motivo)+')':'')+' · '+periodoAg(f.ini,f.fim)+' <button type="button" class="agendamentos-btn agendamentos-secundario" data-folga="g" data-i="'+i+'">Remover</button></li>'});});
+  cfgAg.feriados.forEach(function(f,i){itens.push({ini:f.ini,html:'<li><b>Feriado</b>'+(f.nome?' — '+escAg(f.nome):'')+' · '+periodoAg(f.ini,f.fim)+(f.por?' · por '+escAg(f.por):'')+' <button type="button" class="agendamentos-btn agendamentos-secundario" data-folga="f" data-i="'+i+'">Remover</button></li>'});});
+  cfgAg.faltas.forEach(function(f,i){itens.push({ini:f.ini,html:'<li><b>Imprevisto</b> — '+escAg(f.prof)+(f.motivo?' ('+escAg(f.motivo)+')':'')+' · '+periodoAg(f.ini,f.fim)+(f.por?' · por '+escAg(f.por):'')+' <button type="button" class="agendamentos-btn agendamentos-secundario" data-folga="l" data-i="'+i+'">Remover</button></li>'});});
+  cfgAg.folgas.forEach(function(f,i){itens.push({ini:f.ini,html:'<li><b>Folga</b> — '+escAg(f.prof)+(f.motivo?' ('+escAg(f.motivo)+')':'')+' · '+periodoAg(f.ini,f.fim)+(f.por?' · por '+escAg(f.por):'')+' <button type="button" class="agendamentos-btn agendamentos-secundario" data-folga="g" data-i="'+i+'">Remover</button></li>'});});
   itens.sort(function(a,b){return a.ini<b.ini?-1:a.ini>b.ini?1:0;});
   box.innerHTML=itens.length?'<ul class="agendamentos-folgas-lista">'+itens.map(function(x){return x.html;}).join('')+'</ul>':'<p class="agendamentos-filtro-info">Nenhum feriado, imprevisto ou folga cadastrado.</p>';
 }
@@ -934,30 +935,148 @@ function consultarDiaAg(){
   out.textContent=motivoDiaAg(k,iso);
 }
 function folgaMudouAg(){salvarConfigAg();renderFolgasAg();configMudouAg();}
+
+// ---------- Bloqueios na planilha (feriados, imprevistos e folgas) ----------
+// Ficam na aba "Agenda - Bloqueios", compartilhados por todos que usam o painel. Se o Apps Script publicado
+// ainda não conhece essa aba (versão antiga), os cadastros continuam valendo só neste navegador.
+var bloqueiosModoAg='';   // 'servidor' | 'local' | '' (ainda não carregou)
+var TIPO_FER_AG='Feriado',TIPO_IMP_AG='Imprevisto',TIPO_FOL_AG='Folga';
+function listaBloqAg(tipo){return tipo===TIPO_FER_AG?cfgAg.feriados:(tipo===TIPO_IMP_AG?cfgAg.faltas:cfgAg.folgas);}
+function linhaBloqAg(tipo,x){return {tipo:tipo,prof:tipo===TIPO_FER_AG?'':(x.prof||''),ini:x.ini,fim:x.fim,motivo:(tipo===TIPO_FER_AG?x.nome:x.motivo)||''};}
+function aplicarBloqueiosAg(rows){
+  var fer=[],imp=[],fol=[];
+  (rows||[]).forEach(function(b){
+    if(!/^\d{4}-\d\d-\d\d$/.test(b.ini||'')||!/^\d{4}-\d\d-\d\d$/.test(b.fim||''))return;
+    if(b.tipo===TIPO_FER_AG)fer.push({id:b.id,ini:b.ini,fim:b.fim,nome:b.motivo||'',por:b.por||''});
+    else if(b.prof&&b.tipo===TIPO_IMP_AG)imp.push({id:b.id,prof:b.prof,ini:b.ini,fim:b.fim,motivo:b.motivo||'',por:b.por||''});
+    else if(b.prof&&b.tipo===TIPO_FOL_AG)fol.push({id:b.id,prof:b.prof,ini:b.ini,fim:b.fim,motivo:b.motivo||'',por:b.por||''});
+  });
+  cfgAg.feriados=fer;cfgAg.faltas=imp;cfgAg.folgas=fol;
+}
+function notaBloqueiosAg(migrados,erro){
+  var el=document.getElementById('agBloqueiosModo');if(!el)return;
+  if(bloqueiosModoAg==='servidor'){
+    el.textContent='Feriados, imprevistos e folgas ficam salvos na planilha (aba “Agenda - Bloqueios”) e valem para todos que usam o painel.'+(migrados?' '+migrados+(migrados===1?' cadastro que estava só neste navegador foi enviado':' cadastros que estavam só neste navegador foram enviados')+' para a planilha.':'');
+    el.className='agendamentos-filtro-info';return;
+  }
+  var m=(erro&&erro.message)||'';
+  el.textContent='Atenção: '+(/n[ãa]o reconhecida/i.test(m)?'o Apps Script publicado ainda não conhece os bloqueios na planilha (publique a versão nova do backend). ':'não foi possível acessar os bloqueios na planilha'+(m?' ('+m+')':'')+'. ')+'Por enquanto os cadastros ficam só neste navegador.';
+  el.className='agendamentos-filtro-info erro';
+}
+// Lê os bloqueios da planilha. O que estava só neste navegador (sem id) é enviado uma vez e deixa de ficar aqui.
+function carregarBloqueiosAg(){
+  var legado=[];
+  [TIPO_FER_AG,TIPO_IMP_AG,TIPO_FOL_AG].forEach(function(t){listaBloqAg(t).forEach(function(x){if(!x.id)legado.push(linhaBloqAg(t,x));});});
+  return apiAg({action:'agendamentos.bloqueiosList'}).then(function(r){
+    return legado.length?apiAg({action:'agendamentos.bloqueiosAdd',rows:legado}):r;
+  }).then(function(r){
+    aplicarBloqueiosAg(r.rows);bloqueiosModoAg='servidor';salvarConfigAg();notaBloqueiosAg(legado.length);
+  }).catch(function(e){
+    if(/Sess/i.test((e&&e.message)||''))throw e;
+    bloqueiosModoAg='local';notaBloqueiosAg(0,e);
+  });
+}
+function registrarBloqueioAg(tipo,x,campos){
+  function pronto(){campos.forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});folgaMudouAg();mostrarAfetadosAg(tipo,x);}
+  if(bloqueiosModoAg!=='servidor'){listaBloqAg(tipo).push(x);pronto();return;}
+  msgAg('Salvando na planilha…',false);
+  apiAg({action:'agendamentos.bloqueiosAdd',rows:[linhaBloqAg(tipo,x)]}).then(function(r){
+    aplicarBloqueiosAg(r.rows);msgAg('',false);pronto();
+  }).catch(function(e){msgAg('Não foi possível salvar na planilha: '+((e&&e.message)||e),true);});
+}
+function removerBloqueioAg(lista,i){
+  var item=lista[i];if(!item)return;
+  if(bloqueiosModoAg==='servidor'&&item.id){
+    msgAg('Removendo da planilha…',false);
+    apiAg({action:'agendamentos.bloqueiosRemove',id:item.id}).then(function(r){aplicarBloqueiosAg(r.rows);msgAg('',false);folgaMudouAg();}).catch(function(e){msgAg('Não foi possível remover na planilha: '+((e&&e.message)||e),true);});
+    return;
+  }
+  lista.splice(i,1);folgaMudouAg();
+}
 function addFeriadoAg(){
   var ini=valAg('agFerIni'),fim=valAg('agFerFim')||ini,nome=valAg('agFerNome').trim();
   if(!ini){msgAg('Informe a data do feriado.',true);return;}
   if(fim<ini){msgAg('A data final do feriado é anterior à inicial.',true);return;}
-  cfgAg.feriados.push({ini:ini,fim:fim,nome:nome});
-  ['agFerIni','agFerFim','agFerNome'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
-  folgaMudouAg();
+  registrarBloqueioAg(TIPO_FER_AG,{ini:ini,fim:fim,nome:nome},['agFerIni','agFerFim','agFerNome']);
 }
 function addFaltaAg(){
   var prof=valAg('agFaltaProf'),ini=valAg('agFaltaIni'),fim=valAg('agFaltaFim')||ini,motivo=valAg('agFaltaMotivo').trim();
   if(!prof||!ini){msgAg('Escolha o profissional e a data do imprevisto.',true);return;}
   if(fim<ini){msgAg('A data final do imprevisto é anterior à inicial.',true);return;}
-  cfgAg.faltas.push({prof:prof,ini:ini,fim:fim,motivo:motivo});
-  ['agFaltaIni','agFaltaFim','agFaltaMotivo'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
-  folgaMudouAg();
+  registrarBloqueioAg(TIPO_IMP_AG,{prof:prof,ini:ini,fim:fim,motivo:motivo},['agFaltaIni','agFaltaFim','agFaltaMotivo']);
 }
-
 function addFolgaAg(){
   var prof=valAg('agFolgaProf'),ini=valAg('agFolgaIni'),fim=valAg('agFolgaFim')||ini,motivo=valAg('agFolgaMotivo').trim();
   if(!prof||!ini){msgAg('Escolha o profissional e a data da folga.',true);return;}
   if(fim<ini){msgAg('A data final da folga é anterior à inicial.',true);return;}
-  cfgAg.folgas.push({prof:prof,ini:ini,fim:fim,motivo:motivo});
-  ['agFolgaIni','agFolgaFim','agFolgaMotivo'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
-  folgaMudouAg();
+  registrarBloqueioAg(TIPO_FOL_AG,{prof:prof,ini:ini,fim:fim,motivo:motivo},['agFolgaIni','agFolgaFim','agFolgaMotivo']);
+}
+
+// ---------- Pacientes afetados por um bloqueio ----------
+// Ao cadastrar feriado, imprevisto ou folga, lista quem tinha consulta marcada no período e a nova data
+// (sugerida pela geração automática, ainda não salva, ou já salva) para avisar os pacientes.
+var afetadosAg=null;   // {titulo, itens:[{ix,nome,dataOrig,turno,prof}]}
+function turnoRotuloAg(v){var n=normAg(v);return n==='manha'?'Manhã':(n==='tarde'?'Tarde':'');}
+function mostrarAfetadosAg(tipo,x){
+  var uc=profMapAg(),hoje=isoAg(new Date()),base=tipo===TIPO_FER_AG?'':normAg(x.prof),itens=[];
+  rowsAg.forEach(function(r,ix){
+    var d=dateAg(r['Data agendada']);
+    if(!d||d<hoje||d<x.ini||d>x.fim)return;
+    if((r.Situação||'Pendente')==='Realizado'||!ehAtivoAg(r))return;
+    var k=uc?chaveProfAg(r,uc):'';
+    if(base&&String(k||'').split('@')[0]!==base)return;
+    itens.push({ix:ix,nome:String(r.Nome||''),dataOrig:d,turno:String(r.Turno||''),prof:uc?nomeProfAg(r,uc):''});
+  });
+  itens.sort(function(p,q){return p.dataOrig<q.dataOrig?-1:p.dataOrig>q.dataOrig?1:p.nome.localeCompare(q.nome,'pt-BR');});
+  var quem=tipo===TIPO_FER_AG?'Feriado'+(x.nome?': '+x.nome:''):tipo+' — '+x.prof+(x.motivo?' ('+x.motivo+')':'');
+  afetadosAg={titulo:quem+' · '+periodoAg(x.ini,x.fim),itens:itens};
+  renderAfetadosAg();
+}
+function turnosSeguroAg(){var uc=profMapAg();try{return uc?turnosAg(uc):{};}catch(e){return {};}}
+function estadoAfetadoAg(it,turnos){
+  var r=rowsAg[it.ix],prop=propostaAg[it.ix],atual=r?dateAg(r['Data agendada']):'';
+  if(prop){var t=turnos&&turnos[it.ix];return {nova:prop,turno:t?t.rotulo:'',estado:'Sugerida — ainda não salva'};}
+  if(atual&&atual!==it.dataOrig)return {nova:atual,turno:turnoRotuloAg(r.Turno),estado:'Já salva'};
+  return {nova:'',turno:'',estado:'Sem nova data — gere as datas'};
+}
+function renderAfetadosAg(){
+  var box=document.getElementById('agAfetados');if(!box)return;
+  if(!afetadosAg){box.innerHTML='';return;}
+  var turnos=turnosSeguroAg(),itens=afetadosAg.itens,n=itens.length;
+  var btn=function(acao,txt){return '<button type="button" class="agendamentos-btn agendamentos-secundario" data-afet="'+acao+'">'+txt+'</button>';};
+  var topo='<div class="agendamentos-afetados-topo"><b>Pacientes afetados</b> · '+escAg(afetadosAg.titulo)+' · '+n+(n===1?' paciente':' pacientes')+'<span class="agendamentos-afetados-acoes">'+(n?btn('csv','Exportar CSV')+btn('copiar','Copiar lista'):'')+btn('fechar','Fechar')+'</span></div>';
+  if(!n){box.innerHTML='<div class="agendamentos-afetados">'+topo+'<p class="agendamentos-filtro-info">Nenhum paciente tinha consulta marcada neste período.</p></div>';return;}
+  var corpo=itens.map(function(it){
+    var e=estadoAfetadoAg(it,turnos),tr=turnoRotuloAg(it.turno);
+    return '<tr><td>'+escAg(it.nome)+'</td><td>'+escAg(it.prof)+'</td><td>'+escAg(brAg(it.dataOrig))+(tr?' · '+tr:'')+'</td><td>'+(e.nova?escAg(brAg(e.nova))+(e.turno?' · '+escAg(e.turno):''):'—')+'</td><td'+(e.nova?'':' class="faltas-sem-data"')+'>'+escAg(e.estado)+'</td></tr>';
+  }).join('');
+  box.innerHTML='<div class="agendamentos-afetados">'+topo+'<div class="table-wrap"><table class="data-table"><thead><tr><th>Paciente</th><th>Profissional</th><th>Data que estava</th><th>Nova data</th><th>Situação da nova data</th></tr></thead><tbody>'+corpo+'</tbody></table></div><p class="agendamentos-filtro-info">As datas “sugeridas” só valem depois de clicar em “Salvar datas geradas”. Use Exportar CSV ou Copiar lista para avisar os pacientes.</p></div>';
+}
+function cliqueAfetadosAg(e){
+  var b=e.target.closest&&e.target.closest('button[data-afet]');if(!b||!afetadosAg)return;
+  var acao=b.getAttribute('data-afet');
+  if(acao==='fechar'){afetadosAg=null;renderAfetadosAg();return;}
+  var turnos=turnosSeguroAg();
+  var linhas=afetadosAg.itens.map(function(it){return {it:it,e:estadoAfetadoAg(it,turnos)};});
+  if(acao==='csv'){
+    var cab=['Paciente','Profissional','Data anterior','Turno anterior','Nova data','Novo turno','Situação da nova data'];
+    var csv='\ufeff'+[cab].concat(linhas.map(function(l){return [l.it.nome,l.it.prof,brAg(l.it.dataOrig),turnoRotuloAg(l.it.turno),brAg(l.e.nova),l.e.turno,l.e.estado];})).map(function(r){return r.map(csvCelAg).join(';');}).join('\r\n');
+    var link=document.createElement('a');
+    link.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+    link.download='pacientes-afetados-'+isoAg(new Date())+'.csv';
+    document.body.appendChild(link);link.click();document.body.removeChild(link);
+    setTimeout(function(){URL.revokeObjectURL(link.href);},1000);
+    return;
+  }
+  if(acao==='copiar'){
+    var txt=afetadosAg.titulo+'\n'+linhas.map(function(l){
+      var tr=turnoRotuloAg(l.it.turno);
+      return '• '+l.it.nome+' — consulta de '+brAg(l.it.dataOrig)+(tr?' ('+tr+')':'')+(l.e.nova?' → nova data '+brAg(l.e.nova)+(l.e.turno?' ('+l.e.turno+')':'')+(l.e.estado.indexOf('Sugerida')===0?' [sugerida]':''):' → sem nova data ainda');
+    }).join('\n');
+    var ok=function(){msgAg('Lista copiada.',false);};
+    var plano=function(){var t=document.createElement('textarea');t.value=txt;t.style.position='fixed';t.style.opacity='0';document.body.appendChild(t);t.select();try{document.execCommand('copy');ok();}catch(err){msgAg('Não foi possível copiar. Use Exportar CSV.',true);}document.body.removeChild(t);};
+    if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(txt).then(ok,plano);else plano();
+  }
 }
 
 // ---------- Exportar / imprimir ----------
@@ -1087,10 +1206,11 @@ document.addEventListener('DOMContentLoaded',function(){
       if(bf)bf.addEventListener('click',addFeriadoAg);
       if(bl)bl.addEventListener('click',addFaltaAg);
       var bg=document.getElementById('agFolgaAdd');if(bg)bg.addEventListener('click',addFolgaAg);
+      var af=document.getElementById('agAfetados');if(af)af.addEventListener('click',cliqueAfetadosAg);
       var bc=document.getElementById('agConsultaBtn');if(bc)bc.addEventListener('click',consultarDiaAg);
       if(ls)ls.addEventListener('click',function(e){
         var b=e.target.closest('button[data-folga]');if(!b)return;
-        var i=Number(b.dataset.i);(b.dataset.folga==='f'?cfgAg.feriados:(b.dataset.folga==='g'?cfgAg.folgas:cfgAg.faltas)).splice(i,1);folgaMudouAg();
+        removerBloqueioAg(b.dataset.folga==='f'?cfgAg.feriados:(b.dataset.folga==='g'?cfgAg.folgas:cfgAg.faltas),Number(b.dataset.i));
       });
     }
     var rs=document.getElementById('agCfgReset');
