@@ -1065,7 +1065,7 @@ function renderConfigAg(){
       +'<td><input type="number" min="0" data-campo="t" placeholder="'+cfgAg.t+'" value="'+(o.t==null?'':o.t)+'"></td>'
       +[0,1,2,3,4,5,6].map(function(i){return '<td><input type="checkbox" data-dia="'+i+'"'+(cap.dias[i]?' checked':'')+(temRegras?' disabled title="Definido pelas regras de atendimento"':'')+'></td>';}).join('')
       +'<td class="ag-regras-cel">'+(temRegras?'<span class="ag-regras-resumo" title="'+escAg(resumoRegrasAg(cap.regras))+'">'+cap.regras.length+(cap.regras.length===1?' regra':' regras')+'</span> ':'')+'<button type="button" class="agendamentos-btn agendamentos-secundario" data-regras-toggle="'+escAg(base)+'" data-un="'+escAg(k.indexOf('@')<0?'':nomeUnidAg(k.slice(k.indexOf('@')+1)))+'" style="padding:2px 8px;font-size:12px">'+(aberto?'Fechar':(temRegras?'Editar':'Definir regras'))+'</button></td></tr>'
-      +(aberto?'<tr data-kr="'+escAg(base)+'" class="ag-regras-linha"><td colspan="11">'+htmlRegrasAg(base,nomes[k].split(' — ')[0])+'</td></tr>':'');
+      +(aberto?'<tr data-kr="'+escAg(base)+'" class="ag-regras-linha"><td colspan="11">'+htmlRegrasAg(base,nomes[k].split(' — ')[0],unRow)+'</td></tr>':'');
   }).join('')+'</tbody></table></div>';
 }
 var regrasAbertasAg={};   // profissionais com o editor de regras aberto
@@ -1076,14 +1076,16 @@ function unidadesOpcoesAg(){
   if(uc)Object.keys(uc.ultUnid).forEach(function(n){var u=nomeUnidAg(uc.ultUnid[n]);if(u&&lista.map(normAg).indexOf(normAg(u))<0)lista.push(u);});
   return lista;
 }
-function htmlRegrasAg(base,nomeProf){
-  var o=cfgAg.prof[base]||{},regras=Array.isArray(o.regras)?o.regras:[],unids=unidadesOpcoesAg();
-  var h='<div class="ag-regras"><p class="agendamentos-filtro-info"><b>Regras de atendimento — '+escAg(nomeProf)+'.</b> Cada regra é um dia da semana em que o profissional atende em uma unidade. Com pelo menos uma regra válida, <b>só as regras</b> valem para essa unidade (os dias da tabela ficam desativados). Ex.: Centro, segunda a cada 2 semanas desde 19/10; Croatá, segunda a cada 2 semanas desde 26/10; Centro, terça toda semana. O paciente é ligado à unidade do último atendimento dele no PEC.</p>';
+function htmlRegrasAg(base,nomeProf,unFiltro){
+  var o=cfgAg.prof[base]||{},todas=Array.isArray(o.regras)?o.regras:[],unids=unidadesOpcoesAg();
+  // Linha de uma unidade: mostra só as regras dessa unidade (e as de "Todas as unidades"); a unidade fica fixa.
+  var regras=[];todas.forEach(function(r,i){if(!unFiltro||!r.unid||unidCasaAg(r.unid,unFiltro))regras.push({r:r,i:i});});
+  var h='<div class="ag-regras"><p class="agendamentos-filtro-info"><b>Regras de atendimento — '+escAg(nomeProf)+(unFiltro?' — '+escAg(unFiltro):'')+'.</b> Cada regra é um dia da semana em que o profissional atende em uma unidade. Com pelo menos uma regra válida, <b>só as regras</b> valem para essa unidade (os dias da tabela ficam desativados). Ex.: Centro, segunda a cada 2 semanas desde 19/10; Croatá, segunda a cada 2 semanas desde 26/10; Centro, terça toda semana. O paciente é ligado à unidade do último atendimento dele no PEC.</p>';
   if(!regras.length)h+='<p class="agendamentos-filtro-info">Sem regras: vale a configuração simples (dias marcados na tabela).</p>';
-  regras.forEach(function(r,i){
-    var cada=parseInt(r.freq,10)||1,ok=regraOkAg(r);
+  regras.forEach(function(x){
+    var r=x.r,i=x.i,cada=parseInt(r.freq,10)||1,ok=regraOkAg(r);
     h+='<div class="ag-regra'+(ok?'':' ag-regra-invalida')+'" data-i="'+i+'">'
-      +'<select data-rf="unid" aria-label="Unidade"><option value="">Todas as unidades</option>'+unids.map(function(u){return '<option value="'+escAg(u)+'"'+(r.unid&&normAg(r.unid)===normAg(u)?' selected':'')+'>'+escAg(u)+'</option>';}).join('')+'</select>'
+      +(unFiltro?'<b class="ag-regra-un" style="padding:0 8px">'+escAg(r.unid?nomeUnidAg(r.unid):'Todas as unidades')+'</b>':'<select data-rf="unid" aria-label="Unidade"><option value="">Todas as unidades</option>'+unids.map(function(u){return '<option value="'+escAg(u)+'"'+(r.unid&&normAg(r.unid)===normAg(u)?' selected':'')+'>'+escAg(u)+'</option>';}).join('')+'</select>')
       +'<select data-rf="dia" aria-label="Dia da semana">'+DIAS_SEM_AG.map(function(n,d){return '<option value="'+d+'"'+(r.dia===d?' selected':'')+'>'+n+'</option>';}).join('')+'</select>'
       +'<select data-rf="freq" aria-label="Frequência">'+[['1','Toda semana'],['2','A cada 2 semanas (quinzenal)'],['3','A cada 3 semanas'],['4','A cada 4 semanas'],['mes','Semanas do mês…']].map(function(f){return '<option value="'+f[0]+'"'+(String(r.freq||'1')===f[0]?' selected':'')+'>'+f[1]+'</option>';}).join('')+'</select>'
       +(cada>1?'<label>a partir de <input type="date" data-rf="desde" value="'+escAg(r.desde||'')+'"></label>':'')
@@ -1095,7 +1097,7 @@ function htmlRegrasAg(base,nomeProf){
       +(ok?'':'<small class="ag-aviso"> Incompleta: '+(r.freq==='mes'?'marque pelo menos uma semana do mês':'informe a data inicial')+' (regra ignorada até lá).</small>')
       +'</div>';
   });
-  h+='<div><button type="button" class="agendamentos-btn" data-rf-add="1" style="padding:4px 10px;font-size:12px">+ Adicionar regra</button>'+(regras.length?' <button type="button" class="agendamentos-btn agendamentos-secundario" data-rf-limpar="1" style="padding:4px 10px;font-size:12px">Remover todas (voltar aos dias simples)</button>':'')+'</div></div>';
+  h+='<div><button type="button" class="agendamentos-btn" data-rf-add="1" style="padding:4px 10px;font-size:12px">+ Adicionar regra</button>'+(regras.length?' <button type="button" class="agendamentos-btn agendamentos-secundario" data-rf-limpar="1" style="padding:4px 10px;font-size:12px">'+(unFiltro?'Remover as regras desta unidade (voltar aos dias simples)':'Remover todas (voltar aos dias simples)')+'</button>':'')+'</div></div>';
   return h;
 }
 // Mudou a configuração: guarda, e refaz a sugestão de datas.
@@ -1429,7 +1431,7 @@ document.addEventListener('DOMContentLoaded',function(){
       var k=tr.dataset.kr,o=cfgAg.prof[k]||{};o.regras=Array.isArray(o.regras)?o.regras:[];
       if(t.dataset.rfAdd){o.regras.push({unid:regrasUnidPadraoAg[k]||'',dia:1,freq:'1',turno:'ambos'});}
       else if(t.dataset.rfDel!==undefined){o.regras.splice(Number(t.dataset.rfDel),1);}
-      else if(t.dataset.rfLimpar){o.regras=[];}
+      else if(t.dataset.rfLimpar){var uf=regrasUnidPadraoAg[k]||'';o.regras=uf?o.regras.filter(function(r){return !(r.unid&&unidCasaAg(r.unid,uf));}):[];}
       else return;
       cfgAg.prof[k]=o;salvarRegrasAg(k,o);profCacheAg=null;renderConfigAg();configMudouAg();
     });
