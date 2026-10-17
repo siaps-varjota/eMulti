@@ -110,7 +110,7 @@ function tabelaF(titulo, linhas) {
     '</th><th>Realizados</th><th>Faltas</th><th>Total</th><th>% de faltas</th></tr></thead><tbody>' + corpo + '</tbody></table></div></div>';
 }
 
-function renderAbsenteismoF(regs, f) {
+function renderAbsenteismoF(regs, f, d) {
   var base = regs.filter(function (r) {
     if (f.prof && r.prof !== f.prof) return false;
     if (f.de && r.data < f.de) return false;
@@ -119,11 +119,25 @@ function renderAbsenteismoF(regs, f) {
   });
   var falt = base.filter(function (r) { return r.falta; }).length, tot = base.length, real = tot - falt;
 
+  // Cancelados e remarcados (mesmos filtros). Não entram na taxa de faltas.
+  var canc = 0, remar = 0;
+  ((d && d.hist) || []).forEach(function (h) {
+    if (h.Desfecho !== 'Cancelado' && h.Desfecho !== 'Remarcado') return;
+    var data = isoF(h['Data agendada']);
+    if (!data) return;
+    if (f.prof && (String(h.Profissional || '').trim() || 'Sem profissional definido') !== f.prof) return;
+    if (f.de && data < f.de) return;
+    if (f.ate && data > f.ate) return;
+    if (h.Desfecho === 'Cancelado') canc++; else remar++;
+  });
+
   elF('faltasResumo').innerHTML =
     '<div class="faltas-kpi"><b>' + tot + '</b><span>Baixas registradas</span></div>' +
     '<div class="faltas-kpi"><b>' + real + '</b><span>Realizados</span></div>' +
     '<div class="faltas-kpi alerta"><b>' + falt + '</b><span>Faltas</span></div>' +
-    '<div class="faltas-kpi alerta"><b>' + (tot ? fmtPctF(pctF(falt, tot)) : '—') + '</b><span>Taxa de faltas</span></div>';
+    '<div class="faltas-kpi alerta"><b>' + (tot ? fmtPctF(pctF(falt, tot)) : '—') + '</b><span>Taxa de faltas</span></div>' +
+    '<div class="faltas-kpi"><b>' + canc + '</b><span>Cancelados</span></div>' +
+    '<div class="faltas-kpi"><b>' + remar + '</b><span>Remarcados</span></div>';
 
   function porTaxa(a, b) { return pctF(b.falt, b.tot) - pctF(a.falt, a.tot) || b.tot - a.tot; }
   var porProf = agruparF(base, function (r) { return r.prof; }).sort(porTaxa);
@@ -312,7 +326,7 @@ function renderF() {
 
   info.className = 'agendamentos-feedback';
   info.textContent = regs.length + ' baixas no histórico' + (d.versao ? ' · Apps Script versão ' + d.versao : '') + '.';
-  renderAbsenteismoF(regs, f);
+  renderAbsenteismoF(regs, f, d);
   renderFaltososF(regs, d, f);
   renderRepetidasF(regs, d, f);
 }
