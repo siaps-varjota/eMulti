@@ -20,7 +20,7 @@ function valAg(id){var el=document.getElementById(id);return el?String(el.value=
 var DIAS_UTEIS_AG=[0,1,1,1,1,1,0];            // índice = Date.getDay() (0 = domingo)
 var DIAS_SEM_AG=['dom','seg','ter','qua','qui','sex','sáb'];
 var redistProfAg='';   // chave da agenda (profissional/unidade) a redistribuir uma única vez (botão "Atualizar" da tabela de configuração)
-var cfgAg={m:6,t:6,dias:DIAS_UTEIS_AG.slice(),janela:0,prof:{},soManha:[0,0,0,0,0,1,0],feriados:[],faltas:[],redistribuir:false};   // feriados: [{ini,fim,nome}] fecham todas as agendas; faltas: [{prof,ini,fim,motivo}] só do profissional.
+var cfgAg={m:6,t:6,dias:DIAS_UTEIS_AG.slice(),janela:0,prof:{},soManha:[0,0,0,0,0,1,0],feriados:[],faltas:[],folgas:[],redistribuir:false};   // feriados: [{ini,fim,nome}] fecham todas as agendas; faltas: [{prof,ini,fim,motivo}] só do profissional.
 // soManha: dias em que só há atendimento de manhã (padrão: sexta)
 function numAg(v,def,min){var n=parseInt(v,10);return isNaN(n)||n<min?def:n;}
 function carregarConfigAg(){
@@ -32,6 +32,7 @@ function carregarConfigAg(){
   function per(x){return x&&/^\d{4}-\d\d-\d\d$/.test(x.ini||'')&&/^\d{4}-\d\d-\d\d$/.test(x.fim||'');}
   cfgAg.feriados=Array.isArray(c.feriados)?c.feriados.filter(per):[];
   cfgAg.faltas=Array.isArray(c.faltas)?c.faltas.filter(function(x){return per(x)&&x.prof;}):[];
+  cfgAg.folgas=Array.isArray(c.folgas)?c.folgas.filter(function(x){return per(x)&&x.prof;}):[];
 }
 function salvarConfigAg(){var c=Object.assign({},cfgAg);delete c.redistribuir;lsSetAg(LS_CONFIG_AG,c);}
 // A visão Agenda (agenda.js) marca os feriados no calendário.
@@ -45,13 +46,14 @@ function capAg(k){
   if(!dias.some(function(x){return x;}))dias=DIAS_UTEIS_AG;
   return {m:m,t:t,dia:m+t,dias:dias,soManha:cfgAg.soManha,k:k||''};
 }
-// Motivo de o dia estar fechado para a agenda k (feriado para todos; falta só do profissional,
+// Motivo de o dia estar fechado para a agenda k (feriado para todos; falta ou folga só do profissional,
 // em todas as unidades dele). '' = dia normal.
 function folgaDiaAg(k,iso){
   var i,f;
   for(i=0;i<cfgAg.feriados.length;i++){f=cfgAg.feriados[i];if(iso>=f.ini&&iso<=f.fim)return 'Feriado'+(f.nome?': '+f.nome:'');}
   var base=String(k||'').split('@')[0];
   if(base)for(i=0;i<cfgAg.faltas.length;i++){f=cfgAg.faltas[i];if(normAg(f.prof)===base&&iso>=f.ini&&iso<=f.fim)return 'Falta do profissional'+(f.motivo?': '+f.motivo:'');}
+  if(base)for(i=0;i<cfgAg.folgas.length;i++){f=cfgAg.folgas[i];if(normAg(f.prof)===base&&iso>=f.ini&&iso<=f.fim)return 'Folga do profissional'+(f.motivo?': '+f.motivo:'');}
   return '';
 }
 // Capacidade do profissional em um dia específico: nos dias "só manhã" (padrão: sexta) só valem as vagas da manhã.
@@ -890,6 +892,12 @@ function renderFolgasAg(){
     sel.innerHTML='<option value="">Profissional…</option>'+nomes.map(function(n){return '<option value="'+escAg(n)+'">'+escAg(n)+'</option>';}).join('');
     sel.value=atual;
   }
+  var sg=document.getElementById('agFolgaProf');
+  if(sg){
+    var atualG=sg.value,nomesG=uc?uc.nomes:[];
+    sg.innerHTML='<option value="">Profissional…</option>'+nomesG.map(function(n){return '<option value="'+escAg(n)+'">'+escAg(n)+'</option>';}).join('');
+    sg.value=atualG;
+  }
   var sc=document.getElementById('agConsultaProf');
   if(sc&&uc){var at=sc.value,ag=agendasAg(uc),ks=Object.keys(ag).sort(function(a,b){return ag[a].localeCompare(ag[b],'pt-BR');});
     sc.innerHTML='<option value="">Agenda…</option>'+ks.map(function(k){return '<option value="'+escAg(k)+'">'+escAg(ag[k])+'</option>';}).join('');sc.value=at;}
@@ -897,8 +905,9 @@ function renderFolgasAg(){
   var itens=[];
   cfgAg.feriados.forEach(function(f,i){itens.push({ini:f.ini,html:'<li><b>Feriado</b>'+(f.nome?' — '+escAg(f.nome):'')+' · '+periodoAg(f.ini,f.fim)+' <button type="button" class="agendamentos-btn agendamentos-secundario" data-folga="f" data-i="'+i+'">Remover</button></li>'});});
   cfgAg.faltas.forEach(function(f,i){itens.push({ini:f.ini,html:'<li><b>Falta</b> — '+escAg(f.prof)+(f.motivo?' ('+escAg(f.motivo)+')':'')+' · '+periodoAg(f.ini,f.fim)+' <button type="button" class="agendamentos-btn agendamentos-secundario" data-folga="l" data-i="'+i+'">Remover</button></li>'});});
+  cfgAg.folgas.forEach(function(f,i){itens.push({ini:f.ini,html:'<li><b>Folga</b> — '+escAg(f.prof)+(f.motivo?' ('+escAg(f.motivo)+')':'')+' · '+periodoAg(f.ini,f.fim)+' <button type="button" class="agendamentos-btn agendamentos-secundario" data-folga="g" data-i="'+i+'">Remover</button></li>'});});
   itens.sort(function(a,b){return a.ini<b.ini?-1:a.ini>b.ini?1:0;});
-  box.innerHTML=itens.length?'<ul class="agendamentos-folgas-lista">'+itens.map(function(x){return x.html;}).join('')+'</ul>':'<p class="agendamentos-filtro-info">Nenhum feriado ou falta cadastrado.</p>';
+  box.innerHTML=itens.length?'<ul class="agendamentos-folgas-lista">'+itens.map(function(x){return x.html;}).join('')+'</ul>':'<p class="agendamentos-filtro-info">Nenhum feriado, falta ou folga cadastrado.</p>';
 }
 // Consulta: por que uma agenda (profissional/unidade) aceita ou não agendamento em um dia.
 function motivoDiaAg(k,iso){
@@ -939,6 +948,15 @@ function addFaltaAg(){
   if(fim<ini){msgAg('A data final da falta é anterior à inicial.',true);return;}
   cfgAg.faltas.push({prof:prof,ini:ini,fim:fim,motivo:motivo});
   ['agFaltaIni','agFaltaFim','agFaltaMotivo'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
+  folgaMudouAg();
+}
+
+function addFolgaAg(){
+  var prof=valAg('agFolgaProf'),ini=valAg('agFolgaIni'),fim=valAg('agFolgaFim')||ini,motivo=valAg('agFolgaMotivo').trim();
+  if(!prof||!ini){msgAg('Escolha o profissional e a data da folga.',true);return;}
+  if(fim<ini){msgAg('A data final da folga é anterior à inicial.',true);return;}
+  cfgAg.folgas.push({prof:prof,ini:ini,fim:fim,motivo:motivo});
+  ['agFolgaIni','agFolgaFim','agFolgaMotivo'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
   folgaMudouAg();
 }
 
@@ -1068,14 +1086,15 @@ document.addEventListener('DOMContentLoaded',function(){
       var bf=document.getElementById('agFerAdd'),bl=document.getElementById('agFaltaAdd'),ls=document.getElementById('agFolgasLista');
       if(bf)bf.addEventListener('click',addFeriadoAg);
       if(bl)bl.addEventListener('click',addFaltaAg);
+      var bg=document.getElementById('agFolgaAdd');if(bg)bg.addEventListener('click',addFolgaAg);
       var bc=document.getElementById('agConsultaBtn');if(bc)bc.addEventListener('click',consultarDiaAg);
       if(ls)ls.addEventListener('click',function(e){
         var b=e.target.closest('button[data-folga]');if(!b)return;
-        var i=Number(b.dataset.i);(b.dataset.folga==='f'?cfgAg.feriados:cfgAg.faltas).splice(i,1);folgaMudouAg();
+        var i=Number(b.dataset.i);(b.dataset.folga==='f'?cfgAg.feriados:(b.dataset.folga==='g'?cfgAg.folgas:cfgAg.faltas)).splice(i,1);folgaMudouAg();
       });
     }
     var rs=document.getElementById('agCfgReset');
-    if(rs)rs.addEventListener('click',function(){cfgAg={m:6,t:6,dias:DIAS_UTEIS_AG.slice(),janela:0,prof:{},soManha:[0,0,0,0,0,1,0],feriados:cfgAg.feriados,faltas:cfgAg.faltas,redistribuir:false};renderConfigAg();configMudouAg();});
+    if(rs)rs.addEventListener('click',function(){cfgAg={m:6,t:6,dias:DIAS_UTEIS_AG.slice(),janela:0,prof:{},soManha:[0,0,0,0,0,1,0],feriados:cfgAg.feriados,faltas:cfgAg.faltas,folgas:cfgAg.folgas,redistribuir:false};renderConfigAg();configMudouAg();});
   }
   document.getElementById('agendamentosAtualizar').addEventListener('click',loadAg);
   var btnTestarHist=document.getElementById('agendamentosTestarHist');if(btnTestarHist)btnTestarHist.addEventListener('click',testarHistoricoAg);document.getElementById('agendamentosSincronizar').addEventListener('click',syncAg);
