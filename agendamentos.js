@@ -1005,6 +1005,162 @@ function avisoDiaLotadoAg(ix,r,fields,antData){
   m=/^ACEITA/.test(m)?'o dia '+brAg(d)+' não tem vaga disponível para este profissional.':m.replace(/^N[ÃA]O aceita\s*—\s*/i,'');
   return 'Atenção: '+m+'\n\nSe continuar, '+String(r.Nome||'')+' será salvo(a) em '+brAg(livre)+' (próximo dia com vaga), e não em '+brAg(d)+'.\n\nContinuar?';
 }
+// ---------- Retorno: ao marcar Realizado, sugere datas de retorno com vaga ----------
+// Depois que a situação "Realizado" é salva, abre um card com as próximas datas em que o profissional
+// da última consulta tem vaga (mesmas regras da agenda: dias de atendimento, vagas por turno,
+// feriados, folgas e imprevistos). A pessoa escolhe a data e o retorno já fica gravado como "Agendado".
+// O desfecho "Realizado" continua no histórico; só a linha da aba Agendamentos passa a mostrar o retorno.
+var LS_RETORNO_AG='emulti.agendamentos.retorno';
+var INTERVALOS_RETORNO_AG=[15,30,45,60];
+var retAg=null;   // {ix, base (AAAA-MM-DD do atendimento), dias, sel (data escolhida), selTurno, busy}
+function diasRetornoSalvoAg(){var o=lsGetAg(LS_RETORNO_AG),n=o?parseInt(o.dias,10):0;return n>0&&n<=365?n:30;}
+function rotuloDataAg(iso){return diaSemAg(iso)+' '+brAg(iso);}
+function classeTurnoAg(rot){return rot==='Manhã'?'manha':(rot==='Tarde'?'tarde':'excedente');}
+// Primeira data a considerar: base + intervalo, nunca antes de amanhã.
+function alvoRetornoAg(base,dias){
+  var d=isoParaDataAg(base)||new Date(),alvo=isoAg(somaDiaAg(d,dias)),min=isoAg(amanhaAg());
+  return alvo<min?min:alvo;
+}
+// Próximos dias com vaga para a agenda (profissional/unidade) da pessoa, a partir de deIso.
+// Usa a mesma ocupação de proximaVagaAg (datas salvas + datas geradas ainda não salvas).
+// Devolve null se o profissional não foi identificado.
+function vagasRetornoAg(ix,deIso,uc,max){
+  var r=rowsAg[ix],k=chaveProfAg(r,uc);if(!k)return null;
+  var cap=capAg(k),oc={};
+  rowsAg.forEach(function(x,i){
+    if(i===ix||chaveProfAg(x,uc)!==k||!ocupaAg(x,i))return;
+    var d=propostaAg[i]||dateAg(x['Data agendada']);if(d)oc[d]=(oc[d]||0)+1;
+  });
+  var dia=isoParaDataAg(deIso),out=[];if(!dia)return out;
+  dia=proxDiaCapAg(dia,cap);
+  for(var g=0;g<400&&out.length<max;g++){
+    var d=isoAg(dia),c=capNoDiaAg(cap,d),livres=c.dia-(oc[d]||0);
+    if(livres>0)out.push({iso:d,livres:livres,turno:turnoFuturoAg(ix,'Agendado',d)});
+    dia=proxDiaCapAg(somaDiaAg(dia,1),cap);
+  }
+  return out;
+}
+function elRetAg(id){return document.getElementById(id);}
+function atualizarOkRetornoAg(){
+  var ok=document.querySelector('#agRetOverlay [data-ret="ok"]');if(!ok||!retAg)return;
+  ok.disabled=!retAg.sel||!!retAg.busy;
+  ok.textContent=retAg.busy?'Agendando…':(retAg.sel?'Agendar retorno em '+rotuloDataAg(retAg.sel)+(retAg.selTurno?' · '+retAg.selTurno:''):'Escolha uma data');
+}
+function marcarSelRetornoAg(){
+  document.querySelectorAll('#agRetLista [data-ret-iso]').forEach(function(b){b.classList.toggle('sel',!!retAg&&b.dataset.retIso===retAg.sel);});
+}
+function erroRetornoAg(t){var e=elRetAg('agRetErro');if(!e)return;e.textContent=t||'';e.hidden=!t;}
+function renderOpcoesRetornoAg(){
+  if(!retAg)return;
+  var uc=profMapAg(),r=rowsAg[retAg.ix];if(!r)return;
+  var alvo=alvoRetornoAg(retAg.base,retAg.dias),exato=isoAg(somaDiaAg(isoParaDataAg(retAg.base)||new Date(),retAg.dias));
+  elRetAg('agRetAlvo').textContent='Retorno em '+retAg.dias+(retAg.dias===1?' dia':' dias')+' — datas com vaga a partir de '+rotuloDataAg(alvo)+(alvo!==exato?' (primeira data futura)':'')+':';
+  var ops=uc?vagasRetornoAg(retAg.ix,alvo,uc,6):null,dsBase=diaSemAg(retAg.base),html;
+  if(ops===null)html='<p class="ag-ret-aviso">Não deu para identificar o profissional da última consulta, então as vagas não podem ser conferidas. Escolha a data em "Outra data".</p>';
+  else if(!ops.length)html='<p class="ag-ret-aviso">Nenhuma vaga encontrada nos próximos meses para este profissional. Confira a configuração da agenda.</p>';
+  else html=ops.map(function(o){
+    var mesmo=dsBase&&diaSemAg(o.iso)===dsBase;
+    return '<button type="button" class="ag-ret-op'+(retAg.sel===o.iso?' sel':'')+'" data-ret-iso="'+o.iso+'" data-ret-turno="'+escAg(o.turno)+'">'
+      +'<span class="ag-ret-op-data">'+escAg(rotuloDataAg(o.iso))+'</span>'
+      +(o.turno?'<span class="ag-turno '+classeTurnoAg(o.turno)+'">'+escAg(o.turno)+'</span>':'')
+      +'<small>'+o.livres+(o.livres===1?' vaga livre':' vagas livres')+(mesmo?' · mesmo dia da semana':'')+'</small></button>';
+  }).join('');
+  elRetAg('agRetLista').innerHTML=html;
+  document.querySelectorAll('#agRetOverlay [data-ret-dias]').forEach(function(b){b.classList.toggle('sel',Number(b.dataset.retDias)===retAg.dias);});
+  var inp=document.querySelector('#agRetOverlay [data-ret="dias"]');if(inp)inp.value=INTERVALOS_RETORNO_AG.indexOf(retAg.dias)>=0?'':retAg.dias;
+}
+function limparOutraRetornoAg(){
+  var i=document.querySelector('#agRetOverlay [data-ret="outra"]'),m=elRetAg('agRetOutraMsg');
+  if(i)i.value='';if(m){m.textContent='';m.className='ag-ret-msg';}
+}
+function escolherOpcaoRetornoAg(iso,turno){
+  retAg.sel=iso;retAg.selTurno=turno||'';erroRetornoAg('');limparOutraRetornoAg();marcarSelRetornoAg();atualizarOkRetornoAg();
+}
+// "Outra data": confere a vaga; sem vaga, oferece a próxima.
+function escolherOutraRetornoAg(v){
+  var m=elRetAg('agRetOutraMsg');erroRetornoAg('');
+  retAg.sel='';retAg.selTurno='';
+  if(!v){m.textContent='';m.className='ag-ret-msg';}
+  else if(v<=isoAg(new Date())){m.textContent='Escolha uma data futura.';m.className='ag-ret-msg erro';}
+  else{
+    var uc=profMapAg(),r=rowsAg[retAg.ix],k=uc&&chaveProfAg(r,uc);
+    if(!k){retAg.sel=v;m.textContent='Profissional não identificado: a vaga não foi conferida.';m.className='ag-ret-msg';}
+    else{
+      var livre=proximaVagaAg(retAg.ix,v,uc);
+      if(livre===v){retAg.sel=v;retAg.selTurno=turnoFuturoAg(retAg.ix,'Agendado',v);m.textContent='Tem vaga'+(retAg.selTurno?' ('+retAg.selTurno+')':'')+'.';m.className='ag-ret-msg ok';}
+      else{m.innerHTML='Sem vaga em '+escAg(brAg(v))+'. Próxima: <button type="button" class="ag-ret-usar" data-ret-usar="'+livre+'">'+escAg(rotuloDataAg(livre))+'</button>';m.className='ag-ret-msg erro';}
+    }
+  }
+  marcarSelRetornoAg();atualizarOkRetornoAg();
+}
+function fecharRetornoAg(){
+  var el=elRetAg('agRetOverlay');if(el)el.remove();
+  document.removeEventListener('keydown',teclaRetornoAg);retAg=null;
+}
+function teclaRetornoAg(e){if(e.key==='Escape'&&retAg&&!retAg.busy)fecharRetornoAg();}
+function confirmarRetornoAg(){
+  if(!retAg||!retAg.sel||retAg.busy)return;
+  var ix=retAg.ix,r=rowsAg[ix],uc=profMapAg(),iso=retAg.sel,movido='';
+  if(!r)return;
+  retAg.busy=true;erroRetornoAg('');atualizarOkRetornoAg();
+  verificarConflitosAg([r]).then(function(conf){return conf.length?confirmarConflitosAg(conf):true;}).then(function(seguir){
+    if(!seguir)throw {cancelado:true};
+    // Outra pessoa pode ter ocupado a vaga enquanto o card estava aberto: confere de novo na hora de gravar.
+    if(uc&&chaveProfAg(r,uc)){var livre=proximaVagaAg(ix,iso,uc);if(livre!==iso){movido=brAg(iso)+' → '+brAg(livre);iso=livre;}}
+    var turno=turnoFuturoAg(ix,'Agendado',iso);
+    return apiAg({action:'agendamentos.update',nome:r.Nome,turno:turno,situacao:'Agendado',dataAgendada:iso}).then(function(){return turno;});
+  }).then(function(turno){
+    r.Situação='Agendado';r['Data agendada']=iso;r.Turno=turno;delete propostaAg[ix];
+    lsSetAg(LS_RETORNO_AG,{dias:retAg?retAg.dias:diasRetornoSalvoAg()});
+    fecharRetornoAg();atualizarBotoesGeracaoAg();
+    msgAg('Retorno de '+r.Nome+' agendado para '+brAg(iso)+(turno?' ('+turno+')':'')+'.'+(movido?' A vaga escolhida foi ocupada, então passou para o próximo dia com vaga ('+movido+').':''));
+    renderAg();
+  }).catch(function(e){
+    if(e&&e.cancelado){fecharRetornoAg();msgAg('Retorno não agendado: outra pessoa mudou esta linha. A tela mostra o estado atual da planilha.',true);renderAg();return;}
+    if(retAg){retAg.busy=false;erroRetornoAg((e&&e.message)||'Falha ao agendar o retorno.');atualizarOkRetornoAg();}
+  });
+}
+function abrirRetornoAg(ix,realizadoIso){
+  var r=rowsAg[ix];if(!r)return;
+  var uc=profMapAg(),prof=(uc&&nomeProfAg(r,uc))||'',real=/^\d{4}-\d\d-\d\d$/.test(realizadoIso||'')?realizadoIso:'';
+  fecharRetornoAg();
+  retAg={ix:ix,base:real||isoAg(new Date()),dias:diasRetornoSalvoAg(),sel:'',selTurno:'',busy:false};
+  var el=document.createElement('div');el.id='agRetOverlay';el.className='ag-ret-overlay';
+  el.setAttribute('role','dialog');el.setAttribute('aria-modal','true');el.setAttribute('aria-labelledby','agRetTitulo');
+  el.innerHTML='<div class="ag-ret-card">'
+    +'<button type="button" class="ag-ret-x" data-ret="fechar" aria-label="Fechar">×</button>'
+    +'<h3 id="agRetTitulo">Agendar retorno</h3>'
+    +'<p class="ag-ret-sub"><b>'+escAg(r.Nome)+'</b>'+(prof?' · '+escAg(prof):'')+'<br>'+(real?'Atendimento realizado em '+escAg(brAg(real)):'Atendimento marcado como realizado')+'</p>'
+    +'<div class="ag-ret-int"><span>Retorno em</span>'
+    +INTERVALOS_RETORNO_AG.map(function(n){return '<button type="button" class="ag-ret-int-btn" data-ret-dias="'+n+'">'+n+' dias</button>';}).join('')
+    +'<label class="ag-ret-custom"><input type="number" min="1" max="365" inputmode="numeric" data-ret="dias" aria-label="Outro intervalo, em dias"> dias</label></div>'
+    +'<p class="ag-ret-alvo" id="agRetAlvo"></p>'
+    +'<div class="ag-ret-lista" id="agRetLista"></div>'
+    +'<div class="ag-ret-outra"><label>Outra data <input type="date" data-ret="outra"></label><span id="agRetOutraMsg" class="ag-ret-msg" aria-live="polite"></span></div>'
+    +'<p class="ag-ret-erro" id="agRetErro" hidden></p>'
+    +'<div class="ag-ret-acoes"><button type="button" class="ag-ret-pular" data-ret="fechar">Agora não</button><button type="button" class="ag-ret-ok" data-ret="ok" disabled>Escolha uma data</button></div>'
+    +'</div>';
+  el.addEventListener('click',function(e){
+    if(!retAg)return;
+    if(e.target===el){if(!retAg.busy)fecharRetornoAg();return;}
+    var t=e.target.closest('[data-ret],[data-ret-dias],[data-ret-iso],[data-ret-usar]');if(!t||retAg.busy)return;
+    if(t.dataset.ret==='fechar'){fecharRetornoAg();return;}
+    if(t.dataset.ret==='ok'){confirmarRetornoAg();return;}
+    if(t.dataset.retDias){retAg.dias=Number(t.dataset.retDias);retAg.sel='';retAg.selTurno='';limparOutraRetornoAg();renderOpcoesRetornoAg();atualizarOkRetornoAg();return;}
+    if(t.dataset.retIso){escolherOpcaoRetornoAg(t.dataset.retIso,t.dataset.retTurno);return;}
+    if(t.dataset.retUsar){var i=document.querySelector('#agRetOverlay [data-ret="outra"]');if(i)i.value=t.dataset.retUsar;escolherOutraRetornoAg(t.dataset.retUsar);}
+  });
+  el.addEventListener('input',function(e){
+    if(!retAg||e.target.dataset.ret!=='dias')return;
+    var n=parseInt(e.target.value,10);if(!(n>=1&&n<=365))return;
+    retAg.dias=n;retAg.sel='';retAg.selTurno='';limparOutraRetornoAg();
+    var v=e.target.value;renderOpcoesRetornoAg();e.target.value=v;atualizarOkRetornoAg();
+  });
+  el.addEventListener('change',function(e){if(retAg&&e.target.dataset.ret==='outra')escolherOutraRetornoAg(e.target.value);});
+  document.body.appendChild(el);document.addEventListener('keydown',teclaRetornoAg);
+  renderOpcoesRetornoAg();atualizarOkRetornoAg();
+  var primeiro=el.querySelector('.ag-ret-op');if(primeiro)primeiro.focus();
+}
 function saveAg(tr){
   var ix=Number(tr.dataset.agIx),r=rowsAg[ix];if(!r)return;
   var antSit=r.Situação||'Pendente',antData=dateAg(r['Data agendada']),antTurno=r.Turno||'';   // estado antes de salvar (para o histórico)
@@ -1037,6 +1193,8 @@ function saveAg(tr){
     registrarHistoricoAg(histSave);
     var aviso='Alterações de '+r.Nome+' salvas.'+(movidoAg?' O dia estava lotado, então a data passou para o próximo dia com vaga ('+movidoAg+').':'');
     msgAg(aviso);
+    // Realizado (vindo de outra situação): abre o card com as datas de retorno disponíveis.
+    if(fields.situacao==='Realizado'&&antSit!=='Realizado')abrirRetornoAg(ix,fields.dataAgendada||antData||'');
     // Faltou: a pessoa volta para a fila e já recebe uma nova data sugerida.
     if(fields.situacao==='Faltou'){busyAg=false;gerarAg(true,aviso+' Nova data sugerida para o reagendamento.');}
   }).catch(function(e){
