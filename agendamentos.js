@@ -161,7 +161,17 @@ function profMapAg(){
   profCacheAg={map:map,ult:ult,ultProf:ultProf,ultUnid:ultUnid,multi:multi,elegiveis:elegiveis,rows:list.rows.filter(function(r){return r.agendavel===true;}),nomes:Object.keys(nomes).sort(function(a,b){return a.localeCompare(b,'pt-BR');})};
   return profCacheAg;
 }
-function fillProfAg(){var dl=document.getElementById('agendamentosProfissionais'),c=profMapAg();if(!dl||!c)return;dl.innerHTML=c.nomes.map(function(n){return '<option value="'+escAg(n)+'"></option>';}).join('');}
+// Filtro de profissional: texto livre ("Aline") ou uma agenda completa do tipo "Profissional — Unidade".
+// A unidade do filtro casa com a do paciente mesmo que o PEC a escreva diferente (ex.: "EMULTI Ararinha" x "Ararinha").
+function casaProfAg(nome,pq){
+  var n=normAg(nome);if(!pq||n.indexOf(pq)>=0)return true;
+  var i=pq.indexOf(' — ');if(i<0)return false;
+  var b=pq.slice(0,i).trim(),u=pq.slice(i+3).trim(),j=n.indexOf(' — ');
+  if(j<0||!b||!u)return false;
+  return n.slice(0,j).indexOf(b)>=0&&unidCasaAg(n.slice(j+3),u);
+}
+function fillProfAg(){var dl=document.getElementById('agendamentosProfissionais'),c=profMapAg();if(!dl||!c)return;var ag=agendasAg(c),nm={};Object.keys(ag).forEach(function(k){nm[ag[k]]=1;});c.nomes.forEach(function(n){var tem=Object.keys(nm).some(function(x){return x===n||x.indexOf(n+' — ')===0;});if(!tem)nm[n]=1;});
+  dl.innerHTML=Object.keys(nm).sort(function(a,b){return a.localeCompare(b,'pt-BR');}).map(function(n){return '<option value="'+escAg(n)+'"></option>';}).join('');}
 function apiAg(payload){var api=window.PAINEL_API,token=window.painelToken&&window.painelToken();if(!api||!token)return Promise.reject(Error('Sessão não iniciada. Entre novamente no painel.'));return fetch(api.url,{method:'POST',headers:{'Content-Type':'text/plain'},cache:'no-store',body:JSON.stringify(Object.assign({chave:api.chave,acao:'agendamentos',token:token},payload))}).then(function(r){if(!r.ok)throw Error('Falha de comunicação com a planilha.');return r.json();}).then(function(r){if(r.status==='sessao_expirada'){if(window.logoutPainelEmulti)window.logoutPainelEmulti();throw Error('Sessão expirada. Entre novamente.');}if(r.ok===false||r.status==='erro')throw Error(r.error||r.mensagem||'Operação não concluída.');if(r.versao)versaoBackendAg=String(r.versao);return r;});}
 function msgAg(text,error){var el=document.getElementById('agendamentosFeedback');if(el){el.textContent=text||'';el.className='agendamentos-feedback'+(error?' erro':'');}}
 function dateAg(v){
@@ -282,7 +292,7 @@ function calcularListaAg(){
     if(tf){var t=turnos[ix];if(tf==='sem'?!!t:(!t||t.classe!==tf))return false;}
     if(de||ate){var d=propostaAg[ix]||dateAg(r['Data agendada']);if(!d||(de&&d<de)||(ate&&d>ate))return false;}
     if(q&&!String(r.Nome||'').toLocaleLowerCase('pt-BR').includes(q))return false;
-    if(pq){var up=nomeProfAg(r,uc)||'';if(normAg(up).indexOf(pq)<0)return false;}
+    if(pq){var up=nomeProfAg(r,uc)||'';if(!casaProfAg(up,pq))return false;}
     return true;
   });
   list=ordenarAg(list,uc,turnos);
@@ -552,7 +562,7 @@ function gerarAg(auto,prefixo,tentativa){
     var invalido=!capAg(k).atende(d)||!!folgaDiaAg(k,d);
     if(!invalido&&!((cfgAg.redistribuir||redistProfAg===k)&&d>=isoAg(inicio)))return;
     origForaDia[ix]=d;
-    if(pq&&normAg(nomeProfAg(r,uc)).indexOf(pq)<0)return;
+    if(pq&&!casaProfAg(nomeProfAg(r,uc),pq))return;
     foraDia[ix]=true;
     if(ocupados[k]&&ocupados[k][d])ocupados[k][d]--;
     nomes[k]=nomeProfAg(r,uc);nForaDia++;
@@ -579,7 +589,7 @@ function gerarAg(auto,prefixo,tentativa){
     var prof=nomeProfAg(r,uc);
     if(!prof){semProf++;return;}
     var k=chaveProfAg(r,uc);
-    if(pq&&normAg(prof).indexOf(pq)<0)return;
+    if(pq&&!casaProfAg(prof,pq))return;
     nomes[k]=prof;
     // Faltoso: reagendado para o mesmo dia da semana, na semana seguinte à falta (ou o próximo dia com vaga).
     if(sit==='Faltou'){faltosos++;faltList.push({ix:ix,k:k,nome:String(r.Nome||''),ult:ultimoDeAg(r,uc),falta:dateAg(r['Data agendada'])});return;}
@@ -644,7 +654,7 @@ function reagendarFaltososAg(){
     if(r._virtual||(r.Situação||'Pendente')!=='Agendado')return;
     var d=dateAg(r['Data agendada']);if(!d||d>=hoje)return;                 // só datas já passadas (hoje ainda não está no PEC)
     var k=normAg(r.Nome);if(!uc.elegiveis[k])return;
-    if(pq&&normAg(nomeProfAg(r,uc)).indexOf(pq)<0)return;
+    if(pq&&!casaProfAg(nomeProfAg(r,uc),pq))return;
     var ult=uc.ult[k]||'';
     if(ult>=d){vieram++;mudar.push({ix:ix,nome:r.Nome,situacao:'Realizado',dataAgendada:d,turno:r.Turno||''});}
     else if(pec>=d){faltaram++;mudar.push({ix:ix,nome:r.Nome,situacao:'Faltou',dataAgendada:d,turno:''});}
