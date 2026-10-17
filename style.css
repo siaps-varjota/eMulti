@@ -1171,3 +1171,20 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 
 /* Agendamentos - barras de filtros/acoes 20% menores (campos, selects, botoes e rotulos) */
 #tabAgendamentos .agendamentos-toolbar{zoom:.8}
+
+/* Agendamentos - visão Faltas (absenteísmo e faltas repetidas) */
+#agVisaoFaltas[hidden]{display:none}
+.faltas-resumo{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:0 0 14px}
+.faltas-kpi{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface)}
+.faltas-kpi b{display:block;font-size:22px;line-height:1.2;color:var(--ink)}
+.faltas-kpi span{font-size:12px;color:var(--ink-soft)}
+.faltas-kpi.alerta b{color:#B5474B}
+.faltas-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;margin-bottom:18px}
+.faltas-grid h4{margin:0 0 6px;font-size:13.5px;color:var(--ink)}
+.faltas-h{margin:18px 0 4px;font-size:15px;color:var(--ink)}
+.faltas-nota{margin:0 0 10px;font-size:12.5px;color:var(--ink-soft)}
+.faltas-barra{display:inline-block;vertical-align:middle;width:70px;height:7px;margin-right:6px;border-radius:4px;background:#E7EDE3;overflow:hidden}
+.faltas-barra i{display:block;height:100%;background:#B5474B}
+.faltas-pouco td{color:var(--ink-soft);font-style:italic}
+.faltas-vazio{margin:6px 0;font-size:13px;color:var(--ink-soft)}
+.faltas-sem-data{color:#B5474B;font-weight:600}
