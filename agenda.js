@@ -59,6 +59,14 @@ function semanasDoMes(){
 function estadoAgenda(){
   var base=eventosAgenda(),todos=base.eventos;
   var profs={};todos.forEach(function(e){profs[e.profKey]=e.prof;});
+  // Uma opção por profissional/unidade configurada (ex.: Aline — Ararinha, Aline — Vila Naiara), mesmo sem agendamentos.
+  var extras={};try{extras=(window.__emultiAgendaOpcoes&&window.__emultiAgendaOpcoes())||{};}catch(e){}
+  Object.keys(extras).forEach(function(k){
+    if(profs[k])return;
+    var i=k.indexOf('@'),dup=false;
+    if(i>0&&typeof window.__emultiUnidCasa==='function')Object.keys(profs).forEach(function(o){var j=o.indexOf('@');if(j>0&&o.slice(0,j)===k.slice(0,i)&&window.__emultiUnidCasa(o.slice(j+1),k.slice(i+1)))dup=true;});
+    if(!dup)profs[k]=extras[k];
+  });
   if(profAgenda&&!profs[profAgenda]&&todos.length)profAgenda='';   // filtro de um profissional que não tem mais agendamentos: volta para "Todos"
   var ev=todos.filter(function(e){return !profAgenda||e.profKey===profAgenda;});
   var doMes=ev.filter(function(e){return e.dt.getFullYear()===mesAgenda.getFullYear()&&e.dt.getMonth()===mesAgenda.getMonth();});
