@@ -1211,3 +1211,12 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 #tabAgendamentos .agendamentos-feedback:empty{min-height:0;margin:0}
 #tabAgendamentos .agendamentos-resumo:empty{margin:0}
 #tabAgendamentos .agendamentos-paineis{margin:4px 0 8px}
+
+/* Agendamentos: sem título repetido; ícone de informação no canto direito */
+.ag-sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+#tabAgendamentos .ag-info-right{margin-left:auto}
+#tabAgendamentos .ag-info-right .ag-info-tip{left:auto;right:-6px}
+/* Agenda: botões e campos do mesmo tamanho dos da lista de Agendamentos */
+#tabAgendamentos .agenda-toolbar{zoom:.8}
+#tabAgendamentos .agenda-toolbar button{padding:8px 12px;font-weight:600;color:#153F35;border-color:#153F35}
+#tabAgendamentos .agenda-toolbar select{padding:8px 10px}
