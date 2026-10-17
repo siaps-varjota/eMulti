@@ -1195,3 +1195,10 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 .agendamentos-afetados-acoes{margin-left:auto;display:flex;gap:6px}
 .agendamentos-filtro-info.erro{color:#B5474B}
 .agendamentos-atualizado small{color:var(--ink-soft);font-size:11px}
+
+/* Agendamentos - Vagas por dia / Configurar agenda / Feriados: 3 botões na mesma linha, um painel por vez */
+.agendamentos-paineis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:8px 0}
+.agendamentos-paineis button{white-space:normal;line-height:1.25}
+.agendamentos-detalhe>summary{display:none}
+.agendamentos-detalhe:not([open]){display:none}
+@media (max-width:520px){.agendamentos-paineis button{padding:7px 6px;font-size:12.5px}}
