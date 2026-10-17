@@ -405,8 +405,26 @@ function nomeProfAg(r,uc){
 function agendasAg(uc){
   var o={};
   Object.keys(uc.ultProf).forEach(function(n){var r={Nome:n};var k=chaveProfAg(r,uc);if(k)o[k]=nomeProfAg(r,uc);});
+  // Unidades configuradas nas regras de atendimento também têm agenda própria (ex.: Ararinha e Vila Naiara),
+  // mesmo que nenhum paciente tenha sido atendido ali ainda. Só vale para quem atende em 2+ unidades.
+  Object.keys(cfgAg.prof).forEach(function(base){
+    var ru=cfgAg.prof[base]&&cfgAg.prof[base].regras;if(!Array.isArray(ru)||!ru.length)return;
+    var unids=[];ru.forEach(function(r){var u=r&&r.unid?nomeUnidAg(r.unid):'';if(u&&unids.map(normAg).indexOf(normAg(u))<0)unids.push(u);});
+    if(!(unids.length>1||(uc.multi&&uc.multi[base])))return;
+    var nome='';Object.keys(o).forEach(function(k){if(!nome&&k.split('@')[0]===base)nome=o[k].split(' — ')[0];});
+    if(!nome)uc.nomes.forEach(function(n){if(!nome&&normAg(n)===base)nome=n;});
+    if(!nome)return;   // profissional sem nenhum paciente identificado: não há nome para exibir
+    unids.forEach(function(u){
+      var achou=false;
+      Object.keys(o).forEach(function(k){var i=k.indexOf('@');if(i>0&&k.slice(0,i)===base&&unidCasaAg(k.slice(i+1),u))achou=true;});
+      if(!achou)o[base+'@'+normAg(u)]=nome+' — '+u;
+    });
+  });
   return o;
 }
+// A visão Agenda (agenda.js) lista uma opção por profissional/unidade, mesmo sem agendamentos no mês.
+window.__emultiUnidCasa=unidCasaAg;
+window.__emultiAgendaOpcoes=function(){var uc=profMapAg();return uc?agendasAg(uc):{};};
 // Próximo dia de atendimento (a partir de iso, inclusive) em que o profissional ainda tem vaga.
 // ignorarIx = linha que está sendo movida (não conta como ocupante). Nunca deixa "excedente".
 function proximaVagaAg(ix,iso,uc){
