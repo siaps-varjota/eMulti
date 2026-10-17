@@ -1205,3 +1205,9 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 
 /* Agendamentos - paginação abaixo da tabela */
 .table-wrap+.agendamentos-pager{margin-top:10px}
+
+/* Aba Agendamentos: texto do filtro de dias mais perto dos 3 botões (mensagens vazias não ocupam espaço) */
+#tabAgendamentos .agendamentos-filtro-info{margin:2px 0 0}
+#tabAgendamentos .agendamentos-feedback:empty{min-height:0;margin:0}
+#tabAgendamentos .agendamentos-resumo:empty{margin:0}
+#tabAgendamentos .agendamentos-paineis{margin:4px 0 8px}
