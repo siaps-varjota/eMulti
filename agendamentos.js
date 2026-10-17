@@ -1,6 +1,7 @@
 // Aba de agendamentos: lê/grava a aba Agendamentos pelo backend existente.
 var rowsAg=[]; var busyAg=false; var profCacheAg=null;
 // Histórico de desfechos (aba "Histórico Agendamentos"): uma linha por Realizado/Faltou, nunca sobrescrita.
+var versaoBackendAg=''; // versão do Apps Script que respondeu por último (vazia = backend antigo, sem identificação)
 var histAg=[]; var falhaHistAg=null; // falhaHistAg: último erro ao falar com o histórico no backend (null = ok)
 // Datas geradas automaticamente que ainda NÃO foram salvas na planilha:
 // índice da linha em rowsAg -> data (AAAA-MM-DD). Só vão pra planilha quando
@@ -89,7 +90,7 @@ function profMapAg(){
   return profCacheAg;
 }
 function fillProfAg(){var dl=document.getElementById('agendamentosProfissionais'),c=profMapAg();if(!dl||!c)return;dl.innerHTML=c.nomes.map(function(n){return '<option value="'+escAg(n)+'"></option>';}).join('');}
-function apiAg(payload){var api=window.PAINEL_API,token=window.painelToken&&window.painelToken();if(!api||!token)return Promise.reject(Error('Sessão não iniciada. Entre novamente no painel.'));return fetch(api.url,{method:'POST',headers:{'Content-Type':'text/plain'},cache:'no-store',body:JSON.stringify(Object.assign({chave:api.chave,acao:'agendamentos',token:token},payload))}).then(function(r){if(!r.ok)throw Error('Falha de comunicação com a planilha.');return r.json();}).then(function(r){if(r.status==='sessao_expirada'){if(window.logoutPainelEmulti)window.logoutPainelEmulti();throw Error('Sessão expirada. Entre novamente.');}if(r.ok===false||r.status==='erro')throw Error(r.error||r.mensagem||'Operação não concluída.');return r;});}
+function apiAg(payload){var api=window.PAINEL_API,token=window.painelToken&&window.painelToken();if(!api||!token)return Promise.reject(Error('Sessão não iniciada. Entre novamente no painel.'));return fetch(api.url,{method:'POST',headers:{'Content-Type':'text/plain'},cache:'no-store',body:JSON.stringify(Object.assign({chave:api.chave,acao:'agendamentos',token:token},payload))}).then(function(r){if(!r.ok)throw Error('Falha de comunicação com a planilha.');return r.json();}).then(function(r){if(r.status==='sessao_expirada'){if(window.logoutPainelEmulti)window.logoutPainelEmulti();throw Error('Sessão expirada. Entre novamente.');}if(r.ok===false||r.status==='erro')throw Error(r.error||r.mensagem||'Operação não concluída.');if(r.versao)versaoBackendAg=String(r.versao);return r;});}
 function msgAg(text,error){var el=document.getElementById('agendamentosFeedback');if(el){el.textContent=text||'';el.className='agendamentos-feedback'+(error?' erro':'');}}
 function dateAg(v){
   function iso(d){if(!(d instanceof Date)||isNaN(d))return '';var r=d.toISOString().slice(0,10);return /^\d{4}-\d\d-\d\d$/.test(r)?r:'';}
@@ -738,6 +739,12 @@ function registrarHistoricoAg(itens){
     msgAg(avisoHistAg(e),true);
   });
 }
+// Texto sobre qual versão do Apps Script está respondendo.
+function textoVersaoAg(){
+  return versaoBackendAg
+    ?'Apps Script em uso: versão '+versaoBackendAg+'.'
+    :'Apps Script em uso: versão antiga, sem identificação. Publique a versão nova do backend (Implantar → Gerenciar implantações → Editar → Nova versão) para ele passar a informar a versão aqui.';
+}
 // Botão "Testar histórico": cria a aba na planilha (se faltar), lê de volta e mostra o motivo exato se falhar.
 function testarHistoricoAg(){
   msgAg('Testando o histórico na planilha…',false);
@@ -745,7 +752,7 @@ function testarHistoricoAg(){
     falhaHistAg=null;histAg=Array.isArray(r.rows)?r.rows:[];mesclarHistoricoAg(lerPendHistAg());
     window.dispatchEvent(new Event('emulti:agenda-dados'));
     var n=histAg.length,pend=lerPendHistAg().length;
-    msgAg('Histórico funcionando: a aba "Histórico Agendamentos" existe na planilha ('+n+(n===1?' registro':' registros')+').'+(pend?' Ainda há '+pend+' baixas pendentes neste navegador.':''),false);
+    msgAg('Histórico funcionando: a aba "Histórico Agendamentos" existe na planilha ('+n+(n===1?' registro':' registros')+').'+(pend?' Ainda há '+pend+' baixas pendentes neste navegador.':'')+' '+textoVersaoAg(),false);
   }).catch(function(e){
     if(/Sess/i.test((e&&e.message)||''))return msgAg(e.message,true);
     falhaHistAg={erro:e,quando:Date.now()};
@@ -753,6 +760,9 @@ function testarHistoricoAg(){
   });
 }
 window.testarHistoricoAgendamentos=testarHistoricoAg;
+// Ganchos usados pela visão "Faltas" (faltas.js).
+window.__emultiFaltasDados=function(){return {hist:histAg,linhas:rowsAg,erro:falhaHistAg,versao:versaoBackendAg};};
+window.__emultiFaltasAtualizar=function(){loadAg();};
 
 // ---------- Dados para a aba Agenda (calendário) ----------
 // Mesma base da aba Agendamentos: salvos na planilha (Agendado/Realizado) + datas geradas ainda não salvas (Sugerido).
