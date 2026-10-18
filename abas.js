@@ -2258,47 +2258,111 @@ function fmtDecMeta(n){
   return (Math.round(n*10)/10).toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1});
 }
 
-// Um card de meta (ex.: "Bom" ou "Ótimo"): alvo a bater, ritmo médio
-// necessário até o fim do quadrimestre e quanto ainda falta.
+// Separa "Bom (M1 ≥ 2,00)" em nome ("Bom") e regra ("M1 ≥ 2,00").
+function metaSplitLabel(label){
+  var m = /^(.*?)\s*\((.*)\)\s*$/.exec(label || '');
+  return m ? {nome: m[1], regra: m[2]} : {nome: label || '', regra: ''};
+}
+
+// Estado de uma faixa: atingida, quase lá (falta menos que o ritmo de uma
+// semana) ou ainda a caminho.
+function metaStatus(c){
+  if(c.faltam<=0) return {kind:'done', txt:'✓ Meta atingida'};
+  if(c.semanasRestantes<=0) return {kind:'todo', txt:'Faltaram '+fmtInt(c.faltam)};
+  if(c.mediaSemana>0 && c.faltam<=c.mediaSemana) return {kind:'near', txt:'Quase lá · faltam '+fmtInt(c.faltam)};
+  return {kind:'todo', txt:'Faltam '+fmtInt(c.faltam)};
+}
+
+// Card de uma faixa-alvo (ex.: "Bom" ou "Ótimo"): alvo em destaque, barra
+// de progresso próprio, ritmo da meta e ritmo necessário pro que falta.
 function metaCardHTML(cfg){
-  var subLines =
-      '<p class="meta-card-sub">Média/mês: '+fmtDecMeta(cfg.mediaMes)+'</p>'
-    + '<p class="meta-card-sub">Média/semana: '+fmtDecMeta(cfg.mediaSemana)+'</p>';
-  var faltamHtml;
-  if(cfg.faltam<=0){
-    faltamHtml = '<p class="meta-card-done">Meta já atingida ✓</p>';
-  } else if(cfg.semanasRestantes<=0){
-    faltamHtml = '<p class="meta-card-faltam">Faltam: '+fmtInt(cfg.faltam)+' '+cfg.unidadeFaltam+' (quadrimestre encerrado)</p>';
-  } else {
-    faltamHtml = '<p class="meta-card-faltam">Faltam: '+fmtInt(cfg.faltam)+' '+cfg.unidadeFaltam+'</p>'
-      + '<p class="meta-card-sub">Média/semana: '+fmtDecMeta(cfg.mediaSemanaFaltam)+'</p>';
+  var lb = metaSplitLabel(cfg.label);
+  var st = metaStatus(cfg);
+  var atual = cfg.atual || 0;
+  var pct = cfg.alvo>0 ? Math.min(100, Math.round(atual/cfg.alvo*100)) : 0;
+  var precisa = '';
+  if(cfg.faltam>0 && cfg.semanasRestantes>0){
+    precisa = '<div class="mq-stat mq-stat-need"><b>'+fmtDecMeta(cfg.mediaSemanaFaltam)+'</b><span>por semana pra fechar</span></div>';
   }
-  return '<div class="meta-card">'
-    + '<h4 style="color:'+cfg.color+'">'+cfg.label+'</h4>'
-    + '<div class="meta-card-value" style="color:'+cfg.color+'">'+fmtInt(cfg.alvo)+' <span>'+cfg.unidade+'</span></div>'
-    + subLines + faltamHtml
+  var nota = '';
+  if(cfg.faltam>0){
+    nota = '<p class="mq-tier-note">Faltam <b>'+fmtInt(cfg.faltam)+'</b> '+escapeHtml(cfg.unidadeFaltam)
+      + (cfg.semanasRestantes<=0 ? ' (quadrimestre encerrado)' : '')+'.</p>';
+  }
+  return '<div class="mq-tier" style="--tc:'+cfg.color+'">'
+    + '<div class="mq-tier-top">'
+    +   '<div class="mq-tier-id"><span class="mq-tier-name">'+escapeHtml(lb.nome)+'</span>'
+    +   (lb.regra ? '<span class="mq-tier-rule">'+escapeHtml(lb.regra)+'</span>' : '')+'</div>'
+    +   '<span class="mq-chip mq-chip-'+st.kind+'">'+st.txt+'</span>'
+    + '</div>'
+    + '<div class="mq-tier-cap">Meta</div>'
+    + '<div class="mq-tier-alvo"><span class="mq-tier-num">'+fmtInt(cfg.alvo)+'</span><span class="mq-tier-unit">'+escapeHtml(cfg.unidade)+'</span></div>'
+    + '<div class="mq-tier-bar" title="'+pct+'% da meta"><i style="width:'+pct+'%"></i></div>'
+    + '<div class="mq-tier-barlabel"><span>'+fmtInt(atual)+' de '+fmtInt(cfg.alvo)+'</span><span>'+pct+'%</span></div>'
+    + '<div class="mq-stats">'
+    +   '<div class="mq-stat"><b>'+fmtDecMeta(cfg.mediaMes)+'</b><span>por mês</span></div>'
+    +   '<div class="mq-stat"><b>'+fmtDecMeta(cfg.mediaSemana)+'</b><span>por semana</span></div>'
+    +   precisa
+    + '</div>'
+    + nota
+    + '</div>';
+}
+
+// Painel de progresso: uma régua única até a maior meta, com marcadores em
+// cada faixa e o ponto onde a equipe está agora.
+function metaProgressoHTML(cardsCfg){
+  if(!cardsCfg.length) return '';
+  var ultimo = cardsCfg[cardsCfg.length-1];
+  var atual = cardsCfg[0].atual || 0;
+  var escala = Math.max(ultimo.alvo, atual, 1);
+  var fillPct = Math.min(100, atual/escala*100);
+  var pctUltimo = ultimo.alvo>0 ? Math.round(atual/ultimo.alvo*100) : 0;
+  var corFill = 'var(--mq-pendente)';
+  cardsCfg.forEach(function(c){ if(c.faltam<=0) corFill = c.color; });
+  var nomeUltimo = metaSplitLabel(ultimo.label).nome;
+  var ticks = cardsCfg.map(function(c, i){
+    var left = Math.min(100, c.alvo/escala*100);
+    var cls = left>=92 ? ' mq-tick-end' : (left<=8 ? ' mq-tick-start' : '');
+    return '<div class="mq-tick'+cls+'" style="left:'+left+'%;--tc:'+c.color+'">'
+      + '<i></i><span class="mq-tick-name">'+escapeHtml(metaSplitLabel(c.label).nome)+'</span>'
+      + '<span class="mq-tick-val">'+fmtInt(c.alvo)+'</span></div>';
+  }).join('');
+  var restam = ultimo.semanasRestantes>0
+    ? '<span class="mq-prog-meta">Restam <b>'+fmtDecMeta(ultimo.semanasRestantes)+'</b> semanas</span>'
+    : '<span class="mq-prog-meta">Quadrimestre encerrado</span>';
+  return '<div class="mq-prog">'
+    + '<div class="mq-prog-head">'
+    +   '<div><div class="mq-prog-cap">Acumulado no quadrimestre</div>'
+    +   '<div class="mq-prog-val">'+fmtInt(atual)+' <span>'+escapeHtml(ultimo.unidade)+'</span></div></div>'
+    +   '<div class="mq-prog-right"><span class="mq-prog-pct">'+pctUltimo+'%</span><span class="mq-prog-meta">da meta '+escapeHtml(nomeUltimo)+'</span>'+restam+'</div>'
+    + '</div>'
+    + '<div class="mq-track"><div class="mq-fill" style="width:'+fillPct+'%;background:'+corFill+'"></div>'
+    +   cardsCfg.map(function(c){ return '<b class="mq-mark" style="left:'+Math.min(100,c.alvo/escala*100)+'%"></b>'; }).join('')
+    + '</div>'
+    + '<div class="mq-ticks">'+ticks+'</div>'
     + '</div>';
 }
 
 // Bloco completo de meta do quadrimestre para um indicador (M1 ou M2):
 // cabeçalho com a base de cálculo + selo "Preliminar"/"Projeção"
-// (enquanto o quadrimestre ainda não terminou) e os cards de cada
-// faixa-alvo. projecaoLabel (opcional): quando a média usada é uma
-// projeção baseada só nos meses já decorridos (ver
-// mesesElapsedDoQuadrimestre), mostra "Projeção (base: <meses>)" em
-// vez do "Preliminar" genérico.
+// (enquanto o quadrimestre ainda não terminou), régua de progresso e os
+// cards de cada faixa-alvo. projecaoLabel (opcional): quando a média usada
+// é uma projeção baseada só nos meses já decorridos (ver
+// mesesElapsedDoQuadrimestre), mostra "Projeção (base: <meses>)" em vez do
+// "Preliminar" genérico.
 export function metaQuadrimestreHTML(titulo, base, baseLabel, cardsCfg, preliminar, projecaoLabel){
   var cardsHtml = cardsCfg.map(metaCardHTML).join('');
   var selo = projecaoLabel
     ? '<span class="pill-preliminar" title="Meses ainda sem dado real são projetados pelo ritmo de '+escapeHtml(projecaoLabel)+'"><i></i>Projeção (base: '+escapeHtml(projecaoLabel)+')</span>'
     : (preliminar ? '<span class="pill-preliminar"><i></i>Preliminar</span>' : '');
-  return '<div class="meta-quad-wrap">'
+  return '<div class="meta-quad-wrap mq-wrap">'
     + '<div class="meta-quad-head">'
     +   '<span class="meta-icon">'+METAS_ICON_SVG+'</span>'
-    +   '<div class="meta-quad-titles"><h3>'+titulo+'</h3><p>de <b>'+fmtInt(base)+'</b> '+baseLabel+'</p></div>'
+    +   '<div class="meta-quad-titles"><h3>'+titulo+'</h3><p>Base: <b>'+fmtInt(base)+'</b> '+baseLabel+'</p></div>'
     +   selo
     + '</div>'
-    + '<div class="meta-cards">'+cardsHtml+'</div>'
+    + metaProgressoHTML(cardsCfg)
+    + '<div class="mq-tiers">'+cardsHtml+'</div>'
     + '</div>';
 }
 
@@ -2434,6 +2498,7 @@ export function calcularMetasQuadrimestre(numerador, denominador, thresholds, un
     return {
       label: t.label, color: t.color, unidade: unidade, unidadeFaltam: unidadeFaltam || unidade,
       alvo: alvo,
+      atual: numerador||0,
       mediaMes: alvo/meses.length,
       mediaSemana: alvo/semanasQuad,
       faltam: faltam,
