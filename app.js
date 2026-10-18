@@ -312,6 +312,92 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
   renderFluxoPacientes();
 }
 
+// ---------- Lingueta que recolhe/expande a barra de filtros gerais ----------
+// A lingueta (#filterBarToggle) fica pendurada na borda de baixo da barra (Equipe/Ano/Quadrimestre/Mês).
+// O estado fica salvo no navegador. Ela só aparece nas abas em que a barra de filtros aparece.
+var FILTRO_RECOLHIDO_KEY = 'emulti_filtro_recolhido';
+function sincronizarLinguetaFiltro(aba){
+  var t = document.getElementById('filterBarToggle');
+  if(t) t.hidden = !FILTER_BAR_TABS[aba];
+}
+export function init_app_filtro_lingueta(){
+  var outer = document.querySelector('.filter-bar-outer');
+  var bar = document.getElementById('filterBar');
+  var btn = document.getElementById('filterBarToggle');
+  if(!outer || !bar || !btn) return;
+  var animando = false;
+  function semAnimacao(){
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  }
+  function rotular(recolhido){
+    var txt = recolhido ? 'Expandir filtros' : 'Recolher filtros';
+    btn.setAttribute('aria-expanded', recolhido ? 'false' : 'true');
+    btn.setAttribute('aria-label', txt);
+    btn.title = txt;
+  }
+  function lembrar(recolhido){
+    try{ localStorage.setItem(FILTRO_RECOLHIDO_KEY, recolhido ? '1' : '0'); }catch(e){}
+  }
+  function aplicar(recolhido){
+    outer.classList.toggle('filter-bar-collapsed', recolhido);
+    rotular(recolhido);
+  }
+  // Espera o fim da transição de altura (com plano B por tempo, caso o navegador não dispare o evento).
+  function aoTerminar(fn){
+    var feito = false;
+    function fim(){ if(feito) return; feito = true; bar.removeEventListener('transitionend', onEnd); clearTimeout(timer); fn(); }
+    function onEnd(e){ if(e.target === bar && e.propertyName === 'height') fim(); }
+    bar.addEventListener('transitionend', onEnd);
+    var timer = setTimeout(fim, 450);
+  }
+  function alternar(){
+    if(animando) return;
+    var recolher = !outer.classList.contains('filter-bar-collapsed');
+    lembrar(recolher);
+    // Sem animação (preferência do sistema) ou com a barra escondida pela aba: troca direto.
+    if(semAnimacao() || bar.classList.contains('hidden')){ aplicar(recolher); return; }
+    animando = true;
+    rotular(recolher);
+    outer.classList.add('filter-bar-animando');
+    if(recolher){
+      bar.style.height = bar.offsetHeight + 'px';   // fixa a altura atual para poder animar até 0
+      void bar.offsetHeight;
+      outer.classList.add('filter-bar-recolhendo');
+      bar.classList.add('filter-bar-fechando');
+      aoTerminar(function(){
+        outer.classList.add('filter-bar-collapsed');
+        outer.classList.remove('filter-bar-recolhendo', 'filter-bar-animando');
+        bar.classList.remove('filter-bar-fechando');
+        bar.style.height = '';
+        animando = false;
+      });
+    } else {
+      outer.classList.remove('filter-bar-collapsed');
+      // mede a altura natural da barra (sem transição) e parte de 0 até ela
+      bar.style.transition = 'none';
+      bar.style.height = '';
+      var alvo = bar.offsetHeight;
+      bar.classList.add('filter-bar-fechando');
+      void bar.offsetHeight;
+      bar.style.transition = '';
+      bar.classList.remove('filter-bar-fechando');
+      bar.style.height = alvo + 'px';
+      aoTerminar(function(){
+        outer.classList.remove('filter-bar-animando');
+        bar.style.height = '';
+        animando = false;
+      });
+    }
+  }
+  btn.addEventListener('click', alternar);
+  // Estado salvo da última visita (sem animação).
+  var salvo = null;
+  try{ salvo = localStorage.getItem(FILTRO_RECOLHIDO_KEY); }catch(e){}
+  aplicar(salvo === '1');
+  var abaAtiva = document.querySelector('.tab.active');
+  sincronizarLinguetaFiltro(abaAtiva ? abaAtiva.getAttribute('data-tab') : 'geral');
+}
+
 // Código que rodava no carregamento (ordem original preservada pelo main.js)
 export function init_app_render(){
 document.querySelectorAll('.tab').forEach(function(btn){
@@ -322,6 +408,7 @@ document.querySelectorAll('.tab').forEach(function(btn){
         p.classList.toggle('active', p.id === 'tab'+target.charAt(0).toUpperCase()+target.slice(1));
       });
       document.getElementById('filterBar').classList.toggle('hidden', !FILTER_BAR_TABS[target]);
+      sincronizarLinguetaFiltro(target);
       // Gráficos Chart.js criados enquanto a aba estava escondida (display:none)
       // ficam com tamanho zero e não se redesenham sozinhos ao trocar de aba —
       // re-renderiza na hora em que o painel de Desempenho Profissional fica visível.
@@ -900,6 +987,7 @@ init_visual_gauge();
 init_visual_painel_kpi();
 init_abas_m1_m2();
 init_app_render();
+init_app_filtro_lingueta();
 init_app_historico();
 init_app_carga();
 init_app_alinhamento_tabelas();

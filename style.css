@@ -1385,3 +1385,28 @@ h1,h2,h3,.serif{font-optical-sizing:auto;}
 .ov-mes-valor{font-family:'Inter',sans-serif;font-size:21px;font-weight:800;letter-spacing:-.02em;}
 .ov-mes-sub{color:#6A7972;white-space:nowrap;font-size:clamp(8.5px,.72vw,10px);letter-spacing:-.01em;}
 .ov-mes-classe{font-weight:700;padding:2px 9px;}
+
+/* ---------- Lingueta que recolhe/expande a barra de filtros gerais ---------- */
+.filter-bar-outer{position:relative;transition:margin-top .26s ease}
+.filter-bar-toggle{position:absolute;left:50%;top:100%;transform:translateX(-50%);margin-top:-1px;z-index:5;
+  min-width:60px;height:22px;padding:0 14px;display:flex;align-items:center;justify-content:center;gap:6px;
+  background:var(--surface,#fff);color:var(--ink-soft);font:inherit;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  border:1px solid var(--line);border-top:none;border-radius:0 0 12px 12px;cursor:pointer;
+  box-shadow:0 8px 14px -10px rgba(19,36,31,.30);transition:color .15s,background .15s,box-shadow .15s}
+.filter-bar-toggle:hover{color:var(--header-bg);background:#F6FBF8;box-shadow:0 10px 16px -10px rgba(19,36,31,.38)}
+.filter-bar-toggle:focus-visible{outline:2px solid rgba(28,109,83,.45);outline-offset:2px}
+.filter-bar-toggle[hidden]{display:none}
+.filter-bar-toggle svg{width:16px;height:16px;flex:0 0 auto;transition:transform .26s ease}
+/* O rótulo só aparece com os filtros recolhidos (é ele que diz o que a lingueta abre). */
+.filter-bar-toggle-txt{display:none}
+.filter-bar-outer.filter-bar-collapsed .filter-bar-toggle-txt,.filter-bar-outer.filter-bar-recolhendo .filter-bar-toggle-txt{display:inline}
+.filter-bar-outer.filter-bar-collapsed .filter-bar-toggle svg,.filter-bar-outer.filter-bar-recolhendo .filter-bar-toggle svg{transform:rotate(180deg)}
+/* Recolhido: a barra some e a lingueta fica pendurada na borda de baixo do menu de abas. */
+.filter-bar-outer.filter-bar-collapsed,.filter-bar-outer.filter-bar-recolhendo{margin-top:0}
+.filter-bar-outer.filter-bar-collapsed #filterBar{display:none}
+/* Durante a animação: altura/espaçamentos vão a zero (overflow só fica cortado enquanto anima, p/ não cortar os menus abertos). */
+.filter-bar-outer.filter-bar-animando #filterBar{overflow:hidden;transition:height .26s ease,padding .26s ease,opacity .2s ease,border-width .26s ease,box-shadow .26s ease}
+.filter-bar-outer #filterBar.filter-bar-fechando{height:0!important;padding-top:0!important;padding-bottom:0!important;opacity:0;border-top-width:0;border-bottom-width:0;box-shadow:none}
+@media (prefers-reduced-motion:reduce){
+  .filter-bar-outer,.filter-bar-toggle svg,.filter-bar-outer.filter-bar-animando #filterBar{transition:none!important}
+}
