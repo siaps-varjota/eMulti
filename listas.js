@@ -2104,6 +2104,7 @@ function potNotasHtml(dados, api){
   if(dados.parcialAte) notas.push('O mês atual é parcial: potencial e atendimentos contados até '+fmtBRDate(dados.parcialAte)+'.');
   notas.push('O potencial de cada profissional conta a partir do mês do primeiro atendimento dele na base. A configuração atual da agenda (dias, vagas e regras) vale para todos os meses.');
   notas.push('Considera os atendimentos de profissionais da eMulti carregados no painel (segue o filtro de equipe do topo).');
+  if(api.config !== 'servidor') notas.push('<span class="pot-aviso">Atenção: a configuração da agenda (vagas e dias de atendimento) não pôde ser lida da planilha; foi usada a deste navegador, que pode diferir da usada pelos outros usuários.</span>');
   if(api.bloqueios !== 'servidor') notas.push('<span class="pot-aviso">Atenção: não foi possível ler os feriados e folgas da planilha; foram usados só os cadastrados neste navegador, então o potencial pode estar um pouco acima do real.</span>');
   return notas.map(function(n){ return '<p>'+n+'</p>'; }).join('');
 }

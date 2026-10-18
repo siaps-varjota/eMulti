@@ -23,8 +23,10 @@ var redistProfAg='';   // chave da agenda (profissional/unidade) a redistribuir 
 var cfgAg={m:6,t:6,dias:DIAS_UTEIS_AG.slice(),janela:0,prof:{},soManha:[0,0,0,0,0,1,0],feriados:[],faltas:[],folgas:[],redistribuir:false};   // feriados: [{ini,fim,nome}] fecham todas as agendas; faltas: [{prof,ini,fim,motivo}] só do profissional.
 // soManha: dias em que só há atendimento de manhã (padrão: sexta)
 function numAg(v,def,min){var n=parseInt(v,10);return isNaN(n)||n<min?def:n;}
-function carregarConfigAg(){
-  var c=lsGetAg(LS_CONFIG_AG);if(!c||typeof c!=='object')return;
+function carregarConfigAg(){var c=lsGetAg(LS_CONFIG_AG);if(!c||typeof c!=='object')return;aplicarConfigAg(c,true);}
+// Aplica uma configuração (do navegador ou da planilha) sobre cfgAg. comBloqueios=false mantém feriados/imprevistos/folgas como estão
+// (eles vêm da aba de bloqueios, não da configuração).
+function aplicarConfigAg(c,comBloqueios){
   cfgAg.m=numAg(c.m,6,0);cfgAg.t=numAg(c.t,6,0);cfgAg.janela=numAg(c.janela,0,0);
   if(Array.isArray(c.dias)&&c.dias.length===7)cfgAg.dias=c.dias.map(function(x){return x?1:0;});
   cfgAg.prof=c.prof&&typeof c.prof==='object'?c.prof:{};
@@ -37,11 +39,77 @@ function carregarConfigAg(){
   });
   if(Array.isArray(c.soManha)&&c.soManha.length===7)cfgAg.soManha=c.soManha.map(function(x){return x?1:0;});
   function per(x){return x&&/^\d{4}-\d\d-\d\d$/.test(x.ini||'')&&/^\d{4}-\d\d-\d\d$/.test(x.fim||'');}
+  if(!comBloqueios)return;
   cfgAg.feriados=Array.isArray(c.feriados)?c.feriados.filter(per):[];
   cfgAg.faltas=Array.isArray(c.faltas)?c.faltas.filter(function(x){return per(x)&&x.prof;}):[];
   cfgAg.folgas=Array.isArray(c.folgas)?c.folgas.filter(function(x){return per(x)&&x.prof;}):[];
 }
-function salvarConfigAg(){var c=Object.assign({},cfgAg);delete c.redistribuir;if(bloqueiosModoAg==='servidor'){delete c.feriados;delete c.faltas;delete c.folgas;}lsSetAg(LS_CONFIG_AG,c);}
+function salvarConfigLocalAg(){var c=Object.assign({},cfgAg);delete c.redistribuir;if(bloqueiosModoAg==='servidor'){delete c.feriados;delete c.faltas;delete c.folgas;}lsSetAg(LS_CONFIG_AG,c);}
+function salvarConfigAg(){salvarConfigLocalAg();enviarConfigServidorAg();}
+// ---------- Configuração compartilhada na planilha (aba "Agenda - Configuração") ----------
+// Vagas, dias de atendimento, regras por profissional etc. ficam salvos na planilha e valem para todos que usam o painel;
+// o navegador guarda uma cópia só como reserva. Sem acesso à planilha (ex.: backend antigo), vale só a cópia do navegador.
+var cfgModoAg='';      // 'servidor' | 'local' | '' (ainda não carregou)
+var cfgEmAg='';        // "Atualizado em" da versão da planilha que este painel carregou (usado para detectar edição simultânea)
+var cfgJsonAg='';      // última configuração sincronizada com a planilha (para não regravar sem mudança)
+var cfgTimerAg=null;
+function dadosConfigServidorAg(){var c=Object.assign({},cfgAg);delete c.redistribuir;delete c.feriados;delete c.faltas;delete c.folgas;return c;}
+function notaConfigAg(texto,erro){var el=document.getElementById('agConfigModo');if(!el)return;el.textContent=texto||'';el.className='agendamentos-filtro-info'+(erro?' erro':'');}
+function notaConfigServidorAg(r){
+  var quem=r&&r.por?' Última alteração: '+r.por+(r.em?' em '+String(r.em).slice(0,16):'')+'.':'';
+  notaConfigAg('A configuração da agenda (vagas, dias de atendimento e regras) fica salva na planilha (aba “Agenda - Configuração”) e vale para todos que usam o painel.'+quem,false);
+}
+function notaConfigLocalAg(e){
+  var m=(e&&e.message)||'';
+  notaConfigAg('Atenção: '+(/n[ãa]o reconhecida/i.test(m)?'o Apps Script publicado ainda não conhece a configuração na planilha (publique a versão nova do backend). ':'não foi possível acessar a configuração na planilha'+(m?' ('+m+')':'')+'. ')+'Por enquanto ela fica só neste navegador.',true);
+}
+// Troca a configuração local pela da planilha (e guarda a cópia no navegador, sem reenviar).
+function aplicarConfigServidorAg(r){
+  aplicarConfigAg(r.config,false);cfgEmAg=r.em||'';cfgJsonAg=JSON.stringify(dadosConfigServidorAg());
+  salvarConfigLocalAg();notaConfigServidorAg(r);
+}
+function configServidorMudouAg(){propostaAg={};atualizarBotoesGeracaoAg();renderConfigAg();renderAg();}
+// Grava a configuração atual na planilha. Se outra pessoa salvou antes, nada é gravado: carrega a versão dela e avisa.
+function gravarConfigServidorAg(){
+  var json=JSON.stringify(dadosConfigServidorAg());
+  return apiAg({action:'agendamentos.configSave',config:dadosConfigServidorAg(),baseEm:cfgEmAg}).then(function(r){
+    if(r&&r.conflito){
+      if(r.config&&typeof r.config==='object')aplicarConfigServidorAg(r);
+      configServidorMudouAg();
+      notaConfigAg('Outra pessoa'+(r.por?' ('+r.por+')':'')+' alterou a configuração da agenda enquanto você editava. Foi carregada a versão mais recente da planilha; refaça a sua alteração.',true);
+      return;
+    }
+    cfgEmAg=(r&&r.em)||'';cfgJsonAg=json;notaConfigServidorAg(r);
+  });
+}
+function enviarConfigServidorAg(){
+  if(cfgModoAg!=='servidor')return;
+  clearTimeout(cfgTimerAg);
+  cfgTimerAg=setTimeout(function(){
+    cfgTimerAg=null;
+    if(JSON.stringify(dadosConfigServidorAg())===cfgJsonAg)return;   // só feriados/folgas mudaram: nada a enviar
+    gravarConfigServidorAg().catch(function(e){
+      notaConfigAg('Não foi possível salvar a configuração na planilha ('+((e&&e.message)||e)+'). A alteração ficou só neste navegador e será enviada na próxima vez que você alterar algo.',true);
+    });
+  },600);
+}
+// Lê a configuração da planilha. Planilha ainda sem configuração: a deste navegador (se houver) vira a compartilhada.
+function carregarConfigServidorAg(){
+  return apiAg({action:'agendamentos.configGet'}).then(function(r){
+    if(r&&r.config&&typeof r.config==='object'){
+      var antes=JSON.stringify(dadosConfigServidorAg());
+      aplicarConfigServidorAg(r);cfgModoAg='servidor';
+      if(JSON.stringify(dadosConfigServidorAg())!==antes)configServidorMudouAg();
+      return;
+    }
+    cfgModoAg='servidor';cfgEmAg='';cfgJsonAg='';
+    if(lsGetAg(LS_CONFIG_AG))return gravarConfigServidorAg();   // primeira vez: envia a configuração já feita neste navegador
+    cfgJsonAg=JSON.stringify(dadosConfigServidorAg());notaConfigServidorAg(null);
+  }).catch(function(e){
+    if(/Sess/i.test((e&&e.message)||''))throw e;
+    cfgModoAg='local';notaConfigLocalAg(e);
+  });
+}
 // A visão Agenda (agenda.js) marca os feriados no calendário.
 window.__emultiFeriadoAg=function(iso){return folgaDiaAg('',iso);};
 // Potencial de atendimento (relatório na lista Atendimentos, em listas.js): consultas que a agenda do profissional
@@ -49,10 +117,14 @@ window.__emultiFeriadoAg=function(iso){return folgaDiaAg('',iso);};
 // descontando feriados, folgas e imprevistos. Usa a agenda do profissional como um todo (todas as unidades dele).
 // Antes de calcular, garante que feriados/folgas/imprevistos foram lidos da planilha (como a aba Agendamentos faz).
 window.__emultiPotencialAg=function(){
-  var pronto=bloqueiosModoAg?Promise.resolve():carregarBloqueiosAg().catch(function(){});
+  var pronto=Promise.resolve();
+  if(!bloqueiosModoAg)pronto=pronto.then(function(){return carregarBloqueiosAg();});
+  pronto=pronto.then(function(){return carregarConfigServidorAg();});   // sempre a versão mais recente da configuração
+  pronto=pronto.catch(function(){}).then(function(){renderConfigAg();});
   return pronto.then(function(){
     return {
       bloqueios:bloqueiosModoAg,   // 'servidor' = lidos da planilha; qualquer outro valor = só os deste navegador
+      config:cfgModoAg,            // 'servidor' = configuração da planilha; qualquer outro valor = só a deste navegador
       potencial:function(nomeProf,deIso,ateIso){
         var cap=capAg(normAg(nomeProf)),dt=isoParaDataAg(deIso),fim=isoParaDataAg(ateIso),tot=0;
         if(!dt||!fim)return 0;
@@ -851,7 +923,7 @@ function executarSalvarGeradosAg(ixs){
     msgAg(ok+(ok===1?' agendamento salvo':' agendamentos salvos')+(falhas?'; '+falhas+' não foram salvos'+(ultimoErro?' ('+ultimoErro+')':'')+' e continuam como proposta — clique em "Salvar datas geradas" para tentar de novo.':'.'),falhas>0);
   }
 }
-function loadAg(){if(busyAg)return;busyAg=true;profCacheAg=null;propostaAg={};atualizarBotoesGeracaoAg();msgAg('Carregando agendamentos…');renderAg();carregarBloqueiosAg().then(function(){return apiAg({action:'agendamentos.list'});}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:[];completarVirtuaisAg();msgAg('');carregarHistoricoAg();}).catch(function(e){msgAg(e.message||'Falha ao carregar.',true);}).finally(function(){busyAg=false;renderAg();renderConfigAg();try{gerarAg(true);}catch(e){if(window.console)console.error(e);msgAg('Lista carregada, mas não foi possível sugerir datas: '+((e&&e.message)||e),true);}});}
+function loadAg(){if(busyAg)return;busyAg=true;profCacheAg=null;propostaAg={};atualizarBotoesGeracaoAg();msgAg('Carregando agendamentos…');renderAg();carregarBloqueiosAg().then(carregarConfigServidorAg).then(function(){return apiAg({action:'agendamentos.list'});}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:[];completarVirtuaisAg();msgAg('');carregarHistoricoAg();}).catch(function(e){msgAg(e.message||'Falha ao carregar.',true);}).finally(function(){busyAg=false;renderAg();renderConfigAg();try{gerarAg(true);}catch(e){if(window.console)console.error(e);msgAg('Lista carregada, mas não foi possível sugerir datas: '+((e&&e.message)||e),true);}});}
 function syncAg(){if(busyAg)return;profCacheAg=null;var list=window.__emultiPessoasAtendidas&&window.__emultiPessoasAtendidas();if(!list||!Array.isArray(list.rows)||!list.rows.length){msgAg('Atualize os dados do painel para carregar Pessoas atendidas antes de sincronizar.',true);return;}var pessoas=list.rows.filter(function(r){return r.agendavel===true;}).map(function(r){return{nome:String(r[0]||'').trim(),at:Number(r[1])||0,total:Number(r[3])||0,ultimo:r.ultimoAtendimentoAgendaISO||''};}).filter(function(x){return x.nome;});if(!pessoas.length){msgAg('Nenhuma pessoa em Pessoas atendidas. Atualize os dados do painel e tente de novo.',true);return;}busyAg=true;msgAg('Sincronizando '+pessoas.length+' pessoas…');renderAg();var syncMsg='';apiAg({action:'agendamentos.sync',rows:pessoas}).then(function(r){syncMsg='Sincronização concluída: '+(Number(r.inseridos)||0)+' novos; '+(Number(r.atualizados)||0)+' atualizados ('+pessoas.length+' pessoas em Pessoas atendidas).';msgAg(syncMsg);return apiAg({action:'agendamentos.list'});}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:rowsAg;completarVirtuaisAg();}).catch(function(e){msgAg(e.message||'Falha ao sincronizar.',true);}).finally(function(){busyAg=false;renderAg();renderConfigAg();if(syncMsg){propostaAg={};gerarAg(true,syncMsg);}});}
 
 // ---------- Histórico de desfechos (Realizado/Faltou) ----------
