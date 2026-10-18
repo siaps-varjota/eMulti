@@ -1447,7 +1447,7 @@ h1,h2,h3,.serif{font-optical-sizing:auto;}
 
 /* ---------- Lingueta que recolhe/expande a barra de filtros gerais ---------- */
 .filter-bar-outer{position:relative;transition:margin-top .26s ease}
-.filter-bar-toggle{position:absolute;left:50%;top:100%;transform:translateX(-50%);margin-top:-1px;z-index:5;
+.filter-bar-toggle{position:absolute;left:50%;top:100%;transform:translateX(-50%);margin-top:-1px;z-index:1; /* abaixo do .header-group (z-index:5): ao rolar, a lingueta passa por baixo do cabeçalho/abas */
   min-width:60px;height:22px;padding:0 14px;display:flex;align-items:center;justify-content:center;gap:6px;
   background:var(--surface,#fff);color:var(--ink-soft);font:inherit;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
   border:1px solid var(--line);border-top:none;border-radius:0 0 12px 12px;cursor:pointer;
