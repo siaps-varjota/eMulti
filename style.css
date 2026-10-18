@@ -1276,3 +1276,33 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 .ag-ret-pular{padding:9px 16px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:600 13px 'Inter',sans-serif;cursor:pointer}
 .ag-ret-ok{padding:9px 16px;border:none;border-radius:10px;background:var(--header-bg);color:#fff;font:700 13px 'Inter',sans-serif;cursor:pointer}
 .ag-ret-ok:disabled{opacity:.5;cursor:not-allowed}
+
+/* Botão e relatório "Potencial de atendimento" (lista Atendimentos) */
+.list-card-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pdf-btn.pot-btn{background:var(--surface);color:var(--header-bg)}
+.pdf-btn.pot-btn:hover{background:#E8F3EE}
+.pot-overlay{position:fixed;inset:0;z-index:1200;background:rgba(13,51,41,.45);display:flex;align-items:center;justify-content:center;padding:16px}
+.pot-card{position:relative;width:100%;max-width:1180px;max-height:calc(100vh - 32px);overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:0 20px 50px rgba(13,51,41,.3);padding:22px;font-family:'Inter',sans-serif;color:var(--ink)}
+.pot-card h3{margin:0 0 12px;font-size:19px;padding-right:36px}
+.pot-x{position:absolute;top:10px;right:12px;width:32px;height:32px;border:none;background:none;font-size:24px;line-height:1;color:var(--ink-soft);cursor:pointer;border-radius:8px}
+.pot-x:hover{background:var(--paper)}
+.pot-topo{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.pot-topo label{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-soft)}
+.pot-topo select{padding:6px 10px;border:1px solid var(--line);border-radius:9px;background:var(--paper);font:600 13px 'Inter',sans-serif;color:var(--ink)}
+.pot-scroll{overflow:auto;border:1px solid var(--line);border-radius:12px}
+.pot-table{border-collapse:collapse;width:100%;font-size:12.5px}
+.pot-table th,.pot-table td{padding:7px 9px;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap}
+.pot-table thead th{position:sticky;top:0;background:var(--paper);font-weight:700;z-index:2}
+.pot-table .pot-prof{position:sticky;left:0;background:var(--surface);text-align:left;font-weight:600;z-index:1;min-width:190px}
+.pot-table thead .pot-prof{background:var(--paper);z-index:3}
+.pot-table tbody tr:nth-child(even) td,.pot-table tbody tr:nth-child(even) th{background:var(--paper)}
+.pot-table td b{display:block;font-size:13px}
+.pot-table td small{display:block;font-size:11px;color:var(--ink-soft)}
+.pot-table .pot-nd{color:var(--ink-soft)}
+.pot-table .pot-tot{border-left:2px solid var(--line)}
+.pot-table .pot-parcial{background:#FFF8E6!important}
+.pot-table tfoot th,.pot-table tfoot td{font-weight:700;background:#E8F3EE!important;border-top:2px solid var(--line)}
+.pot-vazio{margin:16px 0;font-size:13.5px;color:var(--ink-soft)}
+.pot-notas{margin-top:12px;font-size:12px;color:var(--ink-soft);line-height:1.5}
+.pot-notas p{margin:0 0 5px}
+.pot-aviso{color:#9B2C2C;font-weight:600}

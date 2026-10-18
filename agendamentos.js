@@ -44,6 +44,28 @@ function carregarConfigAg(){
 function salvarConfigAg(){var c=Object.assign({},cfgAg);delete c.redistribuir;if(bloqueiosModoAg==='servidor'){delete c.feriados;delete c.faltas;delete c.folgas;}lsSetAg(LS_CONFIG_AG,c);}
 // A visão Agenda (agenda.js) marca os feriados no calendário.
 window.__emultiFeriadoAg=function(iso){return folgaDiaAg('',iso);};
+// Potencial de atendimento (relatório na lista Atendimentos, em listas.js): consultas que a agenda do profissional
+// comporta num intervalo = soma, dia a dia, das vagas da agenda (dias de atendimento/regras × vagas por turno),
+// descontando feriados, folgas e imprevistos. Usa a agenda do profissional como um todo (todas as unidades dele).
+// Antes de calcular, garante que feriados/folgas/imprevistos foram lidos da planilha (como a aba Agendamentos faz).
+window.__emultiPotencialAg=function(){
+  var pronto=bloqueiosModoAg?Promise.resolve():carregarBloqueiosAg().catch(function(){});
+  return pronto.then(function(){
+    return {
+      bloqueios:bloqueiosModoAg,   // 'servidor' = lidos da planilha; qualquer outro valor = só os deste navegador
+      potencial:function(nomeProf,deIso,ateIso){
+        var cap=capAg(normAg(nomeProf)),dt=isoParaDataAg(deIso),fim=isoParaDataAg(ateIso),tot=0;
+        if(!dt||!fim)return 0;
+        for(var n=0;n<800&&dt<=fim;n++){
+          var iso=isoAg(dt);
+          if(cap.atende(iso))tot+=capNoDiaAg(cap,iso).dia;
+          dt=somaDiaAg(dt,1);
+        }
+        return tot;
+      }
+    };
+  });
+};
 // Capacidade efetiva de um profissional (chave = nome normalizado).
 function capAg(k){
   var o=(k&&cfgAg.prof[k])||{};

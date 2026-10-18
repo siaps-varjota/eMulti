@@ -1150,8 +1150,14 @@ function renderListCard(name, containerId){
       + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h1a1.5 1.5 0 0 0 0-3H9v5"/><path d="M13 12v5h1a2 2 0 0 0 0-5z"/><path d="M18.5 12H17v5"/><path d="M17 14.5h1.3"/></svg>'
       + '<span>Gerar PDF</span></button>'
     : '';
+  // Lista "Atendimentos": botão extra com o relatório de potencial de atendimento por profissional.
+  var potBtnHtml = (hasTable && name === suffixedName("Atendimentos"))
+    ? '<button type="button" class="pdf-btn pot-btn" data-potencial-btn="1">'
+      + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg>'
+      + '<span>Potencial de atendimento</span></button>'
+    : '';
   return '<div class="card list-card'+(listDatasExpandidas[sk] ? ' pa-datas-expandidas' : '')+'" data-list-card="'+escapeHtml(name)+'" data-state-key="'+escapeHtml(sk)+'">'
-    + '<div class="list-card-head"><h4>'+escapeHtml(displayListName(name))+'</h4>'+pdfBtnHtml+'</div>'
+    + '<div class="list-card-head"><h4>'+escapeHtml(displayListName(name))+'</h4>'+(potBtnHtml ? '<div class="list-card-actions">'+potBtnHtml+pdfBtnHtml+'</div>' : pdfBtnHtml)+'</div>'
     + body + '</div>';
 }
 
@@ -1652,6 +1658,10 @@ export function renderListsSection(containerId, names){
     });
   });
 
+  el.querySelectorAll('[data-potencial-btn]').forEach(function(btn){
+    btn.addEventListener('click', function(){ abrirPotencialAtendimento(btn); });
+  });
+
   // Delegado no card: os botões "Detalhes" são recriados a cada página.
   el.querySelectorAll('.list-card').forEach(function(card){
     card.addEventListener('click', function(ev){
@@ -2009,4 +2019,233 @@ export function gerarPdfDivergenciaOficial(serieTendencia){
 
   var arquivo = 'divergencia_oficial__'+slugifyFileName(equipeLabel)+'__'+slugifyFileName(new Date().toLocaleDateString('pt-BR'))+'.pdf';
   doc.save(arquivo);
+}
+
+// ===== Potencial de atendimento por profissional (botão na lista "Atendimentos") =====
+// Potencial = consultas que a AGENDA do profissional comporta no período (dias de atendimento × vagas por turno,
+// descontando feriados, folgas e imprevistos — mesma conta da aba Agendamentos, ver window.__emultiPotencialAg).
+// Atingido = atendimentos do profissional na lista Atendimentos no mesmo período.
+// Ex.: agenda com 180 consultas em janeiro e 90 atendimentos feitos = 50% do potencial.
+var MESES_ABREV_POT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+var potState = null; // {api, ano}
+function isoDataPot(d){ return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
+function fmtPctPot(v){ return (v === null || v === undefined) ? '—' : v.toFixed(1).replace('.',',')+'%'; }
+function celulaPot(c){ return c ? c.at+' / '+c.pot : ''; }
+
+// Monta os números de um ano: só profissionais da eMulti com atendimento naquele ano; meses de janeiro até o mês
+// atual (ano corrente) ou dezembro (anos anteriores). O potencial de cada profissional só conta a partir do MÊS
+// do 1º atendimento dele na base (quem entrou no meio do ano não é cobrado pelos meses anteriores), e o mês em
+// andamento só conta até hoje.
+function potencialAtendimentoDados(ano, api){
+  var cached = estadoApp.latestSheets[suffixedName("Atendimentos")];
+  if(!cached) return null;
+  var iData = colIndex(cached.headers, "data_hora");
+  var iProf = profissionalColIndex(cached.headers);
+  if(iData < 0 || iProf < 0) return null;
+  var hoje = new Date();
+  var profs = {}, anos = {};
+  cached.rows.forEach(function(r){
+    var prof = String(r[iProf]||'').trim();
+    if(!prof || !ehEmultiAgenda(prof)) return;
+    var d = parseBRDate(r[iData]);
+    if(!d) return;
+    anos[d.getFullYear()] = true;
+    var k = normalizeText(prof);
+    var p = profs[k] || (profs[k] = {nome:prof, primeira:null, porMes:{}, temAno:false});
+    if(!p.primeira || d < p.primeira) p.primeira = d;
+    if(d.getFullYear() === ano){
+      p.temAno = true;
+      p.porMes[d.getMonth()] = (p.porMes[d.getMonth()]||0) + 1;
+    }
+  });
+  var mesFim = ano < hoje.getFullYear() ? 11 : (ano === hoje.getFullYear() ? hoje.getMonth() : -1);
+  var meses = [];
+  for(var m=0; m<=mesFim; m++) meses.push(m);
+  var totaisMes = meses.map(function(){ return {at:0, pot:0, tem:false}; });
+  var lista = Object.keys(profs).map(function(k){ return profs[k]; })
+    .filter(function(p){ return p.temAno; })
+    .sort(function(a,b){ return a.nome.localeCompare(b.nome,'pt-BR'); })
+    .map(function(p){
+      var totAt = 0, totPot = 0;
+      var primeiroMes = new Date(p.primeira.getFullYear(), p.primeira.getMonth(), 1);
+      var cel = meses.map(function(m, idx){
+        var ini = new Date(ano, m, 1), fimMes = new Date(ano, m+1, 0);
+        var parcial = (ano === hoje.getFullYear() && m === hoje.getMonth());
+        var deD = ini < primeiroMes ? primeiroMes : ini;
+        var ateD = parcial ? hoje : fimMes;
+        var deIso = isoDataPot(deD), ateIso = isoDataPot(ateD);
+        if(deIso > ateIso) return null; // antes do 1º atendimento do profissional
+        var pot = api.potencial(p.nome, deIso, ateIso);
+        var at = p.porMes[m] || 0;
+        totAt += at; totPot += pot;
+        totaisMes[idx].at += at; totaisMes[idx].pot += pot; totaisMes[idx].tem = true;
+        return {at:at, pot:pot, pct: pot > 0 ? at*100/pot : null, parcial:parcial};
+      });
+      return {nome:p.nome, desde:p.primeira, meses:cel, totAt:totAt, totPot:totPot, pct: totPot > 0 ? totAt*100/totPot : null};
+    });
+  var geralAt = 0, geralPot = 0;
+  var linhaTotal = totaisMes.map(function(t){
+    if(!t.tem) return null;
+    geralAt += t.at; geralPot += t.pot;
+    return {at:t.at, pot:t.pot, pct: t.pot > 0 ? t.at*100/t.pot : null};
+  });
+  var anosLista = Object.keys(anos).map(Number).sort(function(a,b){ return b-a; });
+  if(anosLista.indexOf(ano) < 0) anosLista.unshift(ano);
+  return {
+    ano:ano, anos:anosLista, meses:meses, profs:lista, total:linhaTotal,
+    geral:{at:geralAt, pot:geralPot, pct: geralPot > 0 ? geralAt*100/geralPot : null},
+    parcialAte: (ano === hoje.getFullYear()) ? hoje : null
+  };
+}
+
+function potNotasHtml(dados, api){
+  var notas = [];
+  notas.push('<b>Potencial</b> = consultas que a agenda do profissional comporta no mês (dias de atendimento × vagas por turno, descontando feriados, folgas e imprevistos cadastrados em Agendamentos). <b>%</b> = atendimentos realizados ÷ potencial.');
+  if(dados.parcialAte) notas.push('O mês atual é parcial: potencial e atendimentos contados até '+fmtBRDate(dados.parcialAte)+'.');
+  notas.push('O potencial de cada profissional conta a partir do mês do primeiro atendimento dele na base. A configuração atual da agenda (dias, vagas e regras) vale para todos os meses.');
+  notas.push('Considera os atendimentos de profissionais da eMulti carregados no painel (segue o filtro de equipe do topo).');
+  if(api.bloqueios !== 'servidor') notas.push('<span class="pot-aviso">Atenção: não foi possível ler os feriados e folgas da planilha; foram usados só os cadastrados neste navegador, então o potencial pode estar um pouco acima do real.</span>');
+  return notas.map(function(n){ return '<p>'+n+'</p>'; }).join('');
+}
+function potTabelaHtml(dados){
+  if(!dados.profs.length) return '<p class="pot-vazio">Nenhum atendimento de profissional da eMulti encontrado em '+dados.ano+'.</p>';
+  function td(c){
+    if(!c) return '<td class="pot-nd">—</td>';
+    return '<td'+(c.parcial ? ' class="pot-parcial" title="Mês em andamento"' : '')+'><b>'+fmtPctPot(c.pct)+'</b><small>'+c.at+' / '+c.pot+'</small></td>';
+  }
+  var head = '<tr><th class="pot-prof">Profissional</th>'+dados.meses.map(function(m){ return '<th>'+MESES_ABREV_POT[m]+'</th>'; }).join('')+'<th class="pot-tot">Total</th></tr>';
+  var body = dados.profs.map(function(p){
+    return '<tr><th class="pot-prof" scope="row">'+escapeHtml(p.nome)+'</th>'+p.meses.map(td).join('')
+      +'<td class="pot-tot"><b>'+fmtPctPot(p.pct)+'</b><small>'+p.totAt+' / '+p.totPot+'</small></td></tr>';
+  }).join('');
+  var foot = '<tr><th class="pot-prof" scope="row">Todos os profissionais</th>'+dados.total.map(td).join('')
+    +'<td class="pot-tot"><b>'+fmtPctPot(dados.geral.pct)+'</b><small>'+dados.geral.at+' / '+dados.geral.pot+'</small></td></tr>';
+  return '<div class="pot-scroll"><table class="pot-table"><thead>'+head+'</thead><tbody>'+body+'</tbody><tfoot>'+foot+'</tfoot></table></div>';
+}
+function renderPotencialAtendimento(){
+  var el = document.getElementById('potOverlay');
+  if(!el || !potState) return;
+  var dados = potencialAtendimentoDados(potState.ano, potState.api);
+  var corpo = el.querySelector('.pot-corpo');
+  var pdf = el.querySelector('[data-pot="pdf"]');
+  if(!dados){
+    corpo.innerHTML = '<p class="pot-vazio">Os dados de Atendimentos ainda não foram carregados no painel. Atualize os dados e tente novamente.</p>';
+    if(pdf) pdf.disabled = true;
+    return;
+  }
+  potState.dados = dados;
+  var sel = el.querySelector('[data-pot="ano"]');
+  sel.innerHTML = dados.anos.map(function(a){ return '<option value="'+a+'"'+(a === dados.ano ? ' selected' : '')+'>'+a+'</option>'; }).join('');
+  corpo.innerHTML = potTabelaHtml(dados) + '<div class="pot-notas">'+potNotasHtml(dados, potState.api)+'</div>';
+  if(pdf) pdf.disabled = !dados.profs.length;
+}
+function fecharPotencialAtendimento(){
+  var el = document.getElementById('potOverlay');
+  if(el) el.remove();
+  document.removeEventListener('keydown', teclaPotencialAtendimento);
+  potState = null;
+}
+function teclaPotencialAtendimento(e){ if(e.key === 'Escape') fecharPotencialAtendimento(); }
+export function abrirPotencialAtendimento(btn){
+  if(typeof window.__emultiPotencialAg !== 'function'){
+    alert('O módulo de agenda ainda não carregou. Recarregue a página e tente novamente.');
+    return;
+  }
+  fecharPotencialAtendimento();
+  var el = document.createElement('div');
+  el.id = 'potOverlay'; el.className = 'pot-overlay';
+  el.setAttribute('role','dialog'); el.setAttribute('aria-modal','true'); el.setAttribute('aria-labelledby','potTitulo');
+  el.innerHTML = '<div class="pot-card">'
+    + '<button type="button" class="pot-x" data-pot="fechar" aria-label="Fechar">×</button>'
+    + '<h3 id="potTitulo">Potencial de atendimento por profissional</h3>'
+    + '<div class="pot-topo"><label>Ano <select data-pot="ano"></select></label>'
+    + '<button type="button" class="pdf-btn" data-pot="pdf" disabled><span>Gerar PDF</span></button></div>'
+    + '<div class="pot-corpo"><p class="pot-vazio">Calculando…</p></div>'
+    + '</div>';
+  el.addEventListener('click', function(e){
+    if(e.target === el){ fecharPotencialAtendimento(); return; }
+    var t = e.target.closest('[data-pot]');
+    if(!t || !potState) return;
+    if(t.dataset.pot === 'fechar') fecharPotencialAtendimento();
+    else if(t.dataset.pot === 'pdf' && potState.dados) gerarPdfPotencial(potState.dados);
+  });
+  el.addEventListener('change', function(e){
+    if(!potState || e.target.dataset.pot !== 'ano') return;
+    potState.ano = parseInt(e.target.value, 10);
+    renderPotencialAtendimento();
+  });
+  document.body.appendChild(el);
+  document.addEventListener('keydown', teclaPotencialAtendimento);
+  if(btn) btn.disabled = true;
+  var anoIni = new Date().getFullYear();
+  window.__emultiPotencialAg().then(function(api){
+    if(btn) btn.disabled = false;
+    if(!document.getElementById('potOverlay')) return;
+    potState = {api:api, ano:anoIni};
+    renderPotencialAtendimento();
+  }).catch(function(err){
+    if(btn) btn.disabled = false;
+    var corpo = el.querySelector('.pot-corpo');
+    if(corpo) corpo.innerHTML = '<p class="pot-vazio">Não foi possível calcular o potencial: '+escapeHtml((err && err.message) || String(err))+'</p>';
+  });
+}
+function gerarPdfPotencial(dados){
+  var jspdfNs = window.jspdf;
+  if(!jspdfNs || !jspdfNs.jsPDF){
+    alert('Não foi possível carregar a biblioteca de geração de PDF (verifique a conexão com a internet) — tente novamente.');
+    return;
+  }
+  var equipeLabel = estadoApp.currentEquipes.map(function(e){ return e.label; }).join(' + ');
+  var doc = new jspdfNs.jsPDF({orientation:'landscape', unit:'pt', format:'a4'});
+  var pageWidth = doc.internal.pageSize.getWidth();
+  var pageHeight = doc.internal.pageSize.getHeight();
+  var margin = 28;
+  doc.setFillColor(21,63,53);
+  doc.rect(0,0,pageWidth,64,'F');
+  doc.setTextColor(238,243,234);
+  doc.setFont('helvetica','bold'); doc.setFontSize(15);
+  doc.text('Painel eMulti — Indicadores M1 e M2', margin, 26);
+  doc.setFont('helvetica','normal'); doc.setFontSize(10);
+  doc.setTextColor(159,192,174);
+  doc.text(equipeLabel, margin, 42);
+  doc.setFontSize(8.5);
+  doc.text('Gerado em '+new Date().toLocaleString('pt-BR'), pageWidth-margin, 26, {align:'right'});
+  var y = 84;
+  doc.setTextColor(21,63,53);
+  doc.setFont('helvetica','bold'); doc.setFontSize(13);
+  doc.text('Potencial de atendimento por profissional — '+dados.ano, margin, y);
+  y += 15;
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
+  doc.setTextColor(81,96,90);
+  var explic = 'Potencial = consultas que a agenda do profissional comporta no mês (dias de atendimento × vagas por turno, sem feriados, folgas e imprevistos). % = atendimentos realizados ÷ potencial. Cada célula mostra % e "atendidos / potencial".'
+    + (dados.parcialAte ? ' Mês atual parcial: até '+fmtBRDate(dados.parcialAte)+'.' : '')
+    + ' O potencial de cada profissional conta a partir do mês do primeiro atendimento dele na base.';
+  var linhas = doc.splitTextToSize(explic, pageWidth-margin*2);
+  doc.text(linhas, margin, y);
+  y += 11*linhas.length;
+  function txt(c){ return c ? fmtPctPot(c.pct)+'\n'+c.at+' / '+c.pot : '—'; }
+  var head = [['Profissional'].concat(dados.meses.map(function(m){ return MESES_ABREV_POT[m]; })).concat(['Total'])];
+  var body = dados.profs.map(function(p){
+    return [p.nome].concat(p.meses.map(txt)).concat([fmtPctPot(p.pct)+'\n'+p.totAt+' / '+p.totPot]);
+  });
+  body.push(['Todos os profissionais'].concat(dados.total.map(txt)).concat([fmtPctPot(dados.geral.pct)+'\n'+dados.geral.at+' / '+dados.geral.pot]));
+  var colStyles = {0:{halign:'left', cellWidth:120, fontStyle:'bold'}};
+  doc.autoTable({
+    startY: y+6, head: head, body: body, theme:'grid',
+    columnStyles: colStyles,
+    margin: {left:margin, right:margin, bottom:34},
+    styles: {font:'helvetica', fontSize: dados.meses.length > 9 ? 7.4 : 8.4, cellPadding:4, overflow:'linebreak', halign:'center', valign:'middle', textColor:[19,36,31], lineColor:[220,228,214], lineWidth:0.5},
+    headStyles: {fillColor:[21,63,53], textColor:255, fontStyle:'bold', halign:'center', valign:'middle'},
+    alternateRowStyles: {fillColor:[241,244,238]},
+    didParseCell: function(d){
+      var ult = d.row.index === body.length-1 && d.section === 'body';
+      if(ult){ d.cell.styles.fontStyle = 'bold'; d.cell.styles.fillColor = [226,236,228]; }
+      if(d.section === 'body' && d.column.index === head[0].length-1) d.cell.styles.fontStyle = 'bold';
+    },
+    didDrawPage: function(){
+      doc.setFontSize(8); doc.setTextColor(150,158,152);
+      doc.text('Página '+doc.internal.getCurrentPageInfo().pageNumber, pageWidth-margin, pageHeight-14, {align:'right'});
+    }
+  });
+  doc.save('potencial-atendimento__'+dados.ano+'__'+slugifyFileName(equipeLabel)+'__'+slugifyFileName(new Date().toLocaleDateString('pt-BR'))+'.pdf');
 }
