@@ -2402,7 +2402,8 @@ export function metaQuadrimestreMiniHTML(base, baseLabel, cardsCfg, preliminar, 
       +   '<span class="meta-mini-dot" style="background:'+c.color+'"></span>'
       +   '<div><p class="meta-mini-label" style="color:'+c.color+';">'+c.label+'</p>'
       +     '<p class="meta-mini-sub">Alvo: '+fmtInt(c.alvo)+' '+c.unidade+'</p>'
-      +     '<p class="meta-mini-basenote">(base de '+fmtInt(base)+' '+baseLabel+')</p></div>'
+      +     '<p class="meta-mini-basenote">(base de '+fmtInt(base)+' '+baseLabel+')</p>'
+      +     '<p class="meta-mini-media"><span><b>'+fmtDecMeta(c.mediaMes)+'</b> por mês</span><span><b>'+fmtDecMeta(c.mediaSemana)+'</b> por semana</span></p></div>'
       + '</div>'
       + status
       + '</div>'
