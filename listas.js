@@ -4,7 +4,7 @@
 // Cada seção "=== módulo: ... ===" corresponde a um arquivo original.
 // ======================================================================
 
-import { profissionaisRoster, ehProfissionalComparativoEmulti, EQUIPES, TOTAL_PROF_EMULTI_HEADER, calcularJanelaPeriodo, colIndex, colRespParticipantes, colTotalProfEmulti, createMultiSelect, dateColIndexForList, debounce, displayListName, equipeColIndex, escapeHtml, estadoApp, fmtBRDate, fmtDec, fmtInt, listDatasExpandidas, listDateColIdx, listModel, listMonthFilters, monthOptionLabel, monthOptionValue, monthOptionsForList, monthShortLabel, nomeEhDaEmulti, normalizeText, parseBRDate, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, withinPeriod } from './nucleo.js';
+import { profissionaisRoster, ehProfissionalComparativoEmulti, EQUIPES, TOTAL_PROF_EMULTI_HEADER, profissionaisPorAtividade, calcularJanelaPeriodo, colIndex, colRespParticipantes, colTotalProfEmulti, createMultiSelect, dateColIndexForList, debounce, displayListName, equipeColIndex, escapeHtml, estadoApp, fmtBRDate, fmtDec, fmtInt, listDatasExpandidas, listDateColIdx, listModel, listMonthFilters, monthOptionLabel, monthOptionValue, monthOptionsForList, monthShortLabel, nomeEhDaEmulti, normalizeText, parseBRDate, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, withinPeriod } from './nucleo.js';
 import { ACAO_M2_FILTER_VALUE, DIAS_SEM_ATENDIMENTO_HEADER, FAIXAS_DIAS_SEM_ATENDIMENTO, PROF_EMULTI_FILTER_VALUE, riscoCfgBusca, buscaAtivaCompute, diasBucketLabel, profissionalBadgeHtml, riscoTableHtml, wireRiscoFiltros } from './abas.js';
 import { latestWb } from './app.js';
 
@@ -384,6 +384,28 @@ function montarDetalhesAtividadeHTML(headers, row){
     var v = textoCelulaLista(row, i);
     if(v !== '') outros.push({label:String(h), valor:v});
   });
+  // Profissionais da atividade (nomes), ligados a Participantes Ativ.
+  // Coletiva — só o quantitativo não bastava pra conferir quem participou.
+  var profs = (row && profissionaisPorAtividade) ? profissionaisPorAtividade.get(row) : undefined;
+  var profsHtml = '';
+  if(profs && profs.length){
+    var nEm = profs.filter(function(p){ return p.emulti; }).length;
+    profsHtml = '<div class="part-modal-section"><div class="part-modal-section-title">Profissionais da atividade ('+profs.length+')</div>'
+      + profs.map(function(p){
+          return '<div class="part-modal-prof part-modal-prof-linha">'
+            + '<span class="part-modal-prof-nome">'+escapeHtml(p.nome)+'</span>'
+            + '<span class="part-modal-prof-tags">'
+            +   '<span class="part-modal-tag '+(p.responsavel ? 'tag-resp' : 'tag-part')+'">'+(p.responsavel ? 'Responsável' : 'Participante')+'</span>'
+            +   '<span class="part-modal-tag '+(p.emulti ? 'tag-emulti' : 'tag-fora')+'">'+(p.emulti ? 'eMulti' : 'Fora da eMulti')+'</span>'
+            + '</span></div>';
+        }).join('')
+      + '<div class="part-modal-nota">'+nEm+' da eMulti · '+(profs.length-nEm)+' de fora da eMulti'
+      + ((totalGeralTxt && toInt(totalGeralTxt) !== profs.length) ? ' — o total informado na atividade é '+escapeHtml(totalGeralTxt)+' (a diferença são profissionais sem nome registrado nas colunas de Participantes).' : '')
+      + '</div></div>';
+  } else {
+    profsHtml = '<div class="part-modal-section"><div class="part-modal-section-title">Profissionais da atividade</div>'
+      + '<div class="part-modal-prof part-modal-prof-vazio">Nomes não disponíveis: não foi possível ligar esta atividade à lista Participantes Ativ. Coletiva.</div></div>';
+  }
   var outrosHtml = outros.length
     ? '<div class="part-modal-section"><div class="part-modal-section-title">Demais informações</div>'
       + '<div class="part-modal-grid">' + outros.map(function(c){
@@ -408,6 +430,7 @@ function montarDetalhesAtividadeHTML(headers, row){
     + '<h3 class="part-modal-title">'+escapeHtml(tipo || 'Atividade coletiva')+'</h3>'
     + (data ? '<div class="part-modal-sub">Data: '+escapeHtml(data)+'</div>' : '')
     + infoBoxes
+    + profsHtml
     + outrosHtml
     + '<div class="part-modal-section part-modal-enquadramento">'
       + '<div class="part-modal-section-title">Enquadramento (AÇÃO M2)</div>'
@@ -547,6 +570,14 @@ function injectPartModalStyles(){
     + '.part-modal-prof{font-size:13.5px;color:#1B2E27;padding:4px 0;border-bottom:1px dashed #E3E8E1}'
     + '.part-modal-prof:last-child{border-bottom:none}'
     + '.part-modal-prof-vazio{color:#8B978F;font-style:italic}'
+    + '.part-modal-prof-linha{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:7px 0}'
+    + '.part-modal-prof-nome{font-weight:600}'
+    + '.part-modal-prof-tags{display:inline-flex;gap:6px;flex-wrap:wrap}'
+    + '.part-modal-tag{font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap}'
+    + '.part-modal-tag.tag-resp{background:#E8EEFB;color:#2F55B3}'
+    + '.part-modal-tag.tag-part{background:#F1F1EC;color:#5B665F}'
+    + '.part-modal-tag.tag-emulti{background:#E3F4E8;color:#23764A}'
+    + '.part-modal-tag.tag-fora{background:#FBEFD9;color:#9A6310}'
     + '.part-modal-enquadramento{background:#F2F7F3;border-radius:12px;padding:12px}'
     + '.part-modal-nota{font-size:12.5px;color:#4B5850;margin-top:6px;font-style:italic}'
     + '.prof-mais-btn{display:inline-flex;align-items:center;justify-content:center;margin-left:6px;padding:1px 7px;border-radius:999px;border:1px solid #CFE0D6;background:#EEF3EA;color:#1F7A45;font-size:11px;font-weight:800;cursor:pointer;line-height:1.6;vertical-align:middle}'

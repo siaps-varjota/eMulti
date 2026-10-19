@@ -4,7 +4,7 @@
 // Cada seção "=== módulo: ... ===" corresponde a um arquivo original.
 // ======================================================================
 
-import { classificarDesempenho, monthShortLabel, CLASS_BANDS_M1, EQUIPES, OV_ICONS, PONTOS_POR_CLASSE, QUAD_LABELS, TOTAL_PROF_EMULTI_HEADER, addMonths, buildGauge, calcularJanelaPeriodo, calcularSerieTendencia, classificarM1, classificarM2, colIndex, colTotalProfEmulti, createMultiSelect, criarCalculadoraTotalProfEmulti, criarLigacaoAtividades, displayListName, ehProfissionalComparativoEmulti, equipeColIndex, escapeHtml, estadoApp, filtrarLinhasPorEquipe, fmtBRDate, fmtDec, fmtInt, gaugeInterpretationHTML, gaugeLegendHTML, kpiPanelHTML, kpiPanelIcon, mesesDosQuadsSelecionadosUniao, nomeEhDaEmulti, normalizeText, ovIconHTML, ovLegendHTML, ovStatus, parseBRDate, pillHex, profissionaisRoster, quadShortLabel, sheetToRows, suffixedName, ultimoMesDosQuadsSelecionados, withinPeriod } from './nucleo.js';
+import { classificarDesempenho, monthShortLabel, CLASS_BANDS_M1, EQUIPES, OV_ICONS, PONTOS_POR_CLASSE, QUAD_LABELS, TOTAL_PROF_EMULTI_HEADER, profissionaisPorAtividade, avisarNomesProfissionaisSemMatch, addMonths, buildGauge, calcularJanelaPeriodo, calcularSerieTendencia, classificarM1, classificarM2, colIndex, colTotalProfEmulti, createMultiSelect, criarCalculadoraTotalProfEmulti, criarLigacaoAtividades, displayListName, ehProfissionalComparativoEmulti, equipeColIndex, escapeHtml, estadoApp, filtrarLinhasPorEquipe, fmtBRDate, fmtDec, fmtInt, gaugeInterpretationHTML, gaugeLegendHTML, kpiPanelHTML, kpiPanelIcon, mesesDosQuadsSelecionadosUniao, nomeEhDaEmulti, normalizeText, ovIconHTML, ovLegendHTML, ovStatus, parseBRDate, pillHex, profissionaisRoster, quadShortLabel, sheetToRows, suffixedName, ultimoMesDosQuadsSelecionados, withinPeriod } from './nucleo.js';
 import { equipeLabelFromRaw, pdfComNumeracao, pdfLinhaProfissional, profissionalColIndex, slugifyFileName } from './listas.js';
 import { latestRawSheets, latestWb } from './app.js';
 
@@ -1464,6 +1464,7 @@ export function populateSheetsCache(wb){
     return r.some(function(c){ return String(c).trim() !== ""; });
   }) : [];
   var totalEmultiCalc = partRowsBrutas.length ? criarCalculadoraTotalProfEmulti(partRowsBrutas[0]) : null;
+  try{ avisarNomesProfissionaisSemMatch(partRowsBrutas); }catch(e){}
   wb.SheetNames.forEach(function(name){
     var rows = sheetToRows(wb.Sheets[name]).filter(function(r){
       return r.some(function(c){ return String(c).trim() !== ""; });
@@ -1528,6 +1529,9 @@ export function populateSheetsCache(wb){
           var v = ligacao.total(r);
           if(v !== undefined) nova[iTot] = v;
           else if(acrescentar) nova[iTot] = "";
+          // Nomes dos profissionais da atividade, pro modal de Detalhes.
+          var profs = ligacao.profissionais(r);
+          if(profs !== undefined) profissionaisPorAtividade.set(nova, profs);
           return nova;
         }).filter(function(r){
           // Atividade sem NENHUM profissional da eMulti (responsável fora da
@@ -2300,8 +2304,8 @@ function metaCardHTML(cfg){
     + '<div class="mq-tier-bar" title="'+pct+'% da meta"><i style="width:'+pct+'%"></i></div>'
     + '<div class="mq-tier-barlabel"><span>'+fmtInt(atual)+' de '+fmtInt(cfg.alvo)+'</span><span>'+pct+'%</span></div>'
     + '<div class="mq-stats">'
-    +   '<div class="mq-stat"><b>'+fmtDecMeta(cfg.mediaMes)+'</b><span>Média por mês</span></div>'
-    +   '<div class="mq-stat"><b>'+fmtDecMeta(cfg.mediaSemana)+'</b><span>Média por semana</span></div>'
+    +   '<div class="mq-stat"><b>'+fmtDecMeta(cfg.mediaMes)+'</b><span>por mês</span></div>'
+    +   '<div class="mq-stat"><b>'+fmtDecMeta(cfg.mediaSemana)+'</b><span>por semana</span></div>'
     +   precisa
     + '</div>'
     + nota
@@ -2403,7 +2407,7 @@ export function metaQuadrimestreMiniHTML(base, baseLabel, cardsCfg, preliminar, 
       +   '<div><p class="meta-mini-label" style="color:'+c.color+';">'+c.label+'</p>'
       +     '<p class="meta-mini-sub">Alvo: '+fmtInt(c.alvo)+' '+c.unidade+'</p>'
       +     '<p class="meta-mini-basenote">(base de '+fmtInt(base)+' '+baseLabel+')</p>'
-      +     '<p class="meta-mini-media"><span><b>'+fmtDecMeta(c.mediaMes)+'</b> Média por mês</span><span><b>'+fmtDecMeta(c.mediaSemana)+'</b> Média por semana</span></p></div>'
+      +     '<p class="meta-mini-media"><span><b>'+fmtDecMeta(c.mediaMes)+'</b> por mês</span><span><b>'+fmtDecMeta(c.mediaSemana)+'</b> por semana</span></p></div>'
       + '</div>'
       + status
       + '</div>'

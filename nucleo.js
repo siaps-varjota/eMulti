@@ -396,13 +396,63 @@ export function criarCalculadoraTotalProfEmulti(partHeader){
       for(var i=0;i<profCols.length;i++){
         var nomeP = r[profCols[i]];
         if(!nomeP || !nomeEhDaEmulti(nomeP)) continue;
-        var k = normalizeText(nomeP);
+        var k = normalizarNomeProf(nomeP);
         if(vistos[k]) continue;
         vistos[k] = true; n++;
       }
       return n;
     }
   };
+}
+
+// Distância de edição (Levenshtein) entre dois textos curtos.
+function distanciaEdicao(a, b){
+  if(a === b) return 0;
+  var prev = [], cur = [], i, j;
+  for(j=0;j<=b.length;j++) prev[j] = j;
+  for(i=1;i<=a.length;i++){
+    cur = [i];
+    for(j=1;j<=b.length;j++){
+      cur[j] = Math.min(prev[j]+1, cur[j-1]+1, prev[j-1] + (a.charAt(i-1) === b.charAt(j-1) ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+// Aviso no console: nomes das colunas de profissional de Participantes
+// Ativ. Coletiva que NÃO batem com a aba PROFISSIONAIS mas são muito
+// parecidos com algum nome de lá (provável erro de digitação/grafia) — nesse
+// caso a pessoa não é contada como da eMulti. Nomes sem parecido são só
+// profissionais de fora da eMulti (esperado) e não geram aviso.
+export function avisarNomesProfissionaisSemMatch(partRows){
+  if(!partRows || partRows.length < 2 || !profissionaisRoster.length) return;
+  var partHeader = partRows[0];
+  var cols = [colRespParticipantes(partHeader)].concat(
+      ["profissional 1","profissional 2","profissional 3","profissional 4","profissional 5"]
+        .map(function(n){ return colIndex(partHeader, n); })
+    ).filter(function(i){ return i >= 0; });
+  var roster = [], vistosRoster = {};
+  profissionaisRoster.forEach(function(p){
+    var k = normalizarNomeProf(p.nome);
+    if(k && !vistosRoster[k]){ vistosRoster[k] = true; roster.push({k:k, nome:p.nome}); }
+  });
+  var vistos = {}, suspeitos = [];
+  partRows.slice(1).forEach(function(r){
+    cols.forEach(function(ci){
+      var nome = String(r[ci]===undefined||r[ci]===null ? "" : r[ci]).trim();
+      var k = normalizarNomeProf(nome);
+      if(!k || vistos[k]) return;
+      vistos[k] = true;
+      if(vistosRoster[k]) return;
+      for(var i=0;i<roster.length;i++){
+        if(distanciaEdicao(k, roster[i].k) <= 2){ suspeitos.push('"'+nome+'" ~ "'+roster[i].nome+'"'); break; }
+      }
+    });
+  });
+  if(suspeitos.length){
+    console.warn('[Participantes Ativ. Coletiva] '+suspeitos.length+' nome(s) quase iguais a profissionais da aba PROFISSIONAIS, mas NÃO reconhecidos como da eMulti (conferir grafia):\n - '+suspeitos.join('\n - '));
+  }
 }
 
 // Liga cada linha de "Resumo Atividade Coletiva" às linhas de
@@ -455,13 +505,38 @@ export function criarLigacaoAtividades(partRows, racHeader){
       kr:function(r){ return [dataKey(r[dR]), limpa(r[rR])].join("|"); }});
   }
   if(!niveis.length) return null;
+  // Colunas de profissional da linha de Participantes (Responsável +
+  // Profissional 1..5) — usadas pra listar os NOMES da atividade.
+  var iRespLig = colRespParticipantes(partHeader);
+  var colsProfLig = [iRespLig].concat(
+      ["profissional 1","profissional 2","profissional 3","profissional 4","profissional 5"]
+        .map(function(n){ return colIndex(partHeader, n); })
+    ).filter(function(i){ return i >= 0; });
+  function profissionaisDaLinha(r){
+    var vistos = {}, lista = [];
+    colsProfLig.forEach(function(ci){
+      var nome = String(r[ci]===undefined||r[ci]===null ? "" : r[ci]).trim();
+      if(!nome) return;
+      var k = normalizarNomeProf(nome);
+      if(vistos[k]){
+        if(ci === iRespLig) vistos[k].responsavel = true;
+        return;
+      }
+      vistos[k] = {nome:nome, responsavel:(ci === iRespLig), emulti:nomeEhDaEmulti(nome)};
+      lista.push(vistos[k]);
+    });
+    // Responsável primeiro, depois os demais na ordem das colunas.
+    lista.sort(function(a,b){ return (b.responsavel?1:0) - (a.responsavel?1:0); });
+    return lista;
+  }
   niveis.forEach(function(nv){
     nv.mapa = {};
+    nv.linhaMax = {};
     partRows.slice(1).forEach(function(r){
       var k = nv.kp(r);
       if(!k || /^\|+$/.test(k)) return;
       var v = calc.calcular(r);
-      if(!nv.mapa.hasOwnProperty(k) || v > nv.mapa[k]) nv.mapa[k] = v;
+      if(!nv.mapa.hasOwnProperty(k) || v > nv.mapa[k]){ nv.mapa[k] = v; nv.linhaMax[k] = r; }
     });
   });
   return {
@@ -470,6 +545,15 @@ export function criarLigacaoAtividades(partRows, racHeader){
       for(var i=0;i<niveis.length;i++){
         var k = niveis[i].kr(racRow);
         if(k && niveis[i].mapa.hasOwnProperty(k)) return niveis[i].mapa[k];
+      }
+      return undefined;
+    },
+    // Nomes dos profissionais da atividade (da mesma linha de Participantes
+    // que deu o total acima), ou undefined se não houver ligação.
+    profissionais: function(racRow){
+      for(var i=0;i<niveis.length;i++){
+        var k = niveis[i].kr(racRow);
+        if(k && niveis[i].linhaMax.hasOwnProperty(k)) return profissionaisDaLinha(niveis[i].linhaMax[k]);
       }
       return undefined;
     }
@@ -1002,6 +1086,20 @@ export function normalizeText(s){
   return String(s||"").toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
 }
 
+// Normalização de NOME de profissional: igual à normalizeText (maiúsculas,
+// sem acento) e, além disso, ignora espaços extras no começo/fim/meio
+// ("Maria  Silva " = "MARIA SILVA"). Usada pra comparar nomes de
+// Participantes Ativ. Coletiva com a aba PROFISSIONAIS.
+export function normalizarNomeProf(s){
+  return normalizeText(s).replace(/\s+/g,' ').trim();
+}
+
+// Profissionais de cada linha do "Resumo Atividade Coletiva" (WeakMap:
+// linha exibida -> [{nome, responsavel, emulti}]), preenchido em
+// populateSheetsCache a partir de Participantes Ativ. Coletiva e lido pelo
+// modal "Detalhes da Atividade Coletiva".
+export var profissionaisPorAtividade = new WeakMap();
+
 // Profissionais que de fato são da eMulti — usado só pra filtrar o
 // gráfico "Comparativo por profissional" (a aba de atendimentos traz
 // profissionais de fora da equipe também, ex. de outros programas que
@@ -1137,11 +1235,11 @@ var rosterNomesEmultiCacheFor = null;
 export function nomeEhDaEmulti(nome){
   if(rosterNomesEmultiCacheFor !== profissionaisRoster){
     rosterNomesEmultiCache = {};
-    profissionaisRoster.forEach(function(p){ rosterNomesEmultiCache[normalizeText(p.nome)] = true; });
+    profissionaisRoster.forEach(function(p){ rosterNomesEmultiCache[normalizarNomeProf(p.nome)] = true; });
     rosterNomesEmultiCacheFor = profissionaisRoster;
   }
   nome = String(nome||"").trim();
-  return !!nome && !!rosterNomesEmultiCache[normalizeText(nome)];
+  return !!nome && !!rosterNomesEmultiCache[normalizarNomeProf(nome)];
 }
 
 // Acha a coluna certa tentando primeiro nomes exatos e, não achando,
@@ -1402,8 +1500,18 @@ export function colIndex(headerRow, name){
 // busca por nome só como reforço se a tabela tiver 4 colunas ou menos
 // (não deveria acontecer nesta aba).
 export function colRespParticipantes(headerRow){
-  if(headerRow && headerRow.length > 3) return 3;
-  return colIndex(headerRow, "responsavel");
+  if(!headerRow) return -1;
+  var porNome = colIndex(headerRow, "responsavel");
+  if(headerRow.length > 3){
+    // Posição fixa (4ª coluna) segue como fonte principal. Só abre mão dela
+    // se o cabeçalho dessa coluna for claramente "Profissional 1..5" (a
+    // planilha mudou de ordem) E existir outra coluna com nome exato de
+    // responsável (nunca troca por busca aproximada).
+    var h3 = normalizeText(headerRow[3]).trim();
+    if(porNome >= 0 && porNome !== 3 && /^PROFISSIONAL\s*[1-5]$/.test(h3)) return porNome;
+    return 3;
+  }
+  return porNome;
 }
 
 export function toInt(v){
