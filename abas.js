@@ -2300,8 +2300,8 @@ function metaCardHTML(cfg){
     + '<div class="mq-tier-bar" title="'+pct+'% da meta"><i style="width:'+pct+'%"></i></div>'
     + '<div class="mq-tier-barlabel"><span>'+fmtInt(atual)+' de '+fmtInt(cfg.alvo)+'</span><span>'+pct+'%</span></div>'
     + '<div class="mq-stats">'
-    +   '<div class="mq-stat"><b>'+fmtDecMeta(cfg.mediaMes)+'</b><span>por mês</span></div>'
-    +   '<div class="mq-stat"><b>'+fmtDecMeta(cfg.mediaSemana)+'</b><span>por semana</span></div>'
+    +   '<div class="mq-stat"><b>'+fmtDecMeta(cfg.mediaMes)+'</b><span>Média por mês</span></div>'
+    +   '<div class="mq-stat"><b>'+fmtDecMeta(cfg.mediaSemana)+'</b><span>Média por semana</span></div>'
     +   precisa
     + '</div>'
     + nota
@@ -2403,7 +2403,7 @@ export function metaQuadrimestreMiniHTML(base, baseLabel, cardsCfg, preliminar, 
       +   '<div><p class="meta-mini-label" style="color:'+c.color+';">'+c.label+'</p>'
       +     '<p class="meta-mini-sub">Alvo: '+fmtInt(c.alvo)+' '+c.unidade+'</p>'
       +     '<p class="meta-mini-basenote">(base de '+fmtInt(base)+' '+baseLabel+')</p>'
-      +     '<p class="meta-mini-media"><span><b>'+fmtDecMeta(c.mediaMes)+'</b> por mês</span><span><b>'+fmtDecMeta(c.mediaSemana)+'</b> por semana</span></p></div>'
+      +     '<p class="meta-mini-media"><span><b>'+fmtDecMeta(c.mediaMes)+'</b> Média por mês</span><span><b>'+fmtDecMeta(c.mediaSemana)+'</b> Média por semana</span></p></div>'
       + '</div>'
       + status
       + '</div>'
