@@ -1219,19 +1219,19 @@ function confirmarRetornoAg(){
     if(retAg){retAg.busy=false;erroRetornoAg((e&&e.message)||'Falha ao agendar o retorno.');atualizarOkRetornoAg();}
   });
 }
-function abrirRetornoAg(ix,realizadoIso,modo){
+function abrirRetornoAg(ix,realizadoIso,modo,origem){
   var r=rowsAg[ix];if(!r)return;
   var reag=modo==='reagendar';
   var uc=profMapAg(),prof=(uc&&nomeProfAg(r,uc))||'',real=/^\d{4}-\d\d-\d\d$/.test(realizadoIso||'')?realizadoIso:'';
   fecharRetornoAg();
   // Reagendar: conta a partir de hoje (não do atendimento) e começa pelo intervalo mais curto.
-  retAg={ix:ix,base:reag?isoAg(new Date()):(real||isoAg(new Date())),dias:reag?INTERVALOS_REAGENDAR_AG[0]:diasRetornoSalvoAg(),sel:'',selTurno:'',busy:false,modo:reag?'reagendar':'retorno'};
+  retAg={ix:ix,base:reag?isoAg(new Date()):(real||isoAg(new Date())),dias:reag?INTERVALOS_REAGENDAR_AG[0]:diasRetornoSalvoAg(),sel:'',selTurno:'',busy:false,modo:reag?'reagendar':'retorno',origem:origem||''};
   var el=document.createElement('div');el.id='agRetOverlay';el.className='ag-ret-overlay';
   el.setAttribute('role','dialog');el.setAttribute('aria-modal','true');el.setAttribute('aria-labelledby','agRetTitulo');
   el.innerHTML='<div class="ag-ret-card">'
     +'<button type="button" class="ag-ret-x" data-ret="fechar" aria-label="Fechar">×</button>'
     +'<h3 id="agRetTitulo">'+(reag?'Reagendar consulta':'Agendar retorno')+'</h3>'
-    +'<p class="ag-ret-sub"><b>'+escAg(r.Nome)+'</b>'+(prof?' · '+escAg(prof):'')+'<br>'+(reag?(real?'Consulta de '+escAg(brAg(real))+' será reagendada':'Consulta marcada para reagendamento'):(real?'Atendimento realizado em '+escAg(brAg(real)):'Atendimento marcado como realizado'))+'</p>'
+    +'<p class="ag-ret-sub"><b>'+escAg(r.Nome)+'</b>'+(prof?' · '+escAg(prof):'')+'<br>'+(reag?(origem==='falta'?(real?'Faltou em '+escAg(brAg(real)):'Falta registrada')+' — escolha a nova data':(real?'Consulta de '+escAg(brAg(real))+' será reagendada':'Consulta marcada para reagendamento')):(real?'Atendimento realizado em '+escAg(brAg(real)):'Atendimento marcado como realizado'))+'</p>'
     +'<div class="ag-ret-int"><span>'+(reag?'Reagendar em':'Retorno em')+'</span>'
     +intervalosRetAg().map(function(n){return '<button type="button" class="ag-ret-int-btn" data-ret-dias="'+n+'">'+n+' dias</button>';}).join('')
     +'<label class="ag-ret-custom"><input type="number" min="1" max="365" inputmode="numeric" data-ret="dias" aria-label="Outro intervalo, em dias"> dias</label></div>'
@@ -1300,8 +1300,13 @@ function saveAg(tr){
     if(fields.situacao==='Realizado'&&antSit!=='Realizado')abrirRetornoAg(ix,fields.dataAgendada||antData||'');
     // Reagendar: abre o mesmo card, com as datas disponíveis para o novo agendamento.
     if(fields.situacao==='Reagendar')abrirRetornoAg(ix,antData||fields.dataAgendada||'','reagendar');
-    // Faltou: a pessoa volta para a fila e já recebe uma nova data sugerida.
-    if(fields.situacao==='Faltou'){busyAg=false;gerarAg(true,aviso+' Nova data sugerida para o reagendamento.');}
+    // Faltou: a falta já foi para o histórico (lista de Faltas). Pergunta se quer reagendar agora:
+    // sim = abre o card com as datas disponíveis; não = continua como Faltou, aguardando data
+    // (aparece em Agendamentos e entra na geração automática de datas).
+    if(fields.situacao==='Faltou'&&antSit!=='Faltou'){
+      var quer=window.confirm(r.Nome+' faltou'+(fields.dataAgendada||antData?' em '+brAg(fields.dataAgendada||antData):'')+'.\n\nDeseja reagendar agora?\n\nOK = escolher a nova data\nCancelar = manter como Faltou (continua na lista de Faltas e em Agendamentos)');
+      if(quer)abrirRetornoAg(ix,fields.dataAgendada||antData||'','reagendar','falta');
+    }
   }).catch(function(e){
     if(e&&e.cancelado){msgAg(e.lotado?'Alteração não salva: o dia escolhido não tem vaga. Escolha outra data.':'Alteração não salva: outra pessoa mudou esta linha. A tela mostra o estado atual da planilha.',true);return;}
     msgAg((e&&e.message)||'Falha ao salvar.',true);
