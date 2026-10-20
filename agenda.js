@@ -143,7 +143,7 @@ function renderAgenda(){
     selD.value=st.dia?st.dia.chave:'';
   }
   var rotDia=st.dia?rotuloDiaAgenda(st.dia.dt):'';
-  [['agendaPdf','Gerar PDF'],['agendaZap','Copiar texto para WhatsApp'],['agendaImg','Baixar card em imagem']].forEach(function(b){
+  [['agendaPdf','Gerar PDF'],['agendaZap','Copiar texto para WhatsApp'],['agendaImg','Gerar imagens (aviso de chamada e lembrete)']].forEach(function(b){
     var el=elAgenda(b[0]);if(el)el.title=b[1]+(st.dia?' — só '+rotDia:'');
   });
 
@@ -355,6 +355,222 @@ function iniciarAgenda(){
   elAgenda('agendaNext').addEventListener('click',function(){mesAgenda=new Date(mesAgenda.getFullYear(),mesAgenda.getMonth()+1,1);semanaAgenda='';diaAgenda='';renderAgenda();});
   elAgenda('agendaPdf').addEventListener('click',gerarPdfAgenda);
   elAgenda('agendaZap').addEventListener('click',copiarWhatsAppAgenda);
-  elAgenda('agendaImg').addEventListener('click',baixarCardAgenda);
+  elAgenda('agendaImg').addEventListener('click',abrirDialogoImagemAgenda);
 }
+// ======================================================================
+// Imagens para divulgação: "Aviso de chamada" (todos os pacientes) e "Lembrete de atendimento"
+// Uma dupla de imagens por dia + profissional. Textos fixos ficam lembrados neste navegador.
+// ======================================================================
+var CFG_IMG_AGENDA_PADRAO={tipo:'ATENDIMENTO PSICOLÓGICO',local:'SEDE 1, CENTRO',horario:'DAS 18:00H ATÉ ÀS 20:30H',obs:'ATENDIMENTO POR ORDEM DE CHEGADA'};
+function lerCfgImgAgenda(){var c={};try{c=JSON.parse(localStorage.getItem('agendaImgCfg')||'{}')||{};}catch(e){}return Object.assign({},CFG_IMG_AGENDA_PADRAO,c);}
+function salvarCfgImgAgenda(c){try{localStorage.setItem('agendaImgCfg',JSON.stringify(c));}catch(e){}}
+
+function carregarLogoAgenda(){return new Promise(function(ok){var i=new Image();i.onload=function(){ok(i);};i.onerror=function(){ok(null);};i.src='logo-emulti.png';});}
+function cvAgenda(w,h){var c=document.createElement('canvas');c.width=w;c.height=h;return c;}
+var FONTE_IMG_AGENDA='"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif';
+function rrAgenda(ctx,x,y,w,h,r,fill,stroke,lw){
+  ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();
+  if(fill){ctx.fillStyle=fill;ctx.fill();}
+  if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=lw||2;ctx.stroke();}
+}
+function fonteAgenda(peso,tam){return peso+' '+tam+'px '+FONTE_IMG_AGENDA;}
+// Escreve texto reduzindo a fonte até caber em maxW.
+function textoAjAgenda(ctx,s,x,y,peso,tam,min,maxW,cor,alin){
+  var t=tam;ctx.font=fonteAgenda(peso,t);
+  while(t>min&&ctx.measureText(s).width>maxW){t-=2;ctx.font=fonteAgenda(peso,t);}
+  ctx.fillStyle=cor;ctx.textAlign=alin||'left';ctx.textBaseline='alphabetic';ctx.fillText(s,x,y);return t;
+}
+function quebrarAgenda(ctx,s,maxW){
+  var pal=String(s).split(/\s+/).filter(Boolean),ln=[],at='';
+  pal.forEach(function(p){var t=at?at+' '+p:p;if(ctx.measureText(t).width>maxW&&at){ln.push(at);at=p;}else at=t;});
+  if(at)ln.push(at);return ln;
+}
+// Texto corrido com trechos em negrito: segs=[{t:'texto',b:true}]. Retorna o y final.
+function ricoAgenda(ctx,segs,x,y,maxW,tam,lh,cor,alin){
+  var palavras=[];segs.forEach(function(sg){String(sg.t).split(/(\s+)/).forEach(function(p){if(p!=='')palavras.push({t:p,b:!!sg.b});});});
+  var linhas=[[]],w=0;
+  palavras.forEach(function(p){
+    ctx.font=fonteAgenda(p.b?'700':'400',tam);var pw=ctx.measureText(p.t).width;
+    if(/^\s+$/.test(p.t)){if(linhas[linhas.length-1].length){linhas[linhas.length-1].push({t:' ',b:p.b,w:ctx.measureText(' ').width});w+=ctx.measureText(' ').width;}return;}
+    if(w+pw>maxW&&linhas[linhas.length-1].length){linhas.push([]);w=0;}
+    linhas[linhas.length-1].push({t:p.t,b:p.b,w:pw});w+=pw;
+  });
+  linhas.forEach(function(l,i){
+    var tw=l.reduce(function(a,p){return a+p.w;},0),cx=alin==='center'?x-tw/2:x;
+    l.forEach(function(p){ctx.font=fonteAgenda(p.b?'700':'400',tam);ctx.fillStyle=cor;ctx.textAlign='left';ctx.fillText(p.t,cx,y+i*lh);cx+=p.w;});
+  });
+  return y+(linhas.length-1)*lh;
+}
+// Ícones simples em branco dentro de um círculo colorido (cx,cy,r)
+function iconeAgenda(ctx,tipo,cx,cy,r,cor){
+  ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.fillStyle=cor;ctx.fill();
+  var s=r/50;ctx.save();ctx.translate(cx,cy);ctx.scale(s,s);ctx.fillStyle='#fff';ctx.strokeStyle='#fff';ctx.lineWidth=7;ctx.lineCap='round';ctx.lineJoin='round';
+  if(tipo==='local'){ctx.beginPath();ctx.moveTo(0,32);ctx.bezierCurveTo(-30,0,-26,-32,0,-32);ctx.bezierCurveTo(26,-32,30,0,0,32);ctx.fill();ctx.beginPath();ctx.arc(0,-8,10,0,7);ctx.fillStyle=cor;ctx.fill();}
+  else if(tipo==='data'){rrAgenda(ctx,-30,-26,60,54,8,null,'#fff',7);ctx.fillRect(-30,-26,60,14);for(var i=0;i<3;i++)for(var j=0;j<2;j++)ctx.fillRect(-20+i*16,0+j*14,10,8);ctx.beginPath();ctx.moveTo(-16,-34);ctx.lineTo(-16,-20);ctx.moveTo(16,-34);ctx.lineTo(16,-20);ctx.stroke();}
+  else if(tipo==='obs'){rrAgenda(ctx,-24,-30,48,60,7,null,'#fff',7);ctx.fillRect(-12,-36,24,12);ctx.beginPath();ctx.moveTo(-12,-6);ctx.lineTo(12,-6);ctx.moveTo(-12,8);ctx.lineTo(4,8);ctx.moveTo(-12,20);ctx.lineTo(0,20);ctx.stroke();}
+  else if(tipo==='prof'){ctx.beginPath();ctx.arc(0,-14,15,0,7);ctx.fill();ctx.beginPath();ctx.moveTo(-30,32);ctx.bezierCurveTo(-30,6,-16,4,0,4);ctx.bezierCurveTo(16,4,30,6,30,32);ctx.closePath();ctx.fill();}
+  else if(tipo==='hora'){ctx.beginPath();ctx.arc(0,0,32,0,7);ctx.stroke();ctx.beginPath();ctx.moveTo(0,-18);ctx.lineTo(0,0);ctx.lineTo(14,10);ctx.stroke();}
+  else if(tipo==='aviso'){ctx.beginPath();ctx.moveTo(0,-34);ctx.lineTo(34,28);ctx.lineTo(-34,28);ctx.closePath();ctx.stroke();ctx.beginPath();ctx.moveTo(0,-12);ctx.lineTo(0,8);ctx.stroke();ctx.beginPath();ctx.arc(0,19,3,0,7);ctx.fill();}
+  ctx.restore();
+}
+function divisoesAgenda(lista){
+  var g={},ordem=[];
+  lista.filter(function(e){return e.tipo!=='faltou'&&e.tipo!=='sugerido';}).forEach(function(e){
+    var k=chaveDiaAgenda(e.dt)+'|'+(e.profKey||e.prof);if(!g[k]){g[k]={dt:e.dt,prof:e.prof,itens:[]};ordem.push(k);}g[k].itens.push(e);
+  });
+  return ordem.map(function(k){var o=g[k];o.itens.sort(function(a,b){return String(a.turno||'').localeCompare(String(b.turno||''))||a.nome.localeCompare(b.nome,'pt-BR');});return o;});
+}
+function dataCurtaAgenda(dt){return pad2Agenda(dt.getDate())+'/'+pad2Agenda(dt.getMonth()+1);}
+function slugAgenda(s){return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');}
+
+function desenharAvisoAgenda(logo,cfg,grupo,pagina,paginas){
+  var W=1080,P=56,NAVY='#0B1F4D',POR_PAG=14,itens=grupo.itens.slice(pagina*POR_PAG,(pagina+1)*POR_PAG);
+  var ROW=64,tabH=64+itens.length*ROW,H=1190+96+24+tabH+24+110+44;
+  var c=cvAgenda(W,H),ctx=c.getContext('2d');
+  ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#E8F0FB';ctx.beginPath();ctx.arc(W+40,-20,230,0,7);ctx.fill();
+  ctx.fillStyle='#E4F5EA';ctx.beginPath();ctx.arc(-40,H+20,260,0,7);ctx.fill();
+  if(logo)ctx.drawImage(logo,P-4,36,200,260);
+  textoAjAgenda(ctx,'AVISO DE',300,136,'800',100,60,720,NAVY);
+  textoAjAgenda(ctx,'CHAMADA',300,236,'800',100,60,720,NAVY);
+  rrAgenda(ctx,300,266,724,88,20,NAVY);
+  textoAjAgenda(ctx,cfg.tipo.toUpperCase(),662,326,'800',46,26,680,'#fff','center');
+  var tipoL=cfg.tipo.toLowerCase();ctx.font=fonteAgenda('400',34);
+  var y=410;y=ricoAgenda(ctx,[{t:'Convocamos os(as) pacientes abaixo relacionados(as) para '},{t:tipoL+'.',b:true}],W/2,y,W-2*P-20,34,46,'#1F2A44','center');
+  y+=44;
+  var linhas=[['local','LOCAL DO ATENDIMENTO:',cfg.local.toUpperCase(),'#1B8A3C'],
+    ['data','DIA / DATA DO ATENDIMENTO:',dataCurtaAgenda(grupo.dt)+' ('+DIAS_AGENDA_LONGO[grupo.dt.getDay()].toUpperCase()+')','#E5232E'],
+    ['obs','OBSERVAÇÃO:',cfg.obs.toUpperCase(),'#F28A1F'],
+    ['prof','PROFISSIONAL:',String(grupo.prof||'').toUpperCase(),'#1E6FD9'],
+    ['hora','HORÁRIO:',cfg.horario.toUpperCase(),'#1B8A3C']];
+  linhas.forEach(function(l){
+    rrAgenda(ctx,P+50,y,W-2*P-50,118,28,'#fff',l[3],3);
+    iconeAgenda(ctx,l[0],P+56,y+59,58,l[3]);
+    textoAjAgenda(ctx,l[1],P+140,y+42,'800',30,22,W-2*P-170,l[3]);
+    var vt=textoAjAgenda(ctx,l[2],P+140,y+96,'800',54,30,W-2*P-170,NAVY);
+    y+=134;
+  });
+  y+=0;
+  rrAgenda(ctx,P,y,W-2*P,96,28,NAVY);iconeAgenda(ctx,'aviso',P+60,y+48,32,'#2B4A8B');
+  textoAjAgenda(ctx,'CONTAMOS COM A PRESENÇA DE TODOS!',W/2+30,y+62,'800',40,24,W-2*P-150,'#fff','center');
+  y+=96+24;
+  // tabela
+  rrAgenda(ctx,P,y,W-2*P,tabH,18,'#fff','#1F2A44',2);
+  ctx.save();rrAgenda(ctx,P,y,W-2*P,tabH,18);ctx.clip();ctx.fillStyle=NAVY;ctx.fillRect(P,y,W-2*P,64);ctx.restore();
+  textoAjAgenda(ctx,'PACIENTES CONVOCADOS'+(paginas>1?' ('+(pagina+1)+'/'+paginas+')':'')+':',W/2,y+43,'800',32,22,W-2*P-40,'#fff','center');
+  var XC=P+640;
+  itens.forEach(function(e,i){
+    var ry=y+64+i*ROW;
+    ctx.strokeStyle='#9AA7BD';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(P,ry);ctx.lineTo(W-P,ry);ctx.stroke();
+    textoAjAgenda(ctx,e.nome.toUpperCase(),P+22,ry+42,'500',30,20,XC-P-40,'#1F2A44');
+    textoAjAgenda(ctx,e.turno?String(e.turno).toUpperCase():'—',XC+20,ry+42,'500',28,20,W-P-XC-40,'#1F2A44');
+  });
+  ctx.strokeStyle='#9AA7BD';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(XC,y+64);ctx.lineTo(XC,y+tabH);ctx.stroke();
+  y+=tabH+24;
+  rrAgenda(ctx,P,y,W-2*P,110,28,'#fff',NAVY,3);
+  ricoAgenda(ctx,[{t:'Sua presença é muito importante para o cuidado com a sua saúde.'}],W/2+30,y+48,W-2*P-210,30,40,'#1F2A44','center');
+  ctx.fillStyle='#1B8A3C';ctx.font=fonteAgenda('700',54);ctx.textAlign='center';ctx.fillText('♥',P+70,y+72);
+  return c;
+}
+
+function desenharLembreteAgenda(logo,cfg,grupo){
+  var W=1080,G='#176B3A',GL='#CDEFD3',NAVY='#0B1F4D';
+  var c=cvAgenda(W,2200),ctx=c.getContext('2d');
+  ctx.fillStyle='#F3FBF5';ctx.fillRect(0,0,W,2200);
+  ctx.fillStyle='#DDF2E2';ctx.beginPath();ctx.arc(-30,-10,200,0,7);ctx.fill();ctx.beginPath();ctx.arc(W+30,10,170,0,7);ctx.fill();
+  if(logo){rrAgenda(ctx,W/2-96,22,192,226,22,'#fff');ctx.drawImage(logo,W/2-82,28,164,213);}
+  rrAgenda(ctx,50,262,W-100,216,70,G);
+  textoAjAgenda(ctx,'LEMBRETE DE',W/2,368,'800',106,60,W-200,'#fff','center');
+  textoAjAgenda(ctx,'ATENDIMENTO',W/2,462,'800',106,60,W-200,GL,'center');
+  rrAgenda(ctx,50,492,W-100,92,40,GL);
+  textoAjAgenda(ctx,cfg.tipo.toUpperCase(),W/2,556,'800',54,28,W-160,'#0F3B22','center');
+  var hoje=new Date(),ehHoje=chaveDiaAgenda(hoje)===chaveDiaAgenda(grupo.dt);
+  var quando=ehHoje?'hoje.':'o dia '+dataCurtaAgenda(grupo.dt)+' ('+DIAS_AGENDA_LONGO[grupo.dt.getDay()].toLowerCase()+').';
+  var y=ricoAgenda(ctx,[{t:'Olá! Somos da equipe da '},{t:'EMULTI',b:true},{t:' e estamos entrando em contato para lembrar que você tem '},{t:cfg.tipo.toLowerCase()+' agendado para '+quando,b:true}],W/2,650,W-150,38,52,'#1F2A44','center');
+  var cy=y+50,cw=(W-80)/3,FS=36,LH=44;
+  var cols=[['local','LOCAL',cfg.local.toUpperCase()],['hora','HORÁRIO',cfg.horario.toUpperCase()],['prof','PROFISSIONAL',String(grupo.prof||'').toUpperCase()]];
+  ctx.font=fonteAgenda('800',FS);
+  cols.forEach(function(col){col.ln=quebrarAgenda(ctx,col[2],cw-36).slice(0,4);});
+  ctx.font=fonteAgenda('800',24);
+  var obl=cfg.obs?quebrarAgenda(ctx,cfg.obs.toUpperCase(),cw-90).slice(0,3):[];
+  var base=226+Math.max(cols[0].ln.length,cols[1].ln.length,cols[2].ln.length)*LH;
+  var ch=Math.max(330,base+(obl.length?obl.length*30+16+14:0)+14);
+  rrAgenda(ctx,40,cy,W-80,ch,36,'#DDF2E2');
+  ctx.strokeStyle=G;ctx.lineWidth=3;[1,2].forEach(function(i){ctx.beginPath();ctx.moveTo(40+cw*i,cy+34);ctx.lineTo(40+cw*i,cy+ch-34);ctx.stroke();});
+  cols.forEach(function(col,i){
+    var cx=40+cw*i+cw/2;
+    iconeAgenda(ctx,col[0],cx,cy+62,46,G);
+    rrAgenda(ctx,cx-cw/2+28,cy+124,cw-56,50,25,G);
+    textoAjAgenda(ctx,col[1],cx,cy+159,'800',28,18,cw-80,'#fff','center');
+    ctx.font=fonteAgenda('800',FS);ctx.fillStyle=NAVY;ctx.textAlign='center';
+    col.ln.forEach(function(l,j){ctx.fillText(l,cx,cy+228+j*LH);});
+    if(i===1&&obl.length){
+      var oy=cy+base-20,oh=obl.length*30+16;rrAgenda(ctx,cx-cw/2+24,oy,cw-48,oh,18,'#BFE3D0');
+      ctx.font=fonteAgenda('800',24);ctx.fillStyle='#0F3B22';ctx.textAlign='center';obl.forEach(function(l,j){ctx.fillText(l,cx,oy+30+j*30);});
+    }
+  });
+  var by=cy+ch+30;
+  rrAgenda(ctx,40,by,W-80,180,30,'#DCEBFB');iconeAgenda(ctx,'data',130,by+90,56,'#1E6FD9');
+  ricoAgenda(ctx,[{t:'Caso não possa comparecer, '},{t:'avise com antecedência',b:true},{t:' para que outro paciente possa ser encaixado no horário.'}],220,by+66,W-290,32,44,'#1F2A44','left');
+  by+=180+26;
+  rrAgenda(ctx,40,by,W-80,150,30,'#FDECEC','#E5232E',3);iconeAgenda(ctx,'aviso',130,by+75,56,'#E5232E');
+  rrAgenda(ctx,215,by+16,170,42,21,'#E5232E');textoAjAgenda(ctx,'ATENÇÃO',300,by+46,'800',26,18,150,'#fff','center');
+  ricoAgenda(ctx,[{t:'Em caso de faltas sem justificativa, após três faltas, o atendimento '},{t:'poderá ser suspenso.',b:true}],215,by+96,W-280,30,40,'#1F2A44','left');
+  by+=150+26;
+  rrAgenda(ctx,40,by,W-80,130,30,'#0B5CAD');
+  ricoAgenda(ctx,[{t:'Agradecemos a compreensão e contamos com sua colaboração!'}],W/2,by+60,W-200,36,46,'#fff','center');
+  var Hf=by+130+40,out=cvAgenda(W,Hf),o=out.getContext('2d');o.drawImage(c,0,0,W,Hf,0,0,W,Hf);
+  return out;
+}
+
+function baixarCanvasAgenda(canvas,nome,atraso){
+  setTimeout(function(){canvas.toBlob(function(b){if(!b)return;var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=nome;document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);if(a.parentNode)a.parentNode.removeChild(a);},2000);},'image/png');},atraso);
+}
+
+function gerarImagensAgenda(cfg,quer){
+  var x=listaExportAgenda(),st=x.st,grupos=divisoesAgenda(x.lista);
+  if(!grupos.length){avisarAgenda('Nenhum agendamento confirmado '+(st.dia?'neste dia':'neste período')+' para gerar as imagens.');return;}
+  carregarLogoAgenda().then(function(logo){
+    var n=0;
+    grupos.forEach(function(g){
+      var sufixo=pad2Agenda(g.dt.getDate())+'-'+pad2Agenda(g.dt.getMonth()+1)+'-'+slugAgenda(g.prof);
+      if(quer.aviso){
+        var paginas=Math.max(1,Math.ceil(g.itens.length/14));
+        for(var p=0;p<paginas;p++){baixarCanvasAgenda(desenharAvisoAgenda(logo,cfg,g,p,paginas),'aviso-chamada-'+sufixo+(paginas>1?'-parte'+(p+1):'')+'.png',(n++)*500);}
+      }
+      if(quer.lembrete)baixarCanvasAgenda(desenharLembreteAgenda(logo,cfg,g),'lembrete-atendimento-'+sufixo+'.png',(n++)*500);
+    });
+    avisarAgenda(n+(n===1?' imagem gerada':' imagens geradas')+'. Verifique os downloads.');
+  });
+}
+
+function abrirDialogoImagemAgenda(){
+  var antigo=document.getElementById('agendaImgDlg');if(antigo)antigo.remove();
+  var cfg=lerCfgImgAgenda();
+  var ov=document.createElement('div');ov.id='agendaImgDlg';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  function campo(id,rot,val){return '<label style="display:block;font-size:13px;font-weight:600;color:#44524c;margin:10px 0 3px" for="'+id+'">'+rot+'</label><input id="'+id+'" type="text" value="'+escAgenda(val)+'" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cfd8d3;border-radius:8px;font:inherit">';}
+  ov.innerHTML='<div role="dialog" aria-modal="true" aria-label="Gerar imagens da agenda" style="background:#fff;border-radius:14px;max-width:480px;width:100%;padding:20px 22px;max-height:92vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.3)">'
+    +'<h3 style="margin:0 0 4px;color:#153F35;font-size:18px">Gerar imagens da agenda</h3>'
+    +'<p style="margin:0 0 6px;font-size:13px;color:#5b6b64">Gera as imagens por dia e profissional, só com agendamentos confirmados. Os textos ficam lembrados neste navegador.</p>'
+    +campo('agImgTipo','Tipo de atendimento',cfg.tipo)+campo('agImgLocal','Local',cfg.local)+campo('agImgHorario','Horário',cfg.horario)+campo('agImgObs','Observação',cfg.obs)
+    +'<div style="margin:14px 0 4px;font-size:14px"><label style="display:block;margin-bottom:6px"><input type="checkbox" id="agImgAviso" checked> <b>Aviso de chamada</b> — com todos os pacientes</label><label style="display:block"><input type="checkbox" id="agImgLembrete" checked> <b>Lembrete de atendimento</b> — mensagem para os pacientes</label></div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:16px"><button type="button" id="agImgAntigo" class="agendamentos-secundario" style="padding:8px 12px;border:1px solid #153F35;background:#fff;color:#153F35;border-radius:8px;font:inherit;font-weight:600;cursor:pointer">Card da agenda (modelo anterior)</button><button type="button" id="agImgCancelar" class="agendamentos-secundario" style="padding:8px 12px;border:1px solid #153F35;background:#fff;color:#153F35;border-radius:8px;font:inherit;font-weight:600;cursor:pointer">Cancelar</button><button type="button" id="agImgGerar" style="padding:8px 14px;border:1px solid #153F35;background:#153F35;color:#fff;border-radius:8px;font:inherit;font-weight:600;cursor:pointer">Gerar imagens</button></div></div>';
+  document.body.appendChild(ov);
+  function fechar(){ov.remove();document.removeEventListener('keydown',esc);}
+  function esc(e){if(e.key==='Escape')fechar();}
+  document.addEventListener('keydown',esc);
+  ov.addEventListener('click',function(e){if(e.target===ov)fechar();});
+  document.getElementById('agImgCancelar').addEventListener('click',fechar);
+  document.getElementById('agImgAntigo').addEventListener('click',function(){fechar();baixarCardAgenda();});
+  document.getElementById('agImgGerar').addEventListener('click',function(){
+    var v=function(id,pad){return (document.getElementById(id).value||'').trim()||pad;};
+    var c={tipo:v('agImgTipo',CFG_IMG_AGENDA_PADRAO.tipo),local:v('agImgLocal',CFG_IMG_AGENDA_PADRAO.local),horario:v('agImgHorario',CFG_IMG_AGENDA_PADRAO.horario),obs:(document.getElementById('agImgObs').value||'').trim()};
+    var quer={aviso:document.getElementById('agImgAviso').checked,lembrete:document.getElementById('agImgLembrete').checked};
+    if(!quer.aviso&&!quer.lembrete){document.getElementById('agImgAviso').focus();return;}
+    salvarCfgImgAgenda(c);fechar();gerarImagensAgenda(c,quer);
+  });
+  document.getElementById('agImgTipo').focus();
+}
+
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',iniciarAgenda);else iniciarAgenda();
