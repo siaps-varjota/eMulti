@@ -221,6 +221,7 @@ function situacaoAtualF(chave, mapaLinhas, hoje) {
   if (sit === 'Agendado' && data && data >= hoje) return { texto: 'Agendado para ' + brF(data), semData: false };
   if (sit === 'Faltou') return { texto: 'Faltou — sem nova data', semData: true };
   if (sit === 'Cancelado') return { texto: 'Cancelado', semData: true };
+  if (sit === 'Reagendar') return { texto: 'Reagendar — aguardando nova data', semData: true };
   return { texto: sit + ' (sem data futura)', semData: true };
 }
 

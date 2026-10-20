@@ -101,7 +101,7 @@ function motivoVazioAgenda(st){
   if(d&&!st.todos.length){
     if(!d.linhas)m.push('A tabela de Agendamentos ainda não foi carregada.');
     else if(!d.comData)m.push('Nenhuma linha da tabela tem data agendada.');
-    else m.push('A tabela tem '+d.comData+' linha(s) com data, mas nenhuma entrou na Agenda'+(d.inativas?': '+d.inativas+' Cancelado/Faltou':'')+(d.naoElegiveis?(d.inativas?'; ':': ')+d.naoElegiveis+' fora de Pessoas atendidas pela eMulti':'')+'.');
+    else m.push('A tabela tem '+d.comData+' linha(s) com data, mas nenhuma entrou na Agenda'+(d.inativas?': '+d.inativas+' Cancelado/Faltou/Reagendar':'')+(d.naoElegiveis?(d.inativas?'; ':': ')+d.naoElegiveis+' fora de Pessoas atendidas pela eMulti':'')+'.');
   }
   return m.length?' '+m.join(' '):'';
 }

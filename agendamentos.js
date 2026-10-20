@@ -287,9 +287,9 @@ function ultimoDeAg(r,uc){return (uc&&uc.ult[normAg(r.Nome)])||dateAg(r['Último
 
 // ---------- Situação ----------
 // Cancelado e Faltou não ocupam vaga nem têm turno. Faltou volta para a fila de reagendamento.
-function ehAtivoAg(r){var s=r.Situação||'Pendente';return s!=='Cancelado'&&s!=='Faltou';}
+function ehAtivoAg(r){var s=r.Situação||'Pendente';return s!=='Cancelado'&&s!=='Faltou'&&s!=='Reagendar';}
 // Ocupa vaga: pessoa ativa OU faltoso que já recebeu uma nova data sugerida (ainda não salva).
-function ocupaAg(r,ix){return ehAtivoAg(r)||(r.Situação==='Faltou'&&propostaAg[ix]!==undefined);}
+function ocupaAg(r,ix){return ehAtivoAg(r)||((r.Situação==='Faltou'||r.Situação==='Reagendar')&&propostaAg[ix]!==undefined);}
 
 // ---------- Filtros ----------
 // Filtro próprio da aba: último atendimento nos últimos N dias (padrão 120; 0/vazio = todos).
@@ -460,11 +460,11 @@ function renderAg(){
       +'<td>'+escAg(r.Atendimentos)+'</td>'
       +'<td>'+escAg(brAg(ultimoDeAg(r,uc)))+'</td>'
       +'<td class="agendamentos-prof">'+escAg(prof)+'</td>'
-      +'<td><select data-ag="situacao" aria-label="Situação" style="width:auto;min-width:0;max-width:none;padding:6px 24px 6px 9px">'+['Pendente','Agendado','Realizado','Faltou','Cancelado'].map(function(s){return '<option'+(sit===s?' selected':'')+'>'+s+'</option>';}).join('')+'</select></td>'
+      +'<td><select data-ag="situacao" aria-label="Situação" style="width:auto;min-width:0;max-width:none;padding:6px 24px 6px 9px">'+['Pendente','Agendado','Realizado','Reagendar','Faltou','Cancelado'].map(function(s){return '<option'+(sit===s?' selected':'')+'>'+s+'</option>';}).join('')+'</select></td>'
       +'<td><input type="date" data-ag="dataAgendada" style="width:auto;min-width:0;max-width:none;padding:6px 8px" value="'+data+'"></td>'
       +'<td>'+turnoHtml+'</td>'
-      +'<td class="agendamentos-atualizado">'+escAg(r['Atualizado em']||'')+(r['Atualizado por']?'<br><small>'+escAg(r['Atualizado por'])+'</small>':'')+'</td>'
-      +'<td><button type="button" class="agendamentos-salvar" data-ag-save>Salvar</button></td></tr>';
+      +'<td><button type="button" class="agendamentos-salvar" data-ag-save>Salvar</button></td>'
+      +'<td class="agendamentos-atualizado">'+escAg(r['Atualizado em']||'')+(r['Atualizado por']?'<br><small>'+escAg(r['Atualizado por'])+'</small>':'')+'</td></tr>';
   }).join('');
 }
 
@@ -588,6 +588,7 @@ function proximaVagaAg(ix,iso,uc){
 function motivoSemTurnoAg(r,ix,uc){
   if((r.Situação||'Pendente')==='Cancelado')return 'Sem turno: agendamento cancelado';
   if((r.Situação||'Pendente')==='Faltou')return 'Sem turno: faltou — aguardando reagendamento';
+  if((r.Situação||'Pendente')==='Reagendar')return 'Sem turno: aguardando a nova data do reagendamento';
   if(!chaveProfAg(r,uc))return 'Sem turno: profissional da última consulta não identificado';
   if(!(propostaAg[ix]||dateAg(r['Data agendada'])))return 'Sem turno: ainda não tem data agendada';
   return 'Sem turno';
@@ -634,7 +635,7 @@ function turnosAg(uc){
 }
 // Turno que a linha teria com a situação/data informadas (usado ao gravar, para guardar na planilha).
 function turnoFuturoAg(ix,sit,data){
-  var uc=profMapAg();if(!uc||!data||sit==='Cancelado'||sit==='Faltou')return '';
+  var uc=profMapAg();if(!uc||!data||sit==='Cancelado'||sit==='Faltou'||sit==='Reagendar')return '';
   var r=rowsAg[ix],bs=r.Situação,bd=r['Data agendada'],bt=r.Turno,bp=propostaAg[ix];
   r.Situação=sit;r['Data agendada']=data;r.Turno='';delete propostaAg[ix];
   var t=turnosAg(uc)[ix];
@@ -715,7 +716,7 @@ function gerarAg(auto,prefixo,tentativa){
     if(lf&&!lf.set[normAg(r.Nome)])return;
     if(!dentroDiasAg(r,uc,lim))return;
     var sit=r.Situação||'Pendente';
-    if(sit!=='Pendente'&&sit!=='Faltou')return;
+    if(sit!=='Pendente'&&sit!=='Faltou'&&sit!=='Reagendar')return;
     // Pendente com data já está resolvido; Faltou volta para a fila mesmo tendo a data antiga.
     if(sit==='Pendente'&&dateAg(r['Data agendada'])){jaTem++;return;}
     var prof=nomeProfAg(r,uc);
@@ -724,7 +725,7 @@ function gerarAg(auto,prefixo,tentativa){
     if(pq&&!casaProfAg(prof,pq))return;
     nomes[k]=prof;
     // Faltoso: reagendado para o mesmo dia da semana, na semana seguinte à falta (ou o próximo dia com vaga).
-    if(sit==='Faltou'){faltosos++;faltList.push({ix:ix,k:k,nome:String(r.Nome||''),ult:ultimoDeAg(r,uc),falta:dateAg(r['Data agendada'])});return;}
+    if(sit==='Faltou'||sit==='Reagendar'){faltosos++;faltList.push({ix:ix,k:k,nome:String(r.Nome||''),ult:ultimoDeAg(r,uc),falta:dateAg(r['Data agendada'])});return;}
     cands.push({ix:ix,prof:k,nome:String(r.Nome||''),ult:ultimoDeAg(r,uc),pri:1});
   });
   if(!cands.length&&!excedentes.length&&!faltList.length&&!bloqList.length){propostaAg={};atualizarBotoesGeracaoAg();renderAg();if(auto){if(prefixo)msgAg(prefixo,false);else{var fb=document.getElementById('agendamentosFeedback');if(fb&&/Salvar datas geradas/.test(fb.textContent||''))msgAg('Nenhuma pessoa pendente para agendar no momento.',false);}return;}msgAg('Nenhuma pessoa pendente para agendar'+(pq?' deste profissional':'')+'.'+(jaTem?' '+jaTem+' já têm data.':''),false);return;}
@@ -1090,7 +1091,7 @@ window.__emultiAgendaCarregar=function(){if(rowsAg.length||busyAg){window.dispat
 // Se a pessoa continuar, a data passa para o próximo dia com vaga (regra "sem excedente").
 function avisoDiaLotadoAg(ix,r,fields,antData){
   var d=fields.dataAgendada,sit=fields.situacao;
-  if(!d||d===antData||sit==='Cancelado'||sit==='Faltou'||sit==='Realizado')return '';
+  if(!d||d===antData||sit==='Cancelado'||sit==='Faltou'||sit==='Realizado'||sit==='Reagendar')return '';
   var uc=profMapAg();if(!uc)return '';
   var k=chaveProfAg(r,uc);if(!k)return '';
   var livre=proximaVagaAg(ix,d,uc);
@@ -1106,7 +1107,9 @@ function avisoDiaLotadoAg(ix,r,fields,antData){
 // O desfecho "Realizado" continua no histórico; só a linha da aba Agendamentos passa a mostrar o retorno.
 var LS_RETORNO_AG='emulti.agendamentos.retorno';
 var INTERVALOS_RETORNO_AG=[15,30,45,60];
-var retAg=null;   // {ix, base (AAAA-MM-DD do atendimento), dias, sel (data escolhida), selTurno, busy}
+var INTERVALOS_REAGENDAR_AG=[7,14,21,30];   // card aberto por "Reagendar": datas mais próximas
+function intervalosRetAg(){return retAg&&retAg.modo==='reagendar'?INTERVALOS_REAGENDAR_AG:INTERVALOS_RETORNO_AG;}
+var retAg=null;   // {ix, base (AAAA-MM-DD do atendimento), dias, sel (data escolhida), selTurno, busy, modo ('retorno'|'reagendar')}
 function diasRetornoSalvoAg(){var o=lsGetAg(LS_RETORNO_AG),n=o?parseInt(o.dias,10):0;return n>0&&n<=365?n:30;}
 function rotuloDataAg(iso){return diaSemAg(iso)+' '+brAg(iso);}
 function classeTurnoAg(rot){return rot==='Manhã'?'manha':(rot==='Tarde'?'tarde':'excedente');}
@@ -1138,7 +1141,8 @@ function elRetAg(id){return document.getElementById(id);}
 function atualizarOkRetornoAg(){
   var ok=document.querySelector('#agRetOverlay [data-ret="ok"]');if(!ok||!retAg)return;
   ok.disabled=!retAg.sel||!!retAg.busy;
-  ok.textContent=retAg.busy?'Agendando…':(retAg.sel?'Agendar retorno em '+rotuloDataAg(retAg.sel)+(retAg.selTurno?' · '+retAg.selTurno:''):'Escolha uma data');
+  var verbo=retAg.modo==='reagendar'?'Reagendar para ':'Agendar retorno em ';
+  ok.textContent=retAg.busy?'Agendando…':(retAg.sel?verbo+rotuloDataAg(retAg.sel)+(retAg.selTurno?' · '+retAg.selTurno:''):'Escolha uma data');
 }
 function marcarSelRetornoAg(){
   document.querySelectorAll('#agRetLista [data-ret-iso]').forEach(function(b){b.classList.toggle('sel',!!retAg&&b.dataset.retIso===retAg.sel);});
@@ -1148,7 +1152,7 @@ function renderOpcoesRetornoAg(){
   if(!retAg)return;
   var uc=profMapAg(),r=rowsAg[retAg.ix];if(!r)return;
   var alvo=alvoRetornoAg(retAg.base,retAg.dias),exato=isoAg(somaDiaAg(isoParaDataAg(retAg.base)||new Date(),retAg.dias));
-  elRetAg('agRetAlvo').textContent='Retorno em '+retAg.dias+(retAg.dias===1?' dia':' dias')+' — datas com vaga a partir de '+rotuloDataAg(alvo)+(alvo!==exato?' (primeira data futura)':'')+':';
+  elRetAg('agRetAlvo').textContent=(retAg.modo==='reagendar'?'Reagendar em ':'Retorno em ')+retAg.dias+(retAg.dias===1?' dia':' dias')+' — datas com vaga a partir de '+rotuloDataAg(alvo)+(alvo!==exato?' (primeira data futura)':'')+':';
   var ops=uc?vagasRetornoAg(retAg.ix,alvo,uc,6):null,dsBase=diaSemAg(retAg.base),html;
   if(ops===null)html='<p class="ag-ret-aviso">Não deu para identificar o profissional da última consulta, então as vagas não podem ser conferidas. Escolha a data em "Outra data".</p>';
   else if(!ops.length)html='<p class="ag-ret-aviso">Nenhuma vaga encontrada nos próximos meses para este profissional. Confira a configuração da agenda.</p>';
@@ -1161,7 +1165,7 @@ function renderOpcoesRetornoAg(){
   }).join('');
   elRetAg('agRetLista').innerHTML=html;
   document.querySelectorAll('#agRetOverlay [data-ret-dias]').forEach(function(b){b.classList.toggle('sel',Number(b.dataset.retDias)===retAg.dias);});
-  var inp=document.querySelector('#agRetOverlay [data-ret="dias"]');if(inp)inp.value=INTERVALOS_RETORNO_AG.indexOf(retAg.dias)>=0?'':retAg.dias;
+  var inp=document.querySelector('#agRetOverlay [data-ret="dias"]');if(inp)inp.value=intervalosRetAg().indexOf(retAg.dias)>=0?'':retAg.dias;
 }
 function limparOutraRetornoAg(){
   var i=document.querySelector('#agRetOverlay [data-ret="outra"]'),m=elRetAg('agRetOutraMsg');
@@ -1205,28 +1209,31 @@ function confirmarRetornoAg(){
     return apiAg({action:'agendamentos.update',nome:r.Nome,turno:turno,situacao:'Agendado',dataAgendada:iso}).then(function(){return turno;});
   }).then(function(turno){
     r.Situação='Agendado';r['Data agendada']=iso;r.Turno=turno;delete propostaAg[ix];
-    lsSetAg(LS_RETORNO_AG,{dias:retAg?retAg.dias:diasRetornoSalvoAg()});
+    var foiReag=!!(retAg&&retAg.modo==='reagendar');
+    if(!foiReag)lsSetAg(LS_RETORNO_AG,{dias:retAg?retAg.dias:diasRetornoSalvoAg()});
     fecharRetornoAg();atualizarBotoesGeracaoAg();
-    msgAg('Retorno de '+r.Nome+' agendado para '+brAg(iso)+(turno?' ('+turno+')':'')+'.'+(movido?' A vaga escolhida foi ocupada, então passou para o próximo dia com vaga ('+movido+').':''));
+    msgAg((foiReag?'Reagendamento de ':'Retorno de ')+r.Nome+' agendado para '+brAg(iso)+(turno?' ('+turno+')':'')+'.'+(movido?' A vaga escolhida foi ocupada, então passou para o próximo dia com vaga ('+movido+').':''));
     renderAg();
   }).catch(function(e){
     if(e&&e.cancelado){fecharRetornoAg();msgAg('Retorno não agendado: outra pessoa mudou esta linha. A tela mostra o estado atual da planilha.',true);renderAg();return;}
     if(retAg){retAg.busy=false;erroRetornoAg((e&&e.message)||'Falha ao agendar o retorno.');atualizarOkRetornoAg();}
   });
 }
-function abrirRetornoAg(ix,realizadoIso){
+function abrirRetornoAg(ix,realizadoIso,modo){
   var r=rowsAg[ix];if(!r)return;
+  var reag=modo==='reagendar';
   var uc=profMapAg(),prof=(uc&&nomeProfAg(r,uc))||'',real=/^\d{4}-\d\d-\d\d$/.test(realizadoIso||'')?realizadoIso:'';
   fecharRetornoAg();
-  retAg={ix:ix,base:real||isoAg(new Date()),dias:diasRetornoSalvoAg(),sel:'',selTurno:'',busy:false};
+  // Reagendar: conta a partir de hoje (não do atendimento) e começa pelo intervalo mais curto.
+  retAg={ix:ix,base:reag?isoAg(new Date()):(real||isoAg(new Date())),dias:reag?INTERVALOS_REAGENDAR_AG[0]:diasRetornoSalvoAg(),sel:'',selTurno:'',busy:false,modo:reag?'reagendar':'retorno'};
   var el=document.createElement('div');el.id='agRetOverlay';el.className='ag-ret-overlay';
   el.setAttribute('role','dialog');el.setAttribute('aria-modal','true');el.setAttribute('aria-labelledby','agRetTitulo');
   el.innerHTML='<div class="ag-ret-card">'
     +'<button type="button" class="ag-ret-x" data-ret="fechar" aria-label="Fechar">×</button>'
-    +'<h3 id="agRetTitulo">Agendar retorno</h3>'
-    +'<p class="ag-ret-sub"><b>'+escAg(r.Nome)+'</b>'+(prof?' · '+escAg(prof):'')+'<br>'+(real?'Atendimento realizado em '+escAg(brAg(real)):'Atendimento marcado como realizado')+'</p>'
-    +'<div class="ag-ret-int"><span>Retorno em</span>'
-    +INTERVALOS_RETORNO_AG.map(function(n){return '<button type="button" class="ag-ret-int-btn" data-ret-dias="'+n+'">'+n+' dias</button>';}).join('')
+    +'<h3 id="agRetTitulo">'+(reag?'Reagendar consulta':'Agendar retorno')+'</h3>'
+    +'<p class="ag-ret-sub"><b>'+escAg(r.Nome)+'</b>'+(prof?' · '+escAg(prof):'')+'<br>'+(reag?(real?'Consulta de '+escAg(brAg(real))+' será reagendada':'Consulta marcada para reagendamento'):(real?'Atendimento realizado em '+escAg(brAg(real)):'Atendimento marcado como realizado'))+'</p>'
+    +'<div class="ag-ret-int"><span>'+(reag?'Reagendar em':'Retorno em')+'</span>'
+    +intervalosRetAg().map(function(n){return '<button type="button" class="ag-ret-int-btn" data-ret-dias="'+n+'">'+n+' dias</button>';}).join('')
     +'<label class="ag-ret-custom"><input type="number" min="1" max="365" inputmode="numeric" data-ret="dias" aria-label="Outro intervalo, em dias"> dias</label></div>'
     +'<p class="ag-ret-alvo" id="agRetAlvo"></p>'
     +'<div class="ag-ret-lista" id="agRetLista"></div>'
@@ -1269,7 +1276,7 @@ function saveAg(tr){
     return r._virtual?garantirNaPlanilhaAg([r]):null;
   }).then(function(){
     // Sem excedente: se o dia escolhido já está lotado para o profissional, vai para o próximo dia com vaga.
-    if(fields.dataAgendada&&fields.situacao!=='Cancelado'&&fields.situacao!=='Faltou'&&fields.situacao!=='Realizado'){
+    if(fields.dataAgendada&&fields.situacao!=='Cancelado'&&fields.situacao!=='Faltou'&&fields.situacao!=='Realizado'&&fields.situacao!=='Reagendar'){
       var ucv=profMapAg();
       if(ucv&&chaveProfAg(r,ucv)){
         var livre=proximaVagaAg(ix,fields.dataAgendada,ucv);
@@ -1284,11 +1291,15 @@ function saveAg(tr){
     var histSave=[{ix:ix,situacao:fields.situacao,dataAgendada:fields.situacao==='Cancelado'?(fields.dataAgendada||antData):fields.dataAgendada,turno:turno||antTurno}];
     // Trocou a data de quem estava Pendente/Agendado: a data anterior entra no histórico como Remarcado.
     if(antData&&(antSit==='Agendado'||antSit==='Pendente')&&(fields.situacao==='Agendado'||fields.situacao==='Pendente')&&fields.dataAgendada&&fields.dataAgendada!==antData)histSave.push({ix:ix,situacao:'Remarcado',dataAgendada:antData,turno:antTurno});
+    // Reagendar: a data que a pessoa tinha foi trocada — entra no histórico como Remarcado.
+    if(fields.situacao==='Reagendar'&&antData&&(antSit==='Agendado'||antSit==='Pendente'))histSave.push({ix:ix,situacao:'Remarcado',dataAgendada:antData,turno:antTurno});
     registrarHistoricoAg(histSave);
     var aviso='Alterações de '+r.Nome+' salvas.'+(movidoAg?' O dia estava lotado, então a data passou para o próximo dia com vaga ('+movidoAg+').':'');
     msgAg(aviso);
     // Realizado (vindo de outra situação): abre o card com as datas de retorno disponíveis.
     if(fields.situacao==='Realizado'&&antSit!=='Realizado')abrirRetornoAg(ix,fields.dataAgendada||antData||'');
+    // Reagendar: abre o mesmo card, com as datas disponíveis para o novo agendamento.
+    if(fields.situacao==='Reagendar')abrirRetornoAg(ix,antData||fields.dataAgendada||'','reagendar');
     // Faltou: a pessoa volta para a fila e já recebe uma nova data sugerida.
     if(fields.situacao==='Faltou'){busyAg=false;gerarAg(true,aviso+' Nova data sugerida para o reagendamento.');}
   }).catch(function(e){
