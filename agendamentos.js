@@ -644,7 +644,7 @@ function turnoFuturoAg(ix,sit,data){
 }
 function atualizarBotoesGeracaoAg(){
   var tem=Object.keys(propostaAg).length>0;
-  ['agendamentosSalvarGerados','agendamentosDescartar'].forEach(function(id){var el=document.getElementById(id);if(el)el.hidden=!tem;});
+  ['agendamentosSalvarGerados','agendamentosDescartar'].forEach(function(id){var el=document.getElementById(id);if(el)el.hidden=!tem;});var mnu=document.getElementById('agendamentosAcoes');if(mnu&&tem)mnu.open=true;
   if(!tem){var rs=document.getElementById('agendamentosResumo');if(rs)rs.innerHTML='';}
 }
 function resumoGeradoAg(uc,nomes){

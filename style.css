@@ -1486,3 +1486,13 @@ h1,h2,h3,.serif{font-optical-sizing:auto;}
 .agenda-legenda-linha .agenda-busca{width:220px;max-width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);font:inherit;flex:0 0 auto}
 .agenda-legenda-linha .agenda-busca:focus{outline:2px solid #153F35;outline-offset:1px}
 #tabAgendamentos .agenda-legenda-linha .agenda-busca{zoom:.96}
+
+.ag-menu{margin:2px 0 10px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.ag-menu>summary{cursor:pointer;padding:9px 12px;font-weight:600;color:#153F35;font-size:13.5px;list-style:none;display:flex;align-items:center;gap:8px;user-select:none}
+.ag-menu>summary::-webkit-details-marker{display:none}
+.ag-menu>summary::after{content:'▾';margin-left:auto}
+.ag-menu[open]>summary::after{content:'▴'}
+.ag-menu[open]>summary{border-bottom:1px solid var(--line);margin-bottom:10px}
+.ag-menu>.agendamentos-toolbar{padding:0 12px;box-sizing:border-box;width:100%}
+.ag-menu>.agendamentos-toolbar:last-child{margin-bottom:12px}
+.ag-menu>.agendamentos-toolbar{flex-wrap:wrap!important}
