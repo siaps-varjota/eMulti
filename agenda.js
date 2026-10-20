@@ -524,7 +524,7 @@ function desenharLembreteAgenda(logo,cfg,grupo){
 }
 
 function baixarCanvasAgenda(canvas,nome,atraso){
-  setTimeout(function(){canvas.toBlob(function(b){if(!b)return;var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=nome;document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);if(a.parentNode)a.parentNode.removeChild(a);},2000);},'image/png');},atraso);
+  setTimeout(function(){var jc=cvAgenda(canvas.width,canvas.height),jx=jc.getContext('2d');jx.fillStyle='#fff';jx.fillRect(0,0,jc.width,jc.height);jx.drawImage(canvas,0,0);jc.toBlob(function(b){if(!b)return;var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=nome;document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);if(a.parentNode)a.parentNode.removeChild(a);},2000);},'image/jpeg',0.93);},atraso);
 }
 
 function gerarImagensAgenda(cfg,quer){
@@ -537,9 +537,9 @@ function gerarImagensAgenda(cfg,quer){
       var sufixo=pad2Agenda(g.dt.getDate())+'-'+pad2Agenda(g.dt.getMonth()+1)+'-'+slugAgenda(g.prof)+(turno?'-'+slugAgenda(turno):'');
       if(quer.aviso){
         var paginas=Math.max(1,Math.ceil(g.itens.length/14));
-        for(var p=0;p<paginas;p++){baixarCanvasAgenda(desenharAvisoAgenda(logo,cfg,g,p,paginas),'aviso-chamada-'+sufixo+(paginas>1?'-parte'+(p+1):'')+'.png',(n++)*500);}
+        for(var p=0;p<paginas;p++){baixarCanvasAgenda(desenharAvisoAgenda(logo,cfg,g,p,paginas),'aviso-chamada-'+sufixo+(paginas>1?'-parte'+(p+1):'')+'.jpg',(n++)*500);}
       }
-      if(quer.lembrete)baixarCanvasAgenda(desenharLembreteAgenda(logo,cfg,g),'lembrete-atendimento-'+sufixo+'.png',(n++)*500);
+      if(quer.lembrete)baixarCanvasAgenda(desenharLembreteAgenda(logo,cfg,g),'lembrete-atendimento-'+sufixo+'.jpg',(n++)*500);
     });
     avisarAgenda(n+(n===1?' imagem gerada':' imagens geradas')+'. Verifique os downloads.');
   });
