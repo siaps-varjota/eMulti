@@ -1184,7 +1184,7 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 .main:has(#tabAgendamentos.active){padding-top:12px}
 /* Agenda: profissional no início da linha; tudo numa linha em telas largas */
 .agenda-toolbar{justify-content:flex-start}
-.agenda-toolbar select#agendaProf{flex:1 1 150px;min-width:130px;max-width:500px}
+.agenda-toolbar select#agendaProf{flex:1 1 150px;min-width:180px;max-width:380px}
 .agenda-nav strong{min-width:110px}
 .agenda-toolbar button{white-space:nowrap}
 @media(min-width:1150px){.agenda-toolbar{flex-wrap:nowrap}}
