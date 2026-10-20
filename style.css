@@ -1471,3 +1471,7 @@ h1,h2,h3,.serif{font-optical-sizing:auto;}
 @media (prefers-reduced-motion:reduce){
   .filter-bar-outer,.filter-bar-toggle svg,.filter-bar-outer.filter-bar-animando #filterBar{transition:none!important}
 }
+
+/* Busca por nome do paciente, logo abaixo dos botões PDF / WhatsApp / Imagem */
+.agenda-export .agenda-busca{flex:1 1 100%;min-width:230px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);font:inherit}
+.agenda-export .agenda-busca:focus{outline:2px solid #153F35;outline-offset:1px}

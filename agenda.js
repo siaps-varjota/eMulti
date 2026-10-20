@@ -10,8 +10,17 @@ var TURNO_ORD_AGENDA={'Manhã':1,'Tarde':2,'':3};
 var mesAgenda=(function(){var h=new Date();return new Date(h.getFullYear(),h.getMonth(),1);})();
 var semanaAgenda='';   // '' = todo o mês; senão "1".."6" (índice da semana do mês)
 var profAgenda='';     // '' = todos
+var buscaAgenda='';    // texto digitado em "Buscar paciente pelo nome" ('' = todos)
 var diaAgenda='';      // '' = período inteiro (mês/semana); senão AAAA-MM-DD do dia escolhido p/ PDF, WhatsApp e Imagem
 
+// Texto sem acento, minúsculo e com espaços simples, para comparar nomes.
+function normBuscaAgenda(s){return String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();}
+// Todas as palavras digitadas precisam aparecer no nome (em qualquer ordem).
+function casaBuscaAgenda(nome){
+  var q=normBuscaAgenda(buscaAgenda);if(!q)return true;
+  var n=normBuscaAgenda(nome);
+  return q.split(' ').every(function(t){return n.indexOf(t)!==-1;});
+}
 function elAgenda(id){return document.getElementById(id);}
 function escAgenda(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function pad2Agenda(n){return ('0'+n).slice(-2);}
@@ -68,7 +77,7 @@ function estadoAgenda(){
     if(!dup)profs[k]=extras[k];
   });
   if(profAgenda&&!profs[profAgenda]&&todos.length)profAgenda='';   // filtro de um profissional que não tem mais agendamentos: volta para "Todos"
-  var ev=todos.filter(function(e){return !profAgenda||e.profKey===profAgenda;});
+  var ev=todos.filter(function(e){return (!profAgenda||e.profKey===profAgenda)&&casaBuscaAgenda(e.nome);});
   var doMes=ev.filter(function(e){return e.dt.getFullYear()===mesAgenda.getFullYear()&&e.dt.getMonth()===mesAgenda.getMonth();});
   var semanas=semanasDoMes(),sem=semanas.filter(function(s){return s.n===semanaAgenda;})[0]||null;
   var filtrados=sem?doMes.filter(function(e){return e.dt>=sem.inicio&&e.dt<=sem.fim;}):doMes;
@@ -93,7 +102,7 @@ function rotuloDiaAgenda(dt){return DIAS_AGENDA_LONGO[dt.getDay()]+', '+brAgenda
 // Quando a Agenda fica vazia, explica o motivo (outro mês, linhas fora da Agenda etc.).
 function motivoVazioAgenda(st){
   var m=[],d=st.diag;
-  if(st.todos.length&&!st.evProf.length){m.push('Nenhum agendamento do profissional escolhido.');}
+  if(st.todos.length&&!st.evProf.length){m.push(normBuscaAgenda(buscaAgenda)?'Nenhum agendamento encontrado para "'+buscaAgenda.trim()+'"'+(profAgenda?' neste profissional':'')+'.':'Nenhum agendamento do profissional escolhido.');}
   else if(st.todos.length&&!st.dia){
     var fora=st.evProf.filter(function(e){return !(e.dt.getFullYear()===mesAgenda.getFullYear()&&e.dt.getMonth()===mesAgenda.getMonth());});
     if(fora.length){var primeiro=fora.map(function(e){return e.dt;}).sort(function(a,b){return a-b;})[0];m.push('Há '+fora.length+' agendamento(s) em outros meses (o mais próximo, em '+brAgenda(primeiro)+'). Use ‹ › para mudar de mês.');}
@@ -329,6 +338,9 @@ function iniciarAgenda(){
   pa.addEventListener('click',function(){mostrar(true);});
   window.addEventListener('emulti:agenda-dados',function(){if(ativa())renderAgenda();});
   elAgenda('agendaProf').addEventListener('change',function(e){profAgenda=e.target.value;renderAgenda();});
+  // Busca por nome do paciente: filtra calendário, lista, PDF, WhatsApp e imagem.
+  var buscaEl=elAgenda('agendaBusca');
+  if(buscaEl)buscaEl.addEventListener('input',function(e){buscaAgenda=e.target.value;renderAgenda();});
   // Escolher o dia que será exportado: pelo seletor ou clicando no dia do calendário (clicar de novo desmarca).
   var selDiaEl=elAgenda('agendaDia');
   if(selDiaEl)selDiaEl.addEventListener('change',function(e){diaAgenda=e.target.value;renderAgenda();});
