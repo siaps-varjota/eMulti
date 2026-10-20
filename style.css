@@ -1472,7 +1472,9 @@ h1,h2,h3,.serif{font-optical-sizing:auto;}
   .filter-bar-outer,.filter-bar-toggle svg,.filter-bar-outer.filter-bar-animando #filterBar{transition:none!important}
 }
 
-/* Busca por nome do paciente, logo abaixo dos botões PDF / WhatsApp / Imagem */
-.agenda-export .agenda-quebra{flex:0 0 100%;height:0;margin:0;padding:0}
-.agenda-export .agenda-busca{flex:0 0 70%;min-width:160px;box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);font:inherit}
-.agenda-export .agenda-busca:focus{outline:2px solid #153F35;outline-offset:1px}
+/* Busca por nome do paciente: linha própria, logo abaixo da barra com PDF / WhatsApp / Imagem */
+.agenda-busca-linha{display:flex;justify-content:flex-end;margin:-6px 0 14px}
+.agenda-busca-linha .agenda-busca{width:220px;max-width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);font:inherit}
+.agenda-busca-linha .agenda-busca:focus{outline:2px solid #153F35;outline-offset:1px}
+#tabAgendamentos .agenda-busca-linha{zoom:.8}
+@media(max-width:1149px){.agenda-busca-linha{justify-content:flex-start}}
