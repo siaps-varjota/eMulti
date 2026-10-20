@@ -1478,3 +1478,11 @@ h1,h2,h3,.serif{font-optical-sizing:auto;}
 .agenda-busca-linha .agenda-busca:focus{outline:2px solid #153F35;outline-offset:1px}
 #tabAgendamentos .agenda-busca-linha{zoom:.96}   /* 20% maior que o zoom .8 da barra de botões */
 @media(max-width:1149px){.agenda-busca-linha{justify-content:flex-start}}
+
+/* Agenda: legenda na mesma linha do campo de busca, logo abaixo dos filtros */
+.agenda-toolbar{margin-bottom:6px}
+.agenda-legenda-linha{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;margin:0 0 6px}
+.agenda-legenda-linha .agenda-legenda{flex:1 1 420px;margin-bottom:0}
+.agenda-legenda-linha .agenda-busca{width:220px;max-width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);font:inherit;flex:0 0 auto}
+.agenda-legenda-linha .agenda-busca:focus{outline:2px solid #153F35;outline-offset:1px}
+#tabAgendamentos .agenda-legenda-linha .agenda-busca{zoom:.96}
