@@ -478,9 +478,8 @@ function desenharAvisoAgenda(logo,cfg,grupo,pagina,paginas){
   ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);
   cantosAgenda(ctx,W,H);
   if(logo)ctx.drawImage(logo,P-4,36,200,260);
-  textoAjAgenda(ctx,'AVISO DE',300,136,'800',100,60,520,NAVY);
-  textoAjAgenda(ctx,'CHAMADA',300,236,'800',100,60,520,NAVY);
-  cabecaAgenda(ctx,W-250,30,190,null,'#1E6FD9',5,'#1E6FD9');
+  textoAjAgenda(ctx,'AVISO DE',300,136,'800',100,60,720,NAVY);
+  textoAjAgenda(ctx,'CHAMADA',300,236,'800',100,60,720,NAVY);
   rrAgenda(ctx,300,266,724,88,20,NAVY);
   textoAjAgenda(ctx,cfg.tipo.toUpperCase(),662,326,'800',46,26,680,'#fff','center');
   var tipoL=cfg.tipo.toLowerCase();ctx.font=fonteAgenda('400',34);
@@ -535,9 +534,7 @@ function desenharLembreteAgenda(logo,cfg,grupo){
   textoAjAgenda(ctx,cfg.tipo.toUpperCase(),W/2,556,'800',54,28,W-160,'#0F3B22','center');
   var hoje=new Date(),ehHoje=chaveDiaAgenda(hoje)===chaveDiaAgenda(grupo.dt);
   var quando=ehHoje?'hoje.':'o dia '+dataCurtaAgenda(grupo.dt)+' ('+DIAS_AGENDA_LONGO[grupo.dt.getDay()].toLowerCase()+').';
-  var y=ricoAgenda(ctx,[{t:'Olá! Somos da equipe da '},{t:'EMULTI',b:true},{t:' e estamos entrando em contato para lembrar que você tem '},{t:cfg.tipo.toLowerCase()+' agendado para '+quando,b:true}],W/2-100,650,W-380,38,52,'#1F2A44','center');
-  cabecaAgenda(ctx,W-250,608,190,'#7DBF9A',null,0,'#0F3B22');
-  if(y<780)y=780;
+  var y=ricoAgenda(ctx,[{t:'Olá! Somos da equipe da '},{t:'EMULTI',b:true},{t:' e estamos entrando em contato para lembrar que você tem '},{t:cfg.tipo.toLowerCase()+' agendado para '+quando,b:true}],W/2,650,W-150,38,52,'#1F2A44','center');
   var cy=y+50,cw=(W-80)/3,FS=36,LH=44;
   var cols=[['local','LOCAL',cfg.local.toUpperCase()],['hora','HORÁRIO',cfg.horario.toUpperCase()],['prof','PROFISSIONAL',tituloNomeAgenda(grupo.prof)]];
   ctx.font=fonteAgenda('800',FS);
