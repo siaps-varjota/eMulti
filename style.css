@@ -1498,3 +1498,10 @@ h1,h2,h3,.serif{font-optical-sizing:auto;}
 .ag-menu>.agendamentos-toolbar{flex-wrap:wrap!important}
 .ag-menu>.agendamentos-paineis{margin:0 12px 12px}
 #tabAgendamentos .ag-menu>.agendamentos-paineis{margin:0 12px 12px}
+#tabAgendamentos .ag-menu>.agendamentos-gerar{gap:10px 12px}
+#tabAgendamentos .ag-menu>.agendamentos-gerar label{font-size:15px;font-weight:700;color:#153F35}
+#tabAgendamentos .ag-menu>.agendamentos-gerar input[type=date]{flex:0 0 auto}
+#tabAgendamentos .ag-menu>.agendamentos-gerar button{flex:1 1 0;min-width:150px;text-align:center}
+#tabAgendamentos .ag-menu>.agendamentos-gerar{justify-content:center;gap:12px 14px}
+#tabAgendamentos .ag-menu>.agendamentos-gerar label{font-size:15px;font-weight:700;color:#153F35}
+#tabAgendamentos .ag-menu>.agendamentos-gerar input[type=date]{flex:0 0 auto}
