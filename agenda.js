@@ -423,23 +423,71 @@ function divisoesAgenda(lista){
 function dataCurtaAgenda(dt){return pad2Agenda(dt.getDate())+'/'+pad2Agenda(dt.getMonth()+1);}
 function slugAgenda(s){return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');}
 
+
+// ---- Ícones extras (desenhados em canvas) usados para aproximar as imagens dos modelos ----
+function tituloNomeAgenda(s){return String(s||'').toLowerCase().replace(/(^|\s)([a-zà-ú])/g,function(m,a,b){return a+b.toUpperCase();}).replace(/ (De|Da|Do|Das|Dos|E)(?= )/g,function(m){return m.toLowerCase();});}
+// Cabeça de perfil com coração (s = tamanho em px; x,y = canto superior esquerdo)
+function cabecaAgenda(ctx,x,y,s,fill,stroke,lw,corCor){
+  ctx.save();ctx.translate(x,y);ctx.scale(s/100,s/100);
+  ctx.beginPath();ctx.moveTo(62,6);ctx.bezierCurveTo(90,6,98,40,84,62);ctx.bezierCurveTo(80,70,80,76,80,94);ctx.lineTo(44,94);ctx.lineTo(44,76);ctx.bezierCurveTo(36,76,34,72,36,68);ctx.lineTo(28,66);ctx.bezierCurveTo(26,65,28,62,29,60);ctx.bezierCurveTo(26,56,24,52,28,48);ctx.bezierCurveTo(24,42,26,36,28,32);ctx.bezierCurveTo(32,14,46,6,62,6);ctx.closePath();
+  if(fill){ctx.fillStyle=fill;ctx.fill();}
+  if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=(lw||4)*100/s;ctx.lineJoin='round';ctx.stroke();}
+  ctx.beginPath();ctx.moveTo(62,56);ctx.bezierCurveTo(38,40,48,20,62,32);ctx.bezierCurveTo(76,20,86,40,62,56);ctx.closePath();
+  if(fill){ctx.fillStyle=corCor||'#fff';ctx.fill();}else{ctx.strokeStyle=corCor||stroke;ctx.lineWidth=(lw||4)*100/s;ctx.stroke();}
+  ctx.restore();
+}
+function megafoneAgenda(ctx,cx,cy,s){
+  ctx.save();ctx.translate(cx,cy);ctx.rotate(-0.28);ctx.scale(s/100,s/100);ctx.translate(-50,-45);
+  ctx.fillStyle='#fff';ctx.strokeStyle='#fff';ctx.lineCap='round';ctx.lineJoin='round';ctx.lineWidth=6;
+  ctx.beginPath();ctx.moveTo(8,36);ctx.lineTo(36,36);ctx.lineTo(78,10);ctx.lineTo(78,80);ctx.lineTo(36,54);ctx.lineTo(8,54);ctx.closePath();ctx.fill();ctx.stroke();
+  rrAgenda(ctx,18,54,16,28,5,'#fff');
+  ctx.beginPath();ctx.moveTo(90,26);ctx.lineTo(104,18);ctx.moveTo(92,45);ctx.lineTo(108,45);ctx.moveTo(90,64);ctx.lineTo(104,72);ctx.stroke();
+  ctx.restore();
+}
+function sinoAgenda(ctx,cx,cy,r,cor){
+  ctx.save();ctx.translate(cx,cy);ctx.scale(r/50,r/50);ctx.strokeStyle=cor;ctx.fillStyle=cor;ctx.lineWidth=6;ctx.lineJoin='round';ctx.lineCap='round';
+  ctx.beginPath();ctx.moveTo(0,-34);ctx.bezierCurveTo(22,-34,30,-16,30,2);ctx.lineTo(30,12);ctx.lineTo(38,22);ctx.lineTo(-38,22);ctx.lineTo(-30,12);ctx.lineTo(-30,2);ctx.bezierCurveTo(-30,-16,-22,-34,0,-34);ctx.closePath();ctx.stroke();
+  ctx.beginPath();ctx.arc(0,32,6,0,Math.PI);ctx.fill();ctx.beginPath();ctx.moveTo(0,-34);ctx.lineTo(0,-42);ctx.stroke();
+  ctx.restore();
+}
+function maosCoracaoAgenda(ctx,cx,cy,s,cor){
+  ctx.save();ctx.translate(cx,cy);ctx.scale(s/100,s/100);ctx.fillStyle=cor;ctx.strokeStyle=cor;ctx.lineWidth=8;ctx.lineCap='round';ctx.lineJoin='round';
+  ctx.beginPath();ctx.moveTo(0,10);ctx.bezierCurveTo(-34,-14,-22,-42,0,-24);ctx.bezierCurveTo(22,-42,34,-14,0,10);ctx.fill();
+  ctx.beginPath();ctx.moveTo(-48,14);ctx.bezierCurveTo(-30,8,-18,26,0,38);ctx.bezierCurveTo(18,26,30,8,48,14);ctx.stroke();
+  ctx.restore();
+}
+function apertoAgenda(ctx,cx,cy,s,cor,fundo){
+  ctx.save();ctx.translate(cx,cy);ctx.scale(s/100,s/100);ctx.fillStyle=cor;ctx.strokeStyle=fundo;ctx.lineWidth=3;ctx.lineJoin='round';ctx.lineCap='round';
+  rrAgenda(ctx,-54,-20,14,44,4,cor);rrAgenda(ctx,40,-20,14,44,4,cor);
+  ctx.beginPath();ctx.moveTo(-38,-12);ctx.lineTo(-12,-22);ctx.lineTo(8,-12);ctx.lineTo(38,-14);ctx.lineTo(38,16);ctx.lineTo(10,24);ctx.lineTo(-14,18);ctx.lineTo(-38,14);ctx.closePath();ctx.fill();
+  ctx.beginPath();ctx.moveTo(-6,-2);ctx.lineTo(20,0);ctx.moveTo(-8,6);ctx.lineTo(18,10);ctx.moveTo(-10,14);ctx.lineTo(10,17);ctx.stroke();
+  ctx.restore();
+}
+// Cantos decorativos (azul embaixo à esquerda, verde em cima à direita)
+function cantosAgenda(ctx,W,H){
+  ctx.fillStyle='#1E6FD9';ctx.beginPath();ctx.arc(-70,H+70,190,0,7);ctx.fill();
+  ctx.fillStyle='#E5232E';ctx.beginPath();ctx.arc(-70,H+70,150,0,7);ctx.fill();
+  ctx.fillStyle='#1B8A3C';ctx.beginPath();ctx.arc(W+30,-30,110,0,7);ctx.fill();
+  ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(-58,H+58,150,0,7);ctx.fill();ctx.beginPath();ctx.arc(W+44,-44,100,0,7);ctx.fill();
+}
+
 function desenharAvisoAgenda(logo,cfg,grupo,pagina,paginas){
   var W=1080,P=56,NAVY='#0B1F4D',POR_PAG=14,itens=grupo.itens.slice(pagina*POR_PAG,(pagina+1)*POR_PAG);
   var ROW=64,tabH=64+itens.length*ROW,H=1190+96+24+tabH+24+110+44;
   var c=cvAgenda(W,H),ctx=c.getContext('2d');
   ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);
-  ctx.fillStyle='#E8F0FB';ctx.beginPath();ctx.arc(W+40,-20,230,0,7);ctx.fill();
-  ctx.fillStyle='#E4F5EA';ctx.beginPath();ctx.arc(-40,H+20,260,0,7);ctx.fill();
+  cantosAgenda(ctx,W,H);
   if(logo)ctx.drawImage(logo,P-4,36,200,260);
-  textoAjAgenda(ctx,'AVISO DE',300,136,'800',100,60,720,NAVY);
-  textoAjAgenda(ctx,'CHAMADA',300,236,'800',100,60,720,NAVY);
+  textoAjAgenda(ctx,'AVISO DE',300,136,'800',100,60,520,NAVY);
+  textoAjAgenda(ctx,'CHAMADA',300,236,'800',100,60,520,NAVY);
+  cabecaAgenda(ctx,W-250,30,190,null,'#1E6FD9',5,'#1E6FD9');
   rrAgenda(ctx,300,266,724,88,20,NAVY);
   textoAjAgenda(ctx,cfg.tipo.toUpperCase(),662,326,'800',46,26,680,'#fff','center');
   var tipoL=cfg.tipo.toLowerCase();ctx.font=fonteAgenda('400',34);
   var y=410;y=ricoAgenda(ctx,[{t:'Convocamos os(as) pacientes abaixo relacionados(as) para '},{t:tipoL+'.',b:true}],W/2,y,W-2*P-20,34,46,'#1F2A44','center');
   y+=44;
   var linhas=[['local','LOCAL DO ATENDIMENTO:',cfg.local.toUpperCase(),'#1B8A3C'],
-    ['data','DIA / DATA DO ATENDIMENTO:',dataCurtaAgenda(grupo.dt)+' ('+DIAS_AGENDA_LONGO[grupo.dt.getDay()].toUpperCase()+')','#E5232E'],
+    ['data','DIA / DATA DO ATENDIMENTO:',dataCurtaAgenda(grupo.dt),'#E5232E'],
     ['obs','OBSERVAÇÃO:',cfg.obs.toUpperCase(),'#F28A1F'],
     ['prof','PROFISSIONAL:',String(grupo.prof||'').toUpperCase(),'#1E6FD9'],
     ['hora','HORÁRIO:',cfg.horario.toUpperCase(),'#1B8A3C']];
@@ -451,7 +499,7 @@ function desenharAvisoAgenda(logo,cfg,grupo,pagina,paginas){
     y+=134;
   });
   y+=0;
-  rrAgenda(ctx,P,y,W-2*P,96,28,NAVY);iconeAgenda(ctx,'aviso',P+60,y+48,32,'#2B4A8B');
+  rrAgenda(ctx,P,y,W-2*P,96,28,NAVY);sinoAgenda(ctx,P+66,y+50,26,'#fff');
   textoAjAgenda(ctx,'CONTAMOS COM A PRESENÇA DE TODOS!',W/2+30,y+62,'800',40,24,W-2*P-150,'#fff','center');
   y+=96+24;
   // tabela
@@ -469,7 +517,7 @@ function desenharAvisoAgenda(logo,cfg,grupo,pagina,paginas){
   y+=tabH+24;
   rrAgenda(ctx,P,y,W-2*P,110,28,'#fff',NAVY,3);
   ricoAgenda(ctx,[{t:'Sua presença é muito importante para o cuidado com a sua saúde.'}],W/2+30,y+48,W-2*P-210,30,40,'#1F2A44','center');
-  ctx.fillStyle='#1B8A3C';ctx.font=fonteAgenda('700',54);ctx.textAlign='center';ctx.fillText('♥',P+70,y+72);
+  maosCoracaoAgenda(ctx,P+80,y+52,76,'#1B8A3C');
   return c;
 }
 
@@ -478,17 +526,20 @@ function desenharLembreteAgenda(logo,cfg,grupo){
   var c=cvAgenda(W,2200),ctx=c.getContext('2d');
   ctx.fillStyle='#F3FBF5';ctx.fillRect(0,0,W,2200);
   ctx.fillStyle='#DDF2E2';ctx.beginPath();ctx.arc(-30,-10,200,0,7);ctx.fill();ctx.beginPath();ctx.arc(W+30,10,170,0,7);ctx.fill();
-  if(logo){rrAgenda(ctx,W/2-96,22,192,226,22,'#fff');ctx.drawImage(logo,W/2-82,28,164,213);}
+  if(logo){rrAgenda(ctx,W/2-100,14,200,246,24,'#fff');ctx.drawImage(logo,W/2-90,20,180,233);}
   rrAgenda(ctx,50,262,W-100,216,70,G);
-  textoAjAgenda(ctx,'LEMBRETE DE',W/2,368,'800',106,60,W-200,'#fff','center');
-  textoAjAgenda(ctx,'ATENDIMENTO',W/2,462,'800',106,60,W-200,GL,'center');
+  textoAjAgenda(ctx,'LEMBRETE DE',W/2-50,368,'800',106,60,W-320,'#fff','center');
+  textoAjAgenda(ctx,'ATENDIMENTO',W/2-50,462,'800',106,60,W-320,GL,'center');
+  megafoneAgenda(ctx,W-135,372,120);
   rrAgenda(ctx,50,492,W-100,92,40,GL);
   textoAjAgenda(ctx,cfg.tipo.toUpperCase(),W/2,556,'800',54,28,W-160,'#0F3B22','center');
   var hoje=new Date(),ehHoje=chaveDiaAgenda(hoje)===chaveDiaAgenda(grupo.dt);
   var quando=ehHoje?'hoje.':'o dia '+dataCurtaAgenda(grupo.dt)+' ('+DIAS_AGENDA_LONGO[grupo.dt.getDay()].toLowerCase()+').';
-  var y=ricoAgenda(ctx,[{t:'Olá! Somos da equipe da '},{t:'EMULTI',b:true},{t:' e estamos entrando em contato para lembrar que você tem '},{t:cfg.tipo.toLowerCase()+' agendado para '+quando,b:true}],W/2,650,W-150,38,52,'#1F2A44','center');
+  var y=ricoAgenda(ctx,[{t:'Olá! Somos da equipe da '},{t:'EMULTI',b:true},{t:' e estamos entrando em contato para lembrar que você tem '},{t:cfg.tipo.toLowerCase()+' agendado para '+quando,b:true}],W/2-100,650,W-380,38,52,'#1F2A44','center');
+  cabecaAgenda(ctx,W-250,608,190,'#7DBF9A',null,0,'#0F3B22');
+  if(y<780)y=780;
   var cy=y+50,cw=(W-80)/3,FS=36,LH=44;
-  var cols=[['local','LOCAL',cfg.local.toUpperCase()],['hora','HORÁRIO',cfg.horario.toUpperCase()],['prof','PROFISSIONAL',String(grupo.prof||'').toUpperCase()]];
+  var cols=[['local','LOCAL',cfg.local.toUpperCase()],['hora','HORÁRIO',cfg.horario.toUpperCase()],['prof','PROFISSIONAL',tituloNomeAgenda(grupo.prof)]];
   ctx.font=fonteAgenda('800',FS);
   cols.forEach(function(col){col.ln=quebrarAgenda(ctx,col[2],cw-36).slice(0,4);});
   ctx.font=fonteAgenda('800',24);
@@ -517,8 +568,9 @@ function desenharLembreteAgenda(logo,cfg,grupo){
   rrAgenda(ctx,215,by+16,170,42,21,'#E5232E');textoAjAgenda(ctx,'ATENÇÃO',300,by+46,'800',26,18,150,'#fff','center');
   ricoAgenda(ctx,[{t:'Em caso de faltas sem justificativa, após três faltas, o atendimento '},{t:'poderá ser suspenso.',b:true}],215,by+96,W-280,30,40,'#1F2A44','left');
   by+=150+26;
-  rrAgenda(ctx,40,by,W-80,130,30,'#0B5CAD');
-  ricoAgenda(ctx,[{t:'Agradecemos a compreensão e contamos com sua colaboração!'}],W/2,by+60,W-200,36,46,'#fff','center');
+  rrAgenda(ctx,40,by,W-80,130,30,'#0B5CAD');apertoAgenda(ctx,130,by+65,76,'#fff','#0B5CAD');
+  ctx.strokeStyle='rgba(255,255,255,.6)';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(225,by+30);ctx.lineTo(225,by+100);ctx.stroke();
+  ricoAgenda(ctx,[{t:'Agradecemos a compreensão e contamos com sua colaboração!'}],250,by+58,W-330,36,46,'#fff','left');
   var Hf=by+130+40,out=cvAgenda(W,Hf),o=out.getContext('2d');o.drawImage(c,0,0,W,Hf,0,0,W,Hf);
   return out;
 }
