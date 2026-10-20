@@ -1496,3 +1496,5 @@ h1,h2,h3,.serif{font-optical-sizing:auto;}
 .ag-menu>.agendamentos-toolbar{padding:0 12px;box-sizing:border-box;width:100%}
 .ag-menu>.agendamentos-toolbar:last-child{margin-bottom:12px}
 .ag-menu>.agendamentos-toolbar{flex-wrap:wrap!important}
+.ag-menu>.agendamentos-paineis{margin:0 12px 12px}
+#tabAgendamentos .ag-menu>.agendamentos-paineis{margin:0 12px 12px}
