@@ -558,7 +558,16 @@ function desenharLembreteAgenda(logo,cfg,grupo){
   var c=cvAgenda(W,2200),ctx=c.getContext('2d');
   ctx.fillStyle='#F3FBF5';ctx.fillRect(0,0,W,2200);
   ctx.fillStyle='#DDF2E2';ctx.beginPath();ctx.arc(-30,-10,200,0,7);ctx.fill();ctx.beginPath();ctx.arc(W+30,10,170,0,7);ctx.fill();
-  if(logo){rrAgenda(ctx,W/2-100,14,200,246,24,'#fff');ctx.drawImage(logo,W/2-90,20,180,233);}
+  // Logo na horizontal para ganhar espaço: o círculo à esquerda e a descrição (eMulti, equipe, Varjota) colada à direita.
+  var DY=0;
+  if(logo){
+    var ls=.92,cw=172*ls,ch=164*ls,tw=222*ls,th=142*ls,gp=6,tot=cw+gp+tw,x0=(W-tot)/2,ph=Math.max(ch,th)+24;
+    rrAgenda(ctx,x0-24,12,tot+48,ph,24,'#fff');
+    ctx.drawImage(logo,36,8,172,164,x0,24,cw,ch);
+    ctx.drawImage(logo,8,170,222,142,x0+cw+gp,24+(ch-th)/2,tw,th);
+    DY=262-(12+ph+16);
+  }
+  ctx.save();ctx.translate(0,-DY);
   rrAgenda(ctx,50,262,W-100,216,70,G);
   textoAjAgenda(ctx,'LEMBRETE DE',W/2-50,368,'800',106,60,W-320,'#fff','center');
   textoAjAgenda(ctx,'ATENDIMENTO',W/2-50,462,'800',106,60,W-320,GL,'center');
@@ -601,7 +610,8 @@ function desenharLembreteAgenda(logo,cfg,grupo){
   rrAgenda(ctx,40,by,W-80,130,30,'#0B5CAD');apertoAgenda(ctx,130,by+65,76,'#fff','#0B5CAD');
   ctx.strokeStyle='rgba(255,255,255,.6)';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(225,by+30);ctx.lineTo(225,by+100);ctx.stroke();
   ricoAgenda(ctx,[{t:'Agradecemos a compreensão e contamos com sua colaboração!'}],250,by+58,W-330,36,46,'#fff','left');
-  var Hf=by+130+40,out=cvAgenda(W,Hf),o=out.getContext('2d');o.drawImage(c,0,0,W,Hf,0,0,W,Hf);
+  ctx.restore();
+  var Hf=by+130+40-DY,out=cvAgenda(W,Hf),o=out.getContext('2d');o.drawImage(c,0,0,W,Hf,0,0,W,Hf);
   return out;
 }
 
