@@ -1222,6 +1222,8 @@ var PROFISSIONAIS_SHEET_NAME = "PROFISSIONAIS";
 // profissional+equipe cadastrados na aba (um profissional que atua em
 // 2 equipes gera 2 entradas, uma pra cada).
 export var profissionaisRoster = [];
+// Leitura da lista da aba PROFISSIONAIS por scripts fora do grafo de módulos (ex.: agenda.js).
+if(typeof window !== 'undefined') window.__emultiRoster = function(){ return profissionaisRoster; };
 
 // Diz se um nome está cadastrado na aba PROFISSIONAIS (roster da
 // eMulti). Usado em vários lugares (filtro de M1, "Pessoas atendidas",

@@ -386,8 +386,14 @@ function categoriaProfAgenda(prof){
   var nome=String(prof||'').split(/\s+[—–-]\s+|\s*\(/)[0];
   var tk=normBuscaAgenda(nome).split(' ').filter(function(t){return t.length>2&&['dos','das','del'].indexOf(t)<0;});
   if(!tk.length)return '';
-  var ach=PROFS_CATEGORIA_AGENDA.filter(function(p){var n=' '+normBuscaAgenda(p[0])+' ';return tk.every(function(t){return n.indexOf(' '+t+' ')>=0;});});
-  return ach.length===1?ach[0][1]:'';
+  function achar(lista){
+    var vistos={},ach=[];
+    lista.forEach(function(p){var n=' '+normBuscaAgenda(p[0])+' ';if(vistos[n])return;if(tk.every(function(t){return n.indexOf(' '+t+' ')>=0;})){vistos[n]=1;ach.push(p);}});
+    return ach.length===1?ach[0][1]:'';
+  }
+  // 1º a lista da planilha (aba PROFISSIONAIS, já carregada pelo painel); se não achar, a lista embutida acima.
+  var ro=[];try{ro=((window.__emultiRoster&&window.__emultiRoster())||[]).filter(function(p){return p&&p.nome&&p.categoria;}).map(function(p){return [p.nome,p.categoria];});}catch(e){}
+  return achar(ro)||achar(PROFS_CATEGORIA_AGENDA);
 }
 function tipoDoGrupoAgenda(cfg,grupo){return cfg.tipo||tipoPorCategoriaAgenda(categoriaProfAgenda(grupo.prof))||'ATENDIMENTO';}
 function salvarCfgImgAgenda(c){try{localStorage.setItem('agendaImgCfg',JSON.stringify(c));}catch(e){}}
