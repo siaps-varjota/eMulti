@@ -1101,15 +1101,16 @@ window.__emultiSimulacaoRetorno=function(){
     p.ev.push({data:e.data,prof:String(e.prof||'').split(' — ')[0],atual:!!e.atual});
   });
   var porProf={};
-  function slot(n){return porProf[n]=porProf[n]||{prof:n,d1:[],d2:[]};}
+  function slot(n){return porProf[n]=porProf[n]||{prof:n,d1:[],d2:[],d1m:[],d2m:[]};}   // d1m/d2m: mês (AAAA-MM) do agendamento de cada intervalo, na mesma ordem de d1/d2
+  var mesesSim={};
   Object.keys(pac).forEach(function(k){
     var p=pac[k],ev=p.ev.sort(function(a,b){return a.data<b.data?-1:a.data>b.data?1:0;}),uniq=[];
     ev.forEach(function(e){if(!uniq.length||uniq[uniq.length-1].data!==e.data)uniq.push(e);});
     var cur=uniq.filter(function(e){return e.atual;})[0];
-    if(cur&&p.ult){var g=dias(p.ult,cur.data);if(g>0){slot(cur.prof).d1.push(g);diag.gapPositivo++;}}
-    for(var i=1;i<uniq.length;i++){var g2=dias(uniq[i-1].data,uniq[i].data);if(g2>0)slot(uniq[i-1].prof).d2.push(g2);}
+    if(cur&&p.ult){var g=dias(p.ult,cur.data);if(g>0){var s1=slot(cur.prof);s1.d1.push(g);s1.d1m.push(cur.data.slice(0,7));mesesSim[cur.data.slice(0,7)]=1;diag.gapPositivo++;}}
+    for(var i=1;i<uniq.length;i++){var g2=dias(uniq[i-1].data,uniq[i].data);if(g2>0){var s2=slot(uniq[i-1].prof);s2.d2.push(g2);s2.d2m.push(uniq[i-1].data.slice(0,7));mesesSim[uniq[i-1].data.slice(0,7)]=1;}}
   });
-  return {pronto:true,diag:diag,profs:Object.keys(porProf).map(function(n){return porProf[n];})};
+  return {pronto:true,diag:diag,meses:Object.keys(mesesSim).sort(),profs:Object.keys(porProf).map(function(n){return porProf[n];})};
 };
 window.__emultiAgendaCarregar=function(){if(rowsAg.length||busyAg){window.dispatchEvent(new Event('emulti:agenda-dados'));return;}loadAg();};
 

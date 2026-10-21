@@ -1741,6 +1741,23 @@ function medianaSimulacao(v){
   return s.length % 2 ? s[m] : (s[m-1] + s[m]) / 2;
 }
 var simulacaoPediu = false;
+var simulacaoMesesSel = [];   // meses (AAAA-MM) marcados no filtro; vazio = todos
+var simulacaoMesMs = null;
+function rotuloMesSimulacao(ym){ var p = ym.split('-'); return monthShortLabel(new Date(+p[0], +p[1] - 1, 1)); }
+// Filtro de mês (multiselect) da simulação: cria na primeira vez e só atualiza as opções depois.
+function prepararFiltroMesSimulacao(meses){
+  var el = document.getElementById('analisesSimulacaoMesMs');
+  if(!el) return;
+  if(!simulacaoMesMs){
+    simulacaoMesMs = createMultiSelect(el, {
+      placeholder: 'Todos os meses', multi: true, search: false,
+      onChange: function(keys){ simulacaoMesesSel = keys; renderSimulacaoProfChart(false); }
+    });
+  }
+  simulacaoMesMs.setOptions(meses.slice().reverse().map(function(m){ return {value: m, label: rotuloMesSimulacao(m)}; }));
+  simulacaoMesesSel = simulacaoMesesSel.filter(function(m){ return meses.indexOf(m) >= 0; });
+  simulacaoMesMs.setSelected(simulacaoMesesSel);
+}
 function renderSimulacaoProfChart(pedirDados){
   var canvas = document.getElementById('analisesSimulacaoProf');
   if(!canvas || typeof Chart === 'undefined') return;
@@ -1765,7 +1782,17 @@ function renderSimulacaoProfChart(pedirDados){
     }
     return;
   }
-  var profs = sim.profs.filter(function(p){ return p.d1.length || p.d2.length; });
+  prepararFiltroMesSimulacao(sim.meses || []);
+  var sel = simulacaoMesesSel;
+  // Com meses marcados, só entram os intervalos cujo agendamento cai nesses meses.
+  var profs = sim.profs.map(function(p){
+    if(!sel.length) return p;
+    var q = {prof: p.prof, d1: [], d2: []};
+    p.d1.forEach(function(g, i){ if(sel.indexOf(p.d1m[i]) >= 0) q.d1.push(g); });
+    p.d2.forEach(function(g, i){ if(sel.indexOf(p.d2m[i]) >= 0) q.d2.push(g); });
+    return q;
+  }).filter(function(p){ return p.d1.length || p.d2.length; });
+  if(!profs.length && sel.length){ mostrarAviso('Sem dados para o(s) mês(es) selecionado(s). Escolha outro mês ou limpe o filtro.'); return; }
   if(!profs.length){ var dg = sim.diag || {}; mostrarAviso('Sem dados suficientes ainda: é preciso ter agendamentos com data e a última consulta da pessoa, com a data agendada depois dela. (Diagnóstico: ' + (dg.eventos||0) + ' registros na agenda, ' + (dg.atuais||0) + ' agendamentos atuais, ' + (dg.comUltima||0) + ' com última consulta, ' + (dg.gapPositivo||0) + ' com data agendada depois da última consulta.)'); return; }
   profs.forEach(function(p){ p.m1 = medianaSimulacao(p.d1); p.m2 = medianaSimulacao(p.d2); });
   profs.sort(function(a,b){
@@ -1801,7 +1828,7 @@ function renderSimulacaoProfChart(pedirDados){
   });
   estadoApp.analisesChartInstances.push(chart);
   var n1 = profs.reduce(function(t,p){ return t + p.d1.length; }, 0), n2 = profs.reduce(function(t,p){ return t + p.d2.length; }, 0);
-  if(nota) nota.textContent = 'Simulação: a última consulta (PEC) vale como a 1ª, o agendamento atual como a 2ª e o agendamento seguinte como a 3ª, não importa quantas consultas a pessoa já teve. Barra 1: ' + n1 + ' pessoa(s); barra 2: ' + n2 + ' pessoa(s) (só quem já tem mais de um agendamento no histórico). Faltas não contam.';
+  if(nota) nota.textContent = 'Simulação: a última consulta (PEC) vale como a 1ª, o agendamento atual como a 2ª e o agendamento seguinte como a 3ª, não importa quantas consultas a pessoa já teve. Barra 1: ' + n1 + ' pessoa(s); barra 2: ' + n2 + ' pessoa(s) (só quem já tem mais de um agendamento no histórico). Faltas não contam.' + (sel.length ? ' Filtro: agendamentos de ' + sel.slice().sort().map(rotuloMesSimulacao).join(', ') + '.' : '');
 }
 // Quando os agendamentos terminam de carregar, atualiza a simulação (se a aba estiver aberta).
 window.addEventListener('emulti:agenda-dados', function(){
