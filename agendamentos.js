@@ -596,8 +596,8 @@ function motivoSemTurnoAg(r,ix,uc){
 // Turno gravado na planilha (coluna "Turno"), válido só enquanto a data da linha não foi mexida aqui.
 function turnoGuardadoAg(r,ix){if(propostaAg[ix])return '';var t=normAg(r.Turno);return t==='manha'||t==='tarde'?t:'';}
 // Turno de cada pessoa com data (salva ou gerada, exceto Cancelado/Faltou). Por profissional+dia:
-// quem já tem turno gravado mantém; as demais se dividem meio a meio (a metade de cima, com a
-// última consulta mais antiga, fica de manhã) respeitando as vagas de cada turno; passou do
+// quem já tem turno gravado mantém; as demais enchem primeiro a manhã (última consulta mais antiga primeiro)
+// e só vão para a tarde quando as vagas da manhã acabam, respeitando as vagas de cada turno; passou do
 // limite do dia = excedente (só acontece com data manual).
 function turnosAg(uc){
   var grupos={},res={};
@@ -614,7 +614,7 @@ function turnosAg(uc){
     });
     // turno gravado na tarde não vale em dia/agenda sem vaga à tarde (ex.: sexta só manhã)
     ord.forEach(function(x){if(x.fixo==='tarde'&&cap.t<1)x.fixo='';});
-    var nEff=Math.min(ord.length,cap.dia),alvoM=Math.min(cap.m,Math.max(Math.ceil(nEff/2),nEff-cap.t));
+    var nEff=Math.min(ord.length,cap.dia),alvoM=Math.min(cap.m,nEff);   // manhã primeiro: a tarde só recebe quem passa das vagas da manhã
     var nM=0,nT=0;
     ord.forEach(function(x){if(x.fixo==='manha'){nM++;x.cls='manha';}else if(x.fixo==='tarde'){nT++;x.cls='tarde';}});
     var vagaM=Math.max(0,alvoM-nM);
