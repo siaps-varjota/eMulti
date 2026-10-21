@@ -519,7 +519,7 @@ function desenharAvisoAgenda(logo,cfg,grupo,pagina,paginas){
   var y=410;y=ricoAgenda(ctx,[{t:'Convocamos os(as) pacientes abaixo relacionados(as) para '},{t:tipoL+'.',b:true}],W/2,y,W-2*P-20,34,46,'#1F2A44','center');
   y+=44;
   var linhas=[['local','LOCAL DO ATENDIMENTO:',cfg.local.toUpperCase(),'#1B8A3C'],
-    ['data','DIA / DATA DO ATENDIMENTO:',dataCurtaAgenda(grupo.dt),'#E5232E'],
+    ['data','DIA / DATA DO ATENDIMENTO:',brAgenda(grupo.dt)+' ('+DIAS_AGENDA_LONGO[grupo.dt.getDay()].toUpperCase()+')','#E5232E'],
     ['obs','OBSERVAÇÃO:',cfg.obs.toUpperCase(),'#F28A1F'],
     ['prof','PROFISSIONAL:',String(grupo.prof||'').toUpperCase(),'#1E6FD9'],
     ['hora','HORÁRIO:',cfg.horario.toUpperCase(),'#1B8A3C']];
