@@ -1090,12 +1090,14 @@ window.__emultiAgendaDados=function(){
 // da mesma pessoa (histórico de agendamentos + agendamento atual). Faltas não contam como consulta. Valores em dias, por profissional.
 window.__emultiSimulacaoRetorno=function(){
   var d=window.__emultiAgendaDados&&window.__emultiAgendaDados();if(!d||!d.pronto)return {pronto:false};
+  if(!rowsAg.length&&!histAg.length)return {pronto:false};   // tabela de Agendamentos ainda não carregada
   function dias(a,b){var x=a.split('-'),y=b.split('-');return Math.round((Date.UTC(+y[0],+y[1]-1,+y[2])-Date.UTC(+x[0],+x[1]-1,+x[2]))/86400000);}
-  var pac={};
+  var pac={},diag={eventos:d.eventos.length,atuais:0,comUltima:0,gapPositivo:0};
   d.eventos.forEach(function(e){
     if(e.tipo==='faltou'||e.profKey==='__sem_profissional')return;
     var k=normAg(e.nome),p=pac[k]=pac[k]||{ult:'',ev:[]};
-    if(e.ult&&e.atual)p.ult=e.ult;
+    if(e.atual)diag.atuais++;
+    if(e.ult&&e.atual){p.ult=e.ult;diag.comUltima++;}
     p.ev.push({data:e.data,prof:String(e.prof||'').split(' — ')[0],atual:!!e.atual});
   });
   var porProf={};
@@ -1104,10 +1106,10 @@ window.__emultiSimulacaoRetorno=function(){
     var p=pac[k],ev=p.ev.sort(function(a,b){return a.data<b.data?-1:a.data>b.data?1:0;}),uniq=[];
     ev.forEach(function(e){if(!uniq.length||uniq[uniq.length-1].data!==e.data)uniq.push(e);});
     var cur=uniq.filter(function(e){return e.atual;})[0];
-    if(cur&&p.ult){var g=dias(p.ult,cur.data);if(g>0)slot(cur.prof).d1.push(g);}
+    if(cur&&p.ult){var g=dias(p.ult,cur.data);if(g>0){slot(cur.prof).d1.push(g);diag.gapPositivo++;}}
     for(var i=1;i<uniq.length;i++){var g2=dias(uniq[i-1].data,uniq[i].data);if(g2>0)slot(uniq[i-1].prof).d2.push(g2);}
   });
-  return {pronto:true,profs:Object.keys(porProf).map(function(n){return porProf[n];})};
+  return {pronto:true,diag:diag,profs:Object.keys(porProf).map(function(n){return porProf[n];})};
 };
 window.__emultiAgendaCarregar=function(){if(rowsAg.length||busyAg){window.dispatchEvent(new Event('emulti:agenda-dados'));return;}loadAg();};
 

@@ -628,6 +628,30 @@ function gerarImagensAgenda(cfg,quer){
   });
 }
 
+// Horário do turno: hora e minuto de início e de fim, para escolher na lista ou digitar.
+function partesHorarioAgenda(txt){
+  var m=String(txt||'').match(/(\d{1,2})\s*[:hH]\s*(\d{2})?[^\d]*(\d{1,2})\s*[:hH]\s*(\d{2})?/);
+  var d=String(CFG_IMG_AGENDA_PADRAO.horario).match(/(\d{1,2}):(\d{2})\D+(\d{1,2}):(\d{2})/);
+  var s=m||d;return [s[1],s[2]||'00',s[3],s[4]||'00'].map(function(x){return ('0'+(+x)).slice(-2);});
+}
+function campoHorarioAgenda(txt){
+  var p=partesHorarioAgenda(txt),h='',mn='',i;
+  for(i=0;i<24;i++)h+='<option value="'+('0'+i).slice(-2)+'"></option>';
+  for(i=0;i<60;i+=5)mn+='<option value="'+('0'+i).slice(-2)+'"></option>';
+  var est='width:64px;box-sizing:border-box;padding:8px 6px;border:1px solid #cfd8d3;border-radius:8px;font:inherit;text-align:center';
+  function inp(id,v,lista,rot){return '<input id="'+id+'" type="text" inputmode="numeric" maxlength="2" list="'+lista+'" value="'+v+'" aria-label="'+rot+'" title="'+rot+'" style="'+est+'" autocomplete="off">';}
+  return '<div style="font-size:13px;font-weight:600;color:#44524c;margin:10px 0 3px">Horário do turno (escolha na lista ou digite)</div>'
+    +'<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:14px"><span>Das</span>'+inp('agImgHIni',p[0],'agDlHoras','Hora de início')+'<b>:</b>'+inp('agImgMIni',p[1],'agDlMin','Minuto de início')
+    +'<span style="margin-left:6px">até às</span>'+inp('agImgHFim',p[2],'agDlHoras','Hora do fim')+'<b>:</b>'+inp('agImgMFim',p[3],'agDlMin','Minuto do fim')
+    +'<datalist id="agDlHoras">'+h+'</datalist><datalist id="agDlMin">'+mn+'</datalist></div>';
+}
+function lerHorarioDlgAgenda(){
+  var d=partesHorarioAgenda(CFG_IMG_AGENDA_PADRAO.horario);
+  function n(id,max,pad){var v=parseInt((document.getElementById(id).value||'').replace(/\D/g,''),10);if(isNaN(v))v=+pad;return Math.min(max,Math.max(0,v));}
+  var hi=n('agImgHIni',23,d[0]),mi=n('agImgMIni',59,d[1]),hf=n('agImgHFim',23,d[2]),mf=n('agImgMFim',59,d[3]);
+  function f(h,m){return h+':'+('0'+m).slice(-2)+'H';}
+  return 'DAS '+f(hi,mi)+' ATÉ ÀS '+f(hf,mf);
+}
 function abrirDialogoImagemAgenda(){
   var antigo=document.getElementById('agendaImgDlg');if(antigo)antigo.remove();
   var cfg=lerCfgImgAgenda();
@@ -637,7 +661,7 @@ function abrirDialogoImagemAgenda(){
   ov.innerHTML='<div role="dialog" aria-modal="true" aria-label="Gerar imagens da agenda" style="background:#fff;border-radius:14px;max-width:480px;width:100%;padding:20px 22px;max-height:92vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.3)">'
     +'<h3 style="margin:0 0 4px;color:#153F35;font-size:18px">Gerar imagens da agenda</h3>'
     +'<p style="margin:0 0 6px;font-size:13px;color:#5b6b64">Gera as imagens por dia e profissional, só com agendamentos confirmados. Escolha o turno para incluir só os pacientes da manhã ou da tarde (ajuste o horário abaixo). Os textos ficam lembrados neste navegador.</p>'
-    +campo('agImgTipo','Tipo de atendimento (em branco = automático pela categoria do profissional)',cfg.tipo)+campo('agImgLocal','Local',cfg.local)+campo('agImgHorario','Horário',cfg.horario)+campo('agImgObs','Observação',cfg.obs)
+    +campo('agImgTipo','Tipo de atendimento (em branco = automático pela categoria do profissional)',cfg.tipo)+campo('agImgLocal','Local',cfg.local)+campoHorarioAgenda(cfg.horario)+campo('agImgObs','Observação',cfg.obs)
     +'<div style="margin:14px 0 0;font-size:13px;font-weight:600;color:#44524c">Pacientes de qual turno?</div><div style="display:flex;gap:16px;flex-wrap:wrap;margin:4px 0 0;font-size:14px"><label><input type="radio" name="agImgTurno" value="" checked> Todos</label><label><input type="radio" name="agImgTurno" value="Manhã"> Manhã</label><label><input type="radio" name="agImgTurno" value="Tarde"> Tarde</label></div>'
     +'<div style="margin:14px 0 4px;font-size:14px"><label style="display:block;margin-bottom:6px"><input type="checkbox" id="agImgAviso" checked> <b>Aviso de chamada</b> — com todos os pacientes</label><label style="display:block"><input type="checkbox" id="agImgLembrete" checked> <b>Lembrete de atendimento</b> — mensagem para os pacientes</label></div>'
     +'<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:16px"><button type="button" id="agImgAntigo" class="agendamentos-secundario" style="padding:8px 12px;border:1px solid #153F35;background:#fff;color:#153F35;border-radius:8px;font:inherit;font-weight:600;cursor:pointer">Card da agenda (modelo anterior)</button><button type="button" id="agImgCancelar" class="agendamentos-secundario" style="padding:8px 12px;border:1px solid #153F35;background:#fff;color:#153F35;border-radius:8px;font:inherit;font-weight:600;cursor:pointer">Cancelar</button><button type="button" id="agImgGerar" style="padding:8px 14px;border:1px solid #153F35;background:#153F35;color:#fff;border-radius:8px;font:inherit;font-weight:600;cursor:pointer">Gerar imagens</button></div></div>';
@@ -650,7 +674,7 @@ function abrirDialogoImagemAgenda(){
   document.getElementById('agImgAntigo').addEventListener('click',function(){fechar();baixarCardAgenda();});
   document.getElementById('agImgGerar').addEventListener('click',function(){
     var v=function(id,pad){return (document.getElementById(id).value||'').trim()||pad;};
-    var c={tipo:v('agImgTipo',CFG_IMG_AGENDA_PADRAO.tipo),local:v('agImgLocal',CFG_IMG_AGENDA_PADRAO.local),horario:v('agImgHorario',CFG_IMG_AGENDA_PADRAO.horario),obs:(document.getElementById('agImgObs').value||'').trim()};
+    var c={tipo:v('agImgTipo',CFG_IMG_AGENDA_PADRAO.tipo),local:v('agImgLocal',CFG_IMG_AGENDA_PADRAO.local),horario:lerHorarioDlgAgenda(),obs:(document.getElementById('agImgObs').value||'').trim()};
     var rt=document.querySelector('input[name=agImgTurno]:checked');var quer={aviso:document.getElementById('agImgAviso').checked,lembrete:document.getElementById('agImgLembrete').checked,turno:rt?rt.value:''};
     if(!quer.aviso&&!quer.lembrete){document.getElementById('agImgAviso').focus();return;}
     salvarCfgImgAgenda(c);fechar();gerarImagensAgenda(c,quer);

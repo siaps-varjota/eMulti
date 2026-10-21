@@ -1740,6 +1740,7 @@ function medianaSimulacao(v){
   var s = v.slice().sort(function(a,b){ return a-b; }), m = Math.floor(s.length/2);
   return s.length % 2 ? s[m] : (s[m-1] + s[m]) / 2;
 }
+var simulacaoPediu = false;
 function renderSimulacaoProfChart(pedirDados){
   var canvas = document.getElementById('analisesSimulacaoProf');
   if(!canvas || typeof Chart === 'undefined') return;
@@ -1755,12 +1756,17 @@ function renderSimulacaoProfChart(pedirDados){
   }
   var sim = window.__emultiSimulacaoRetorno ? window.__emultiSimulacaoRetorno() : { pronto:false };
   if(!sim.pronto){
-    mostrarAviso('Carregando os agendamentos para montar a simulação…');
-    if(pedirDados && window.__emultiAgendaCarregar) window.__emultiAgendaCarregar();
+    if(!simulacaoPediu && window.__emultiAgendaCarregar){
+      simulacaoPediu = true;
+      mostrarAviso('Carregando os agendamentos para montar a simulação…');
+      window.__emultiAgendaCarregar();
+    } else {
+      mostrarAviso('Carregando os agendamentos… Se não aparecer, atualize os dados do painel (Pessoas atendidas) e abra a aba Agendamentos uma vez.');
+    }
     return;
   }
   var profs = sim.profs.filter(function(p){ return p.d1.length || p.d2.length; });
-  if(!profs.length){ mostrarAviso('Sem dados suficientes ainda: é preciso ter agendamentos com data e a última consulta da pessoa.'); return; }
+  if(!profs.length){ var dg = sim.diag || {}; mostrarAviso('Sem dados suficientes ainda: é preciso ter agendamentos com data e a última consulta da pessoa, com a data agendada depois dela. (Diagnóstico: ' + (dg.eventos||0) + ' registros na agenda, ' + (dg.atuais||0) + ' agendamentos atuais, ' + (dg.comUltima||0) + ' com última consulta, ' + (dg.gapPositivo||0) + ' com data agendada depois da última consulta.)'); return; }
   profs.forEach(function(p){ p.m1 = medianaSimulacao(p.d1); p.m2 = medianaSimulacao(p.d2); });
   profs.sort(function(a,b){
     var va = a.m1 != null ? a.m1 : a.m2, vb = b.m1 != null ? b.m1 : b.m2;
