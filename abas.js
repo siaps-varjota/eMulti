@@ -1773,6 +1773,7 @@ function renderSimulacaoProfChart(pedirDados){
   }
   var sim = window.__emultiSimulacaoRetorno ? window.__emultiSimulacaoRetorno() : { pronto:false };
   if(!sim.pronto){
+    if(!simulacaoMesMs) prepararFiltroMesSimulacao([]);   // mostra o filtro já, mesmo antes dos meses carregarem
     if(!simulacaoPediu && window.__emultiAgendaCarregar){
       simulacaoPediu = true;
       mostrarAviso('Carregando os agendamentos para montar a simulação…');
