@@ -591,13 +591,13 @@ function desenharLembreteAgenda(logo,cfg,grupo){
     }
   });
   var by=cy+ch+30;
-  rrAgenda(ctx,40,by,W-80,180,30,'#DCEBFB');iconeAgenda(ctx,'data',130,by+90,56,'#1E6FD9');
-  ricoAgenda(ctx,[{t:'Caso não possa comparecer, '},{t:'avise com antecedência',b:true},{t:' para que outro paciente possa ser encaixado no horário.'}],220,by+66,W-290,32,44,'#1F2A44','left');
-  by+=180+26;
-  rrAgenda(ctx,40,by,W-80,150,30,'#FDECEC','#E5232E',3);iconeAgenda(ctx,'aviso',130,by+75,56,'#E5232E');
+  rrAgenda(ctx,40,by,W-80,214,30,'#DCEBFB');iconeAgenda(ctx,'data',130,by+107,56,'#1E6FD9');
+  ricoAgenda(ctx,[{t:'Caso não possa comparecer, '},{t:'avise com antecedência',b:true},{t:' para que outro paciente possa ser encaixado no horário.'}],220,by+78,W-290,38,52,'#1F2A44','left');
+  by+=214+26;
+  rrAgenda(ctx,40,by,W-80,200,30,'#FDECEC','#E5232E',3);iconeAgenda(ctx,'aviso',130,by+100,56,'#E5232E');
   rrAgenda(ctx,215,by+16,170,42,21,'#E5232E');textoAjAgenda(ctx,'ATENÇÃO',300,by+46,'800',26,18,150,'#fff','center');
-  ricoAgenda(ctx,[{t:'Em caso de faltas sem justificativa, após três faltas, o atendimento '},{t:'poderá ser suspenso.',b:true}],215,by+96,W-280,30,40,'#1F2A44','left');
-  by+=150+26;
+  ricoAgenda(ctx,[{t:'Em caso de faltas sem justificativa, após três faltas, o atendimento '},{t:'poderá ser suspenso.',b:true}],215,by+108,W-280,36,48,'#1F2A44','left');
+  by+=200+26;
   rrAgenda(ctx,40,by,W-80,130,30,'#0B5CAD');apertoAgenda(ctx,130,by+65,76,'#fff','#0B5CAD');
   ctx.strokeStyle='rgba(255,255,255,.6)';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(225,by+30);ctx.lineTo(225,by+100);ctx.stroke();
   ricoAgenda(ctx,[{t:'Agradecemos a compreensão e contamos com sua colaboração!'}],250,by+58,W-330,36,46,'#fff','left');
