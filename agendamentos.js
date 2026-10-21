@@ -1071,7 +1071,7 @@ window.__emultiAgendaDados=function(){
     var k=chaveProfAg(r,uc),semProf=!k;if(semProf){k='__sem_profissional';diag.semProf++;}
     var t=turnos[ix];
     emitidos[chaveHistAg(r.Nome,d)]=true;
-    ev.push({data:d,nome:String(r.Nome||''),prof:semProf?'Sem profissional definido':nomeProfAg(r,uc),profKey:k,tipo:prop?'sugerido':(sit==='Realizado'?'realizado':'agendado'),situacao:sit,turno:t?t.rotulo:'',ult:ultimoDeAg(r,uc),capDia:semProf?0:capNoDiaAg(capAg(k),d).dia});
+    ev.push({atual:true,data:d,nome:String(r.Nome||''),prof:semProf?'Sem profissional definido':nomeProfAg(r,uc),profKey:k,tipo:prop?'sugerido':(sit==='Realizado'?'realizado':'agendado'),situacao:sit,turno:t?t.rotulo:'',ult:ultimoDeAg(r,uc),capDia:semProf?0:capNoDiaAg(capAg(k),d).dia});
   });
   // Desfechos de agendamentos antigos (a linha da pessoa já foi sobrescrita por um novo agendamento).
   histAg.forEach(function(h){
@@ -1083,6 +1083,31 @@ window.__emultiAgendaDados=function(){
     ev.push({data:d,nome:String(h.Nome||''),prof:pk?(sep?h.Profissional+' — '+h.Unidade:h.Profissional):'Sem profissional definido',profKey:k,tipo:h.Desfecho==='Faltou'?'faltou':'realizado',situacao:h.Desfecho==='Faltou'?'Faltou':'Realizado',turno:String(h.Turno||''),ult:'',capDia:pk?capNoDiaAg(capAg(k),d).dia:0});
   });
   return {eventos:ev,pronto:true,diag:diag};
+};
+// ---------- Simulação de retorno (aba Frequência e Retorno) ----------
+// Independente de quantas consultas a pessoa já teve: a ÚLTIMA consulta (PEC) vale como a 1ª, o agendamento atual como a 2ª
+// e um novo agendamento como a 3ª. Barra 1 = última consulta -> agendamento atual. Barra 2 = agendamento -> agendamento seguinte
+// da mesma pessoa (histórico de agendamentos + agendamento atual). Faltas não contam como consulta. Valores em dias, por profissional.
+window.__emultiSimulacaoRetorno=function(){
+  var d=window.__emultiAgendaDados&&window.__emultiAgendaDados();if(!d||!d.pronto)return {pronto:false};
+  function dias(a,b){var x=a.split('-'),y=b.split('-');return Math.round((Date.UTC(+y[0],+y[1]-1,+y[2])-Date.UTC(+x[0],+x[1]-1,+x[2]))/86400000);}
+  var pac={};
+  d.eventos.forEach(function(e){
+    if(e.tipo==='faltou'||e.profKey==='__sem_profissional')return;
+    var k=normAg(e.nome),p=pac[k]=pac[k]||{ult:'',ev:[]};
+    if(e.ult&&e.atual)p.ult=e.ult;
+    p.ev.push({data:e.data,prof:String(e.prof||'').split(' — ')[0],atual:!!e.atual});
+  });
+  var porProf={};
+  function slot(n){return porProf[n]=porProf[n]||{prof:n,d1:[],d2:[]};}
+  Object.keys(pac).forEach(function(k){
+    var p=pac[k],ev=p.ev.sort(function(a,b){return a.data<b.data?-1:a.data>b.data?1:0;}),uniq=[];
+    ev.forEach(function(e){if(!uniq.length||uniq[uniq.length-1].data!==e.data)uniq.push(e);});
+    var cur=uniq.filter(function(e){return e.atual;})[0];
+    if(cur&&p.ult){var g=dias(p.ult,cur.data);if(g>0)slot(cur.prof).d1.push(g);}
+    for(var i=1;i<uniq.length;i++){var g2=dias(uniq[i-1].data,uniq[i].data);if(g2>0)slot(uniq[i-1].prof).d2.push(g2);}
+  });
+  return {pronto:true,profs:Object.keys(porProf).map(function(n){return porProf[n];})};
 };
 window.__emultiAgendaCarregar=function(){if(rowsAg.length||busyAg){window.dispatchEvent(new Event('emulti:agenda-dados'));return;}loadAg();};
 

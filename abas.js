@@ -1730,8 +1730,78 @@ export function renderAnalises(data){
     }
     var compCanvas = document.getElementById('analisesCompProf');
     renderComparativoProfChart(compCanvas, data.comparativoProf, data.comparativoProf23);
+    renderSimulacaoProfChart(true);
   }, 50);
 }
+
+// Simulação de retorno por profissional (dados vêm da aba Agendamentos — ver __emultiSimulacaoRetorno em agendamentos.js).
+function medianaSimulacao(v){
+  if(!v.length) return null;
+  var s = v.slice().sort(function(a,b){ return a-b; }), m = Math.floor(s.length/2);
+  return s.length % 2 ? s[m] : (s[m-1] + s[m]) / 2;
+}
+function renderSimulacaoProfChart(pedirDados){
+  var canvas = document.getElementById('analisesSimulacaoProf');
+  if(!canvas || typeof Chart === 'undefined') return;
+  var nota = document.getElementById('analisesSimulacaoNota');
+  var wrap = canvas.parentElement;
+  var aviso = wrap ? wrap.querySelector('[data-aviso-vazio]') : null;
+  function mostrarAviso(txt){
+    var antigo = Chart.getChart(canvas); if(antigo) antigo.destroy();
+    canvas.style.display = 'none';
+    if(wrap && !aviso){ aviso = document.createElement('p'); aviso.className = 'footnote'; aviso.setAttribute('data-aviso-vazio','1'); wrap.appendChild(aviso); }
+    if(aviso) aviso.textContent = txt;
+    if(nota) nota.textContent = '';
+  }
+  var sim = window.__emultiSimulacaoRetorno ? window.__emultiSimulacaoRetorno() : { pronto:false };
+  if(!sim.pronto){
+    mostrarAviso('Carregando os agendamentos para montar a simulação…');
+    if(pedirDados && window.__emultiAgendaCarregar) window.__emultiAgendaCarregar();
+    return;
+  }
+  var profs = sim.profs.filter(function(p){ return p.d1.length || p.d2.length; });
+  if(!profs.length){ mostrarAviso('Sem dados suficientes ainda: é preciso ter agendamentos com data e a última consulta da pessoa.'); return; }
+  profs.forEach(function(p){ p.m1 = medianaSimulacao(p.d1); p.m2 = medianaSimulacao(p.d2); });
+  profs.sort(function(a,b){
+    var va = a.m1 != null ? a.m1 : a.m2, vb = b.m1 != null ? b.m1 : b.m2;
+    if(va == null && vb == null) return a.prof.localeCompare(b.prof, 'pt-BR');
+    if(va == null) return 1; if(vb == null) return -1;
+    return va !== vb ? va - vb : a.prof.localeCompare(b.prof, 'pt-BR');
+  });
+  if(aviso && aviso.parentNode) aviso.parentNode.removeChild(aviso);
+  canvas.style.display = '';
+  var antigo = Chart.getChart(canvas); if(antigo) antigo.destroy();
+  var chart = new Chart(canvas, {
+    type: 'bar',
+    plugins: [analisesMediaPlugin],
+    data: {
+      labels: profs.map(function(p){ return p.prof; }),
+      datasets: [
+        { label: 'Última consulta até o agendamento', data: profs.map(function(p){ return p.m1 == null ? null : Math.round(p.m1); }), backgroundColor:'#C68A3D', borderRadius:4, categoryPercentage:0.7, barPercentage:0.9 },
+        { label: 'Agendamento até o agendamento seguinte', data: profs.map(function(p){ return p.m2 == null ? null : Math.round(p.m2); }), backgroundColor:'#2F6F5E', borderRadius:4, categoryPercentage:0.7, barPercentage:0.9 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: true, position:'top', labels:{boxWidth:12, font:{size:12}} },
+        tooltip: { bodyFont:{size:13}, titleFont:{size:13}, callbacks: { afterLabel: function(c){ var p = profs[c.dataIndex]; var n = c.datasetIndex === 0 ? p.d1.length : p.d2.length; return n + (n === 1 ? ' pessoa' : ' pessoas'); } } }
+      },
+      scales: {
+        x: { ticks: { autoSkip:false, font:{size:13}, maxRotation:40, minRotation:0 } },
+        y: { beginAtZero: true, ticks: { font:{size:13} }, title:{ display:true, text:'Mediana de dias' } }
+      }
+    }
+  });
+  estadoApp.analisesChartInstances.push(chart);
+  var n1 = profs.reduce(function(t,p){ return t + p.d1.length; }, 0), n2 = profs.reduce(function(t,p){ return t + p.d2.length; }, 0);
+  if(nota) nota.textContent = 'Simulação: a última consulta (PEC) vale como a 1ª, o agendamento atual como a 2ª e o agendamento seguinte como a 3ª, não importa quantas consultas a pessoa já teve. Barra 1: ' + n1 + ' pessoa(s); barra 2: ' + n2 + ' pessoa(s) (só quem já tem mais de um agendamento no histórico). Faltas não contam.';
+}
+// Quando os agendamentos terminam de carregar, atualiza a simulação (se a aba estiver aberta).
+window.addEventListener('emulti:agenda-dados', function(){
+  var painel = document.getElementById('tabAnalises');
+  if(painel && painel.classList.contains('active')) renderSimulacaoProfChart(false);
+});
 
 // Monta o gráfico de barras verticais "Comparativo por profissional",
 // com as barras de tempo até a 2ª consulta e de 2ª até a 3ª consulta
