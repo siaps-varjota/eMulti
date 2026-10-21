@@ -361,8 +361,35 @@ function iniciarAgenda(){
 // Imagens para divulgação: "Aviso de chamada" (todos os pacientes) e "Lembrete de atendimento"
 // Uma dupla de imagens por dia + profissional. Textos fixos ficam lembrados neste navegador.
 // ======================================================================
-var CFG_IMG_AGENDA_PADRAO={tipo:'ATENDIMENTO PSICOLÓGICO',local:'SEDE 1, CENTRO',horario:'DAS 18:00H ATÉ ÀS 20:30H',obs:'ATENDIMENTO POR ORDEM DE CHEGADA'};
-function lerCfgImgAgenda(){var c={};try{c=JSON.parse(localStorage.getItem('agendaImgCfg')||'{}')||{};}catch(e){}return Object.assign({},CFG_IMG_AGENDA_PADRAO,c);}
+var CFG_IMG_AGENDA_PADRAO={tipo:'',local:'SEDE 1, CENTRO',horario:'DAS 18:00H ATÉ ÀS 20:30H',obs:'ATENDIMENTO POR ORDEM DE CHEGADA'};
+function lerCfgImgAgenda(){var c={};try{c=JSON.parse(localStorage.getItem('agendaImgCfg')||'{}')||{};}catch(e){}
+  if(c.tipo==='ATENDIMENTO PSICOLÓGICO')c.tipo='';   // valor antigo fixo: agora o tipo vem da categoria de cada profissional
+  return Object.assign({},CFG_IMG_AGENDA_PADRAO,c);}
+// Profissionais da eMulti e suas categorias: definem o tipo de atendimento escrito nas imagens.
+var PROFS_CATEGORIA_AGENDA=[
+['FRANCISCA TEREZINHA ARAUJO','ASSITENTE SOCIAL'],['ANNA ALLYNE ALVES CARVALHO','FISIOTERAPEUTA GERAL'],['ECLENE PAULO DOS SANTOS','NUTRICIONISTA'],
+['KELLE ROSSANNE LINHARES PAULO','PSICÓLOGA CLÍNICA'],['MARIA EVELINE PONTES MONTE','PSICÓLOGA CLÍNICA'],['CLECIANE NOBRE XIMENES','ASSITENTE SOCIAL'],
+['KAROLINY MELO DE CASTRO','FISIOTERAPEUTA GERAL'],['IWDMILLY DE SOUSA LINHARES','NUTRICIONISTA'],['JOSE LUCAS CAETANO OLIVEIRA','NUTRICIONISTA'],
+['ALINE DE SOUSA ROSA','PSICÓLOGA CLÍNICA'],['MARCILENE ALVES DA SILVA','FISIOTERAPEUTA GERAL'],['HANNA LUIZA OLIVEIRA GOMES','FONOAUDIÓLOGA GERAL'],
+['KARISE SANTOS VASCONCELOS','FONOAUDIÓLOGA GERAL'],['ANNA MAEVILLY LIRA LOPES MARTINS','PSICÓLOGA CLÍNICA']];
+function tipoPorCategoriaAgenda(cat){
+  var c=normBuscaAgenda(cat);
+  if(c.indexOf('psic')>=0)return 'ATENDIMENTO PSICOLÓGICO';
+  if(c.indexOf('nutri')>=0)return 'ATENDIMENTO NUTRICIONAL';
+  if(c.indexOf('fisio')>=0)return 'ATENDIMENTO DE FISIOTERAPIA';
+  if(c.indexOf('fono')>=0)return 'ATENDIMENTO DE FONOAUDIOLOGIA';
+  if(c.indexOf('social')>=0||c.indexOf('assit')>=0)return 'ATENDIMENTO DE SERVIÇO SOCIAL';
+  return '';
+}
+// Acha o profissional pelo nome (aceita nome parcial, ex.: "Maevilly Lira"); só vale se for um único profissional.
+function categoriaProfAgenda(prof){
+  var nome=String(prof||'').split(/\s+[—–-]\s+|\s*\(/)[0];
+  var tk=normBuscaAgenda(nome).split(' ').filter(function(t){return t.length>2&&['dos','das','del'].indexOf(t)<0;});
+  if(!tk.length)return '';
+  var ach=PROFS_CATEGORIA_AGENDA.filter(function(p){var n=' '+normBuscaAgenda(p[0])+' ';return tk.every(function(t){return n.indexOf(' '+t+' ')>=0;});});
+  return ach.length===1?ach[0][1]:'';
+}
+function tipoDoGrupoAgenda(cfg,grupo){return cfg.tipo||tipoPorCategoriaAgenda(categoriaProfAgenda(grupo.prof))||'ATENDIMENTO';}
 function salvarCfgImgAgenda(c){try{localStorage.setItem('agendaImgCfg',JSON.stringify(c));}catch(e){}}
 
 function carregarLogoAgenda(){return new Promise(function(ok){var i=new Image();i.onload=function(){ok(i);};i.onerror=function(){ok(null);};i.src='logo-emulti.png';});}
@@ -582,13 +609,14 @@ function gerarImagensAgenda(cfg,quer){
   if(!grupos.length){avisarAgenda('Nenhum agendamento confirmado '+(turno?'de '+turno.toLowerCase()+' ':'')+(st.dia?'neste dia':'neste período')+' para gerar as imagens.');return;}
   carregarLogoAgenda().then(function(logo){
     var n=0;
-    grupos.forEach(function(g){
+    grupos.forEach(function(g0){
+      var g=g0,cfgG=Object.assign({},cfg,{tipo:tipoDoGrupoAgenda(cfg,g0)});
       var sufixo=pad2Agenda(g.dt.getDate())+'-'+pad2Agenda(g.dt.getMonth()+1)+'-'+slugAgenda(g.prof)+(turno?'-'+slugAgenda(turno):'');
       if(quer.aviso){
         var paginas=Math.max(1,Math.ceil(g.itens.length/14));
-        for(var p=0;p<paginas;p++){baixarCanvasAgenda(desenharAvisoAgenda(logo,cfg,g,p,paginas),'aviso-chamada-'+sufixo+(paginas>1?'-parte'+(p+1):'')+'.jpg',(n++)*500);}
+        for(var p=0;p<paginas;p++){baixarCanvasAgenda(desenharAvisoAgenda(logo,cfgG,g,p,paginas),'aviso-chamada-'+sufixo+(paginas>1?'-parte'+(p+1):'')+'.jpg',(n++)*500);}
       }
-      if(quer.lembrete)baixarCanvasAgenda(desenharLembreteAgenda(logo,cfg,g),'lembrete-atendimento-'+sufixo+'.jpg',(n++)*500);
+      if(quer.lembrete)baixarCanvasAgenda(desenharLembreteAgenda(logo,cfgG,g),'lembrete-atendimento-'+sufixo+'.jpg',(n++)*500);
     });
     avisarAgenda(n+(n===1?' imagem gerada':' imagens geradas')+'. Verifique os downloads.');
   });
@@ -603,7 +631,7 @@ function abrirDialogoImagemAgenda(){
   ov.innerHTML='<div role="dialog" aria-modal="true" aria-label="Gerar imagens da agenda" style="background:#fff;border-radius:14px;max-width:480px;width:100%;padding:20px 22px;max-height:92vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.3)">'
     +'<h3 style="margin:0 0 4px;color:#153F35;font-size:18px">Gerar imagens da agenda</h3>'
     +'<p style="margin:0 0 6px;font-size:13px;color:#5b6b64">Gera as imagens por dia e profissional, só com agendamentos confirmados. Escolha o turno para incluir só os pacientes da manhã ou da tarde (ajuste o horário abaixo). Os textos ficam lembrados neste navegador.</p>'
-    +campo('agImgTipo','Tipo de atendimento',cfg.tipo)+campo('agImgLocal','Local',cfg.local)+campo('agImgHorario','Horário',cfg.horario)+campo('agImgObs','Observação',cfg.obs)
+    +campo('agImgTipo','Tipo de atendimento (em branco = automático pela categoria do profissional)',cfg.tipo)+campo('agImgLocal','Local',cfg.local)+campo('agImgHorario','Horário',cfg.horario)+campo('agImgObs','Observação',cfg.obs)
     +'<div style="margin:14px 0 0;font-size:13px;font-weight:600;color:#44524c">Pacientes de qual turno?</div><div style="display:flex;gap:16px;flex-wrap:wrap;margin:4px 0 0;font-size:14px"><label><input type="radio" name="agImgTurno" value="" checked> Todos</label><label><input type="radio" name="agImgTurno" value="Manhã"> Manhã</label><label><input type="radio" name="agImgTurno" value="Tarde"> Tarde</label></div>'
     +'<div style="margin:14px 0 4px;font-size:14px"><label style="display:block;margin-bottom:6px"><input type="checkbox" id="agImgAviso" checked> <b>Aviso de chamada</b> — com todos os pacientes</label><label style="display:block"><input type="checkbox" id="agImgLembrete" checked> <b>Lembrete de atendimento</b> — mensagem para os pacientes</label></div>'
     +'<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:16px"><button type="button" id="agImgAntigo" class="agendamentos-secundario" style="padding:8px 12px;border:1px solid #153F35;background:#fff;color:#153F35;border-radius:8px;font:inherit;font-weight:600;cursor:pointer">Card da agenda (modelo anterior)</button><button type="button" id="agImgCancelar" class="agendamentos-secundario" style="padding:8px 12px;border:1px solid #153F35;background:#fff;color:#153F35;border-radius:8px;font:inherit;font-weight:600;cursor:pointer">Cancelar</button><button type="button" id="agImgGerar" style="padding:8px 14px;border:1px solid #153F35;background:#153F35;color:#fff;border-radius:8px;font:inherit;font-weight:600;cursor:pointer">Gerar imagens</button></div></div>';
