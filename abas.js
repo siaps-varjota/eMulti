@@ -1747,7 +1747,16 @@ function rotuloMesSimulacao(ym){ var p = ym.split('-'); return monthShortLabel(n
 // Filtro de mês (multiselect) da simulação: cria na primeira vez e só atualiza as opções depois.
 function prepararFiltroMesSimulacao(meses){
   var el = document.getElementById('analisesSimulacaoMesMs');
-  if(!el) return;
+  if(!el){
+    // index.html antigo, sem o espaço do filtro: cria o bloco logo acima do gráfico.
+    var cv = document.getElementById('analisesSimulacaoProf'), box = cv && cv.parentElement;
+    if(!box || !box.parentElement) return;
+    var bloco = document.createElement('div');
+    bloco.className = 'list-filters'; bloco.style.marginBottom = '8px';
+    bloco.innerHTML = '<div class="list-month-filter"><label class="list-month-filter-label">Mês do agendamento</label><div class="ms-wrap" id="analisesSimulacaoMesMs"></div></div>';
+    box.parentElement.insertBefore(bloco, box);
+    el = document.getElementById('analisesSimulacaoMesMs');
+  }
   if(!simulacaoMesMs){
     simulacaoMesMs = createMultiSelect(el, {
       placeholder: 'Todos os meses', multi: true, search: false,
