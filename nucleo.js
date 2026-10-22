@@ -1207,6 +1207,35 @@ export function fetchOfficialOverridesSafe(){
     .catch(function(){ /* mantém officialOverrides como estava */ });
 }
 
+// ---------- Data/hora da última atualização (aba "_ATUALIZACAO", célula B1) ----------
+// Mostrada no topo, abaixo do período. Buscada à parte (como a aba oficial): se a aba não
+// existir, a célula estiver vazia ou o backend não liberar a aba, o painel carrega normal
+// e simplesmente não mostra essa linha.
+export var ATUALIZACAO_SHEET_NAME = "_ATUALIZACAO";
+
+// Formata o valor bruto de B1 para "dd/mm/aaaa HH:mm". Aceita texto já formatado
+// (dd/mm/aaaa HH:mm[:ss]), ISO (aaaa-mm-ddTHH:mm[:ss]) e devolve o texto original se não reconhecer.
+export function formatarAtualizacao(raw){
+  var s = String(raw == null ? '' : raw).trim();
+  if(!s) return '';
+  var p2 = function(n){ return ('0' + n).slice(-2); };
+  var m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ ,T]+(\d{1,2}):(\d{2}))?/);
+  if(m) return p2(m[1]) + '/' + p2(m[2]) + '/' + m[3] + (m[4] != null ? ' ' + p2(m[4]) + ':' + m[5] : '');
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T]+(\d{1,2}):(\d{2}))?/);
+  if(m) return p2(m[3]) + '/' + p2(m[2]) + '/' + m[1] + (m[4] != null ? ' ' + p2(m[4]) + ':' + m[5] : '');
+  return s;
+}
+
+export function fetchAtualizacaoSafe(){
+  return fetchSheetCsv(ATUALIZACAO_SHEET_NAME)
+    .then(function(csvText){
+      var rows = parseCsv(csvText);
+      // B1 = 1ª linha, 2ª coluna.
+      estadoApp.atualizacaoDados = formatarAtualizacao(rows.length && rows[0].length > 1 ? rows[0][1] : '');
+    })
+    .catch(function(){ estadoApp.atualizacaoDados = ''; });
+}
+
 // ---------- Cadastro de Profissionais (aba "PROFISSIONAIS") ----------
 // Fonte de verdade de QUEM deve aparecer na aba Desempenho Profissional:
 // cada linha desta aba (na mesma planilha de origem) traz o nome do
