@@ -4,7 +4,7 @@
 // Cada seção "=== módulo: ... ===" corresponde a um arquivo original.
 // ======================================================================
 
-import { CLASS_BANDS_M1, CLASS_BANDS_M1_OV, CLASS_BANDS_M2, CLASS_BANDS_M2_OV, CLASS_BANDS_NOTA_OV, CLASS_PILL_HEX, EQUIPES, JANELA_MESES, LEGEND_M1, LEGEND_M2, OV_LEGEND_M1, OV_LEGEND_M2, OV_LEGEND_NOTA, STORAGE_AVAILABLE, STORAGE_KEY, TREND_MESES, anchorMonthDate, animateGauges, anoMs, calcularIndicadoresDoPeriodo, calcularJanelaComOverride, calcularJanelaPeriodo, calcularSerieTendencia, classificarDesempenho, classificarM1, classificarM2, colIndex, compCardHeaderHTML, createMultiSelect, criarLigacaoAtividades, escapeHtml, estadoApp, fetchAllSheets, fetchAtualizacaoSafe, fetchOfficialOverridesSafe, fetchProfissionaisSafe, filtrarLinhasPorEquipe, fmtBRDate, fmtDate, fmtDec, fmtInt, init_nucleo_config, init_nucleo_dados, init_nucleo_listas_estado, init_nucleo_periodos, init_nucleo_popovers, init_visual_gauge, init_visual_painel_kpi, isMesFuturo, labelQuadsSelecionados, m1ListNames, m2ListNames, mediaDeMeses, mesMs, mesesDosQuadsSelecionadosUniao, mesesElapsedDosQuadsSelecionadosUniao, monthOptionValue, monthShortLabel, normalizeText, parseBRDate, parseCsv, periodoMesUnico, pillHex, populateAnoQuadSelects, profissionaisRoster, quadCode, quadKeyOfDate, quadMs, refMonthLabel, sheetToRows, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, valoresUnicosOrdenados, withinPeriod } from './nucleo.js';
+import { CLASS_BANDS_M1, CLASS_BANDS_M1_OV, CLASS_BANDS_M2, CLASS_BANDS_M2_OV, CLASS_BANDS_NOTA_OV, CLASS_PILL_HEX, EQUIPES, JANELA_MESES, LEGEND_M1, LEGEND_M2, OV_LEGEND_M1, OV_LEGEND_M2, OV_LEGEND_NOTA, STORAGE_AVAILABLE, STORAGE_KEY, TREND_MESES, TREND_SEMANAS, anchorMonthDate, animateGauges, anoMs, calcularIndicadoresDoPeriodo, calcularJanelaComOverride, calcularJanelaPeriodo, calcularSerieSemanal, calcularSerieTendencia, classificarDesempenho, classificarM1, classificarM2, colIndex, compCardHeaderHTML, createMultiSelect, criarLigacaoAtividades, escapeHtml, estadoApp, fetchAllSheets, fetchAtualizacaoSafe, fetchOfficialOverridesSafe, fetchProfissionaisSafe, filtrarLinhasPorEquipe, fmtBRDate, fmtDate, fmtDec, fmtInt, init_nucleo_config, init_nucleo_dados, init_nucleo_listas_estado, init_nucleo_periodos, init_nucleo_popovers, init_visual_gauge, init_visual_painel_kpi, isMesFuturo, labelQuadsSelecionados, m1ListNames, m2ListNames, mediaDeMeses, mesMs, mesesDosQuadsSelecionadosUniao, mesesElapsedDosQuadsSelecionadosUniao, monthOptionValue, monthShortLabel, normalizeText, parseBRDate, parseCsv, periodoMesUnico, pillHex, populateAnoQuadSelects, profissionaisRoster, quadCode, quadKeyOfDate, quadShortLabel, quadMs, refMonthLabel, sheetToRows, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, valoresUnicosOrdenados, withinPeriod } from './nucleo.js';
 import { renderFluxoPacientes, ovMesesHTML, M1_META_THRESHOLDS, M2_META_THRESHOLDS, calcularAnalises, calcularMetasQuadrimestre, calcularPerformanceProfissionais, calcularQuadrimestreAnterior, init_abas_analises_calculo, init_abas_analises_render, init_abas_m1_m2, init_abas_profissionais, ipGaugeCardHTML, ipReadingHTML, metaQuadrimestreHTML, metaQuadrimestreMiniHTML, overviewCardHTML, populateSheetsCache, profListaAtual, renderAnalises, renderPerformanceProfissionais, setupPreliminarToggle, setupTrendInteractivity, sparkline, stackbar } from './abas.js';
 import { gerarPdfDivergenciaOficial, init_listas_atividade_coletiva, pessoasAtendidasParaMeses, renderListsSection } from './listas.js';
 
@@ -20,6 +20,9 @@ import { gerarPdfDivergenciaOficial, init_listas_atividade_coletiva, pessoasAten
 var FILTER_BAR_TABS = {geral:true, m1:true, m2:true, tendencia:true, profissionais:true};
 
 // ---------- Render ----------
+// Cache da série semanal da aba Tendência (recalculada só quando a planilha/equipes mudam).
+var cacheTendSemanal = null;
+
 export function renderDashboard(record, serieTendencia, performanceProfissionais, analisesData){
   serieTendencia = serieTendencia || [];
   // Ao reabrir uma leitura antiga do histórico (sem recalcular a partir
@@ -209,21 +212,121 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
   // janela móvel de JANELA_MESES meses terminando naquele mês (ver
   // calcularSerieTendencia) — não é mais o histórico de vezes que a
   // página foi atualizada.
-  var trend = '<div class="card trend-card-combo">'
-    + '<button type="button" id="trendPreliminarToggle" class="trend-preliminar-toggle" title="Mostrar a linha calculada só com os dados da planilha (tabela nominal), sem o override da aba Q2-26"><i></i>Preliminar</button>'
-    + '<div class="trend-sub"><h4>M1 mês a mês</h4>'
-      + '<p class="cur">Mês de referência ('+refMonthLabel()+'): '+fmtDec(d.m1,2)+'</p>'
-      + sparkline(serieTendencia.map(function(p){ return {y:p.m1, label:monthShortLabel(p.mes), value:fmtDec(p.m1,2), quadKey:quadKeyOfDate(p.mes), quadLabel:quadCode(p.mes), oficial:!!p.m1Oficial, yAlt:p.m1Calculado, futuro:isMesFuturo(p.mes)}; }).filter(function(p){return p.y!=null;}), '#153F35', {quadAvg:true, classify:classificarM1, hideAxis:true})
+  // Filtro de período do gráfico (ao lado do pill "Preliminar"):
+  //  - Mês (padrão): um ponto por mês, cada um com sua janela móvel de JANELA_MESES meses;
+  //  - Semana: um ponto por semana (seg–dom), janela de JANELA_MESES meses terminando na semana;
+  //  - Quadrimestre: um ponto por quadrimestre = média dos meses dele (a mesma média que o gráfico
+  //    mensal desenha como "montanha" de cada quadrimestre).
+  function pontosTendencia(gran){
+    if(gran === 'semana'){
+      if(!latestWb) return {erro: 'As semanas são calculadas a partir da planilha carregada; atualize os dados do painel (uma leitura antiga do histórico não tem essa visão).'};
+      var chaveSem = latestWb && (estadoApp.currentEquipes || []).join('|');
+      if(!cacheTendSemanal || cacheTendSemanal.wb !== latestWb || cacheTendSemanal.chave !== chaveSem){
+        cacheTendSemanal = {wb: latestWb, chave: chaveSem, serie: calcularSerieSemanal(latestWb, TREND_SEMANAS)};
+      }
+      return {pts: cacheTendSemanal.serie.map(function(w){
+        return {label: ('0'+w.inicio.getDate()).slice(-2)+'/'+('0'+(w.inicio.getMonth()+1)).slice(-2), m1: w.m1, m2: w.m2,
+                m1Alt: null, m2Alt: null, ofi1: false, ofi2: false,
+                quadKey: quadKeyOfDate(w.fim), quadLabel: quadCode(w.fim), futuro: false, parcial: w.parcial};
+      })};
+    }
+    if(gran === 'quad'){
+      var grupos = [];
+      serieTendencia.forEach(function(p){
+        var k = quadKeyOfDate(p.mes), g = grupos[grupos.length-1];
+        if(g && g.key === k) g.meses.push(p); else grupos.push({key: k, meses: [p]});
+      });
+      // Um quadrimestre incompleto no começo da série (janela de meses cortada no meio dele) distorceria a média.
+      if(grupos.length > 1 && grupos[0].meses.length < 4) grupos.shift();
+      var media = function(g, f){
+        var v = g.meses.map(f).filter(function(x){ return x != null; });
+        return v.length ? v.reduce(function(s, x){ return s + x; }, 0) / v.length : null;
+      };
+      return {pts: grupos.map(function(g){
+        var ult = g.meses[g.meses.length-1].mes;
+        return {label: quadShortLabel(ult), m1: media(g, function(p){ return p.m1; }), m2: media(g, function(p){ return p.m2; }),
+                m1Alt: media(g, function(p){ return p.m1Calculado != null ? p.m1Calculado : p.m1; }),
+                m2Alt: media(g, function(p){ return p.m2Calculado != null ? p.m2Calculado : p.m2; }),
+                ofi1: g.meses.some(function(p){ return p.m1Oficial; }), ofi2: g.meses.some(function(p){ return p.m2Oficial; }),
+                quadKey: g.key, quadLabel: quadCode(ult), futuro: g.meses.some(function(p){ return isMesFuturo(p.mes); }), parcial: false};
+      })};
+    }
+    return {pts: serieTendencia.map(function(p){
+      return {label: monthShortLabel(p.mes), m1: p.m1, m2: p.m2, m1Alt: p.m1Calculado, m2Alt: p.m2Calculado,
+              ofi1: !!p.m1Oficial, ofi2: !!p.m2Oficial, quadKey: quadKeyOfDate(p.mes), quadLabel: quadCode(p.mes),
+              futuro: isMesFuturo(p.mes), parcial: false};
+    })};
+  }
+
+  function montarTendencia(){
+    var gran = estadoApp.trendGranularidade || 'mes';
+    var sem = gran === 'semana';
+    var prelimAtivo = !!estadoApp.trendPreliminar && !sem;
+    var r = pontosTendencia(gran);
+    var opcoes = [['semana','Semana'],['mes','Mês'],['quad','Quadrimestre']];
+    var controles = '<div class="trend-controls">'
+      + '<div class="trend-gran" role="group" aria-label="Período do gráfico">'
+      + opcoes.map(function(o){
+          return '<button type="button" class="trend-gran-btn'+(o[0]===gran?' active':'')+'" data-gran="'+o[0]+'" aria-pressed="'+(o[0]===gran)+'">'+o[1]+'</button>';
+        }).join('')
       + '</div>'
-    + '<div class="trend-sub"><h4>M2 (%) mês a mês</h4>'
-      + '<p class="cur">Mês de referência ('+refMonthLabel()+'): '+fmtDec(d.m2,2)+'%</p>'
-      + sparkline(serieTendencia.map(function(p){ return {y:p.m2, label:monthShortLabel(p.mes), value:fmtDec(p.m2,2)+'%', quadKey:quadKeyOfDate(p.mes), quadLabel:quadCode(p.mes), oficial:!!p.m2Oficial, yAlt:p.m2Calculado, futuro:isMesFuturo(p.mes)}; }).filter(function(p){return p.y!=null;}), '#C68A3D', {quadAvg:true, suffix:'%', classify:classificarM2})
-      + '</div>'
-    + '<p class="footnote">Cada ponto já é a janela de '+JANELA_MESES+' meses terminando naquele mês. Linha tracejada fina = média do quadrimestre no período exibido; o trecho tracejado mais grosso no final da linha principal = meses que ainda não terminaram (projeção). O pill "Preliminar" (canto superior direito) mostra/esconde a linha calculada só com os dados da planilha (tabela nominal), sem o override da aba Q2-26 — os pontinhos marcam os meses em que ela diverge da linha oficial.</p>'
-    + '</div>';
-  document.getElementById('trendRow').innerHTML = trend;
-  setupTrendInteractivity();
-  setupPreliminarToggle();
+      + '<button type="button" id="trendPreliminarToggle" class="trend-preliminar-toggle'+(prelimAtivo?' active':'')+'"'+(sem?' disabled':'')
+      +   ' title="'+(sem?'Disponível nas visões Mês e Quadrimestre (a aba oficial Q2-26 é mensal, não há linha preliminar por semana)':'Mostrar a linha calculada só com os dados da planilha (tabela nominal), sem o override da aba Q2-26')+'"><i></i>Preliminar</button>'
+      + '</div>';
+    var corpo, rodape;
+    if(r.erro){
+      corpo = '<p class="footnote">'+escapeHtml(r.erro)+'</p>';
+      rodape = '';
+    } else {
+      var pts = r.pts, ult = pts[pts.length-1] || {};
+      var curTxt = function(v, suf){
+        if(gran === 'semana') return 'Semana de '+(ult.label||'—')+(ult.parcial?' (em andamento)':'')+': '+fmtDec(v,2)+suf;
+        if(gran === 'quad') return 'Quadrimestre '+(ult.label||'—')+(ult.futuro?' (parcial/projeção)':'')+': '+fmtDec(v,2)+suf;
+        return 'Mês de referência ('+refMonthLabel()+'): '+fmtDec(v,2)+suf;
+      };
+      var curM1 = gran === 'mes' ? d.m1 : ult.m1, curM2 = gran === 'mes' ? d.m2 : ult.m2;
+      var comMedia = gran !== 'quad';
+      var mk = function(sel, alt, ofi, suf){
+        return pts.map(function(p){
+          return {y: p[sel], label: p.label, value: fmtDec(p[sel],2)+suf, quadKey: p.quadKey, quadLabel: p.quadLabel,
+                  oficial: p[ofi], yAlt: p[alt], futuro: p.futuro};
+        }).filter(function(p){ return p.y != null; });
+      };
+      corpo = '<div class="trend-sub"><h4>M1 '+(sem?'semana a semana':gran==='quad'?'por quadrimestre':'mês a mês')+'</h4>'
+        + '<p class="cur">'+(curM1 != null ? curTxt(curM1, '') : '—')+'</p>'
+        + sparkline(mk('m1','m1Alt','ofi1',''), '#153F35', {quadAvg: comMedia, classify: classificarM1, hideAxis: true})
+        + '</div>'
+        + '<div class="trend-sub"><h4>M2 (%) '+(sem?'semana a semana':gran==='quad'?'por quadrimestre':'mês a mês')+'</h4>'
+        + '<p class="cur">'+(curM2 != null ? curTxt(curM2, '%') : '—')+'</p>'
+        + sparkline(mk('m2','m2Alt','ofi2','%'), '#C68A3D', {quadAvg: comMedia, suffix: '%', classify: classificarM2})
+        + '</div>';
+      var base = 'Cada ponto já é a janela de '+JANELA_MESES+' meses terminando ';
+      if(sem){
+        rodape = base+'no fim de cada semana (segunda a domingo; o rótulo é a segunda-feira). A semana mais recente termina hoje. Linha tracejada fina = média do quadrimestre dos pontos exibidos. Não há linha "Preliminar" por semana: a aba oficial Q2-26 é mensal, então todos os valores aqui vêm direto da planilha.';
+      } else if(gran === 'quad'){
+        rodape = 'Cada ponto é a média dos meses do quadrimestre no gráfico mensal (cada mês com sua janela de '+JANELA_MESES+' meses), a mesma média que aparece como bloco no gráfico por mês. Quadrimestres com meses que ainda não terminaram incluem a projeção desses meses. O pill "Preliminar" mostra/esconde a média calculada só com os dados da planilha (sem o override da aba Q2-26); os pontinhos marcam onde ela diverge da oficial.';
+      } else {
+        rodape = base+'naquele mês. Linha tracejada fina = média do quadrimestre no período exibido; o trecho tracejado mais grosso no final da linha principal = meses que ainda não terminaram (projeção). O pill "Preliminar" (canto superior direito) mostra/esconde a linha calculada só com os dados da planilha (tabela nominal), sem o override da aba Q2-26 — os pontinhos marcam os meses em que ela diverge da linha oficial.';
+      }
+      rodape = '<p class="footnote">'+rodape+'</p>';
+    }
+    document.getElementById('trendRow').innerHTML =
+      '<div class="card trend-card-combo'+(prelimAtivo?' show-preliminar':'')+'">' + controles + corpo + rodape + '</div>';
+    setupTrendInteractivity();
+    setupPreliminarToggle();
+    var pill = document.getElementById('trendPreliminarToggle');
+    if(pill) pill.addEventListener('click', function(){ estadoApp.trendPreliminar = pill.classList.contains('active'); });
+    document.querySelectorAll('#trendRow .trend-gran-btn').forEach(function(b){
+      b.addEventListener('click', function(e){
+        e.stopPropagation();
+        var g = b.getAttribute('data-gran');
+        if(g === (estadoApp.trendGranularidade || 'mes')) return;
+        estadoApp.trendGranularidade = g;
+        montarTendencia();
+      });
+    });
+  }
+  montarTendencia();
 
   // Série histórica (tabela): um mês por linha, cada um já calculado com
   // sua própria janela móvel de JANELA_MESES meses (mesmos pontos do

@@ -2404,6 +2404,29 @@ export function calcularSerieTendencia(wb, refMonth, n){
   return pontos;
 }
 
+// Aba Tendência, visão "Semana": cada ponto é uma semana (segunda a domingo) e o valor é o
+// M1/M2 calculado com a MESMA janela móvel de JANELA_MESES meses, só que terminando no último
+// dia daquela semana (a semana atual termina hoje). Não existe override oficial por semana
+// (a aba SIAPS-OFICIAL é mensal), então aqui o valor é sempre o calculado a partir da planilha.
+export var TREND_SEMANAS = 20;
+export function calcularSerieSemanal(wb, n){
+  var hoje = new Date();
+  var fimHoje = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate(), 23,59,59,999);
+  var segAtual = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - ((hoje.getDay()+6)%7), 0,0,0,0);
+  var pontos = [];
+  for(var i=n-1; i>=0; i--){
+    var ini = new Date(segAtual.getFullYear(), segAtual.getMonth(), segAtual.getDate() - 7*i, 0,0,0,0);
+    var fim = new Date(ini.getFullYear(), ini.getMonth(), ini.getDate()+6, 23,59,59,999);
+    var parcial = fim > fimHoje;
+    if(parcial) fim = fimHoje;
+    var janIni = new Date(fim.getFullYear(), fim.getMonth()-JANELA_MESES, fim.getDate()+1, 0,0,0,0);
+    var res = calcularIndicadoresDoPeriodo(wb, {inicio: janIni, fim: fim});
+    pontos.push({inicio: ini, fim: fim, parcial: parcial, m1: res.data.m1, m2: res.data.m2,
+                 janela: {inicio: janIni, fim: fim}});
+  }
+  return pontos;
+}
+
 // Popula #anoMs (anos disponíveis: ano atual + 2 anteriores) e #quadMs
 // (Q1/Q2/Q3, sem ano — o ano agora é um filtro à parte), os dois em
 // multisseleção independente. quadsSelecionados vira o PRODUTO de todo

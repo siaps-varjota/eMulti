@@ -618,8 +618,19 @@
   /* Pill "Preliminar" no canto superior direito do card de tendência —
      clicável, alterna a linha de tendência preliminar (reta de regressão)
      nos dois gráficos SVG abaixo (ver setupPreliminarToggle em app.js). */
+  .trend-controls{position:absolute;top:14px;right:16px;display:flex;align-items:center;gap:8px;z-index:2;}
+  .trend-gran{display:inline-flex;background:var(--paper);border:1px solid var(--line,#E3E3DC);border-radius:999px;padding:2px;}
+  .trend-gran-btn{border:none;background:transparent;color:var(--ink-soft,#6B6B6B);font:inherit;font-size:11.5px;font-weight:600;
+    padding:4px 11px;border-radius:999px;cursor:pointer;line-height:1;white-space:nowrap;transition:background .15s,color .15s;}
+  .trend-gran-btn:hover{color:var(--ink,#1F1F1F);}
+  .trend-gran-btn.active{background:#153F35;color:#fff;}
+  .trend-preliminar-toggle:disabled{opacity:.45;cursor:not-allowed;}
+  .trend-preliminar-toggle:disabled:hover{background:#FDF0DE;}
+  @media (max-width:640px){
+    .trend-controls{position:static;flex-wrap:wrap;justify-content:flex-end;margin:0 0 10px;}
+  }
   .trend-preliminar-toggle{
-    position:absolute;top:14px;right:16px;
+    position:static;
     display:inline-flex;align-items:center;gap:6px;
     background:#FDF0DE;color:#B4791F;border:1px solid transparent;border-radius:999px;
     padding:5px 12px;font-size:11.5px;font-weight:600;white-space:nowrap;
