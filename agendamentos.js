@@ -825,6 +825,50 @@ function reagendarFaltososAg(){
   }).finally(function(){renderAg();});
 }
 
+// ---------- Reagendar para vagas disponíveis (antecipar consultas já marcadas) ----------
+// Procura vagas livres ANTES da data de quem já tem consulta futura ("Agendado") e propõe
+// a antecipação. Nada é gravado: as novas datas entram como "geradas" (mesmo fluxo de
+// "Gerar datas automaticamente"); só viram definitivas em "Salvar datas geradas" (e a
+// data antiga vai para o histórico como Remarcado) ou somem em "Descartar".
+// Só antecipa se ganhar pelo menos ANTECIPAR_MIN_DIAS_AG dias (evita trocar por 1 ou 2 dias).
+var ANTECIPAR_MIN_DIAS_AG=7;
+function anteciparAg(){
+  if(busyAg)return;
+  if(Object.keys(propostaAg).length){msgAg('Há datas geradas aguardando: clique em "Salvar datas geradas" ou "Descartar" antes de antecipar.',true);return;}
+  var uc=profMapAg();
+  if(!uc||!Object.keys(uc.ultProf).length){msgAg('Atualize os dados do painel para carregar Pessoas atendidas antes de antecipar.',true);return;}
+  if(!rowsAg.length){msgAg('Não há registros em Agendamentos. Clique em "Sincronizar Pessoas atendidas" primeiro.',true);return;}
+  var pq=normAg(valAg('agendamentosProfissional')),lf=filtroListaAg(),lim=limiteDiasAg();
+  var ini=isoParaDataAg(valAg('agendamentosInicio'));
+  var inicioIso=isoAg(diaUtilAg(ini||amanhaAg()));
+  var nomes={},cands=[];
+  rowsAg.forEach(function(r,ix){
+    if(r._virtual||(r.Situação||'Pendente')!=='Agendado')return;
+    var d=dateAg(r['Data agendada']);if(!d||d<=inicioIso)return;
+    var k=chaveProfAg(r,uc);if(!k)return;
+    if(lf&&!lf.set[normAg(r.Nome)])return;
+    if(!dentroDiasAg(r,uc,lim))return;
+    var prof=nomeProfAg(r,uc);
+    if(pq&&!casaProfAg(prof,pq))return;
+    nomes[k]=prof;
+    cands.push({ix:ix,k:k,d:d,ult:ultimoDeAg(r,uc),nome:String(r.Nome||'')});
+  });
+  if(!cands.length){msgAg('Não há consultas futuras ("Agendado") depois de '+brAg(inicioIso)+' para antecipar'+(pq?' com esse filtro de profissional':'')+'.',false);return;}
+  // Quem está mais longe é atendido primeiro (ganha mais); empate: último atendimento mais antigo.
+  cands.sort(function(a,b){return a.d>b.d?-1:a.d<b.d?1:(a.ult<b.ult?-1:a.ult>b.ult?1:a.nome.localeCompare(b.nome,'pt-BR'));});
+  var movidos=0,somaGanho=0,maior=0;
+  cands.forEach(function(c){
+    var nova=proximaVagaAg(c.ix,inicioIso,uc);
+    if(!nova||nova>=c.d)return;
+    var ganho=Math.round((isoParaDataAg(c.d)-isoParaDataAg(nova))/86400000);
+    if(ganho<ANTECIPAR_MIN_DIAS_AG)return;
+    propostaAg[c.ix]=nova;movidos++;somaGanho+=ganho;if(ganho>maior)maior=ganho;
+  });
+  if(!movidos){renderAg();atualizarBotoesGeracaoAg();msgAg('Nenhuma vaga livre antes das consultas já marcadas (só antecipo quando ganha '+ANTECIPAR_MIN_DIAS_AG+' dias ou mais, a partir de '+brAg(inicioIso)+').',false);return;}
+  renderAg();atualizarBotoesGeracaoAg();resumoGeradoAg(uc,nomes);
+  msgAg(movidos+(movidos===1?' consulta pode ser antecipada':' consultas podem ser antecipadas')+' para vagas livres (ganho médio de '+Math.round(somaGanho/movidos)+' dias; maior: '+maior+'). Confira e clique em "Salvar datas geradas" ou "Descartar".',false);
+}
+
 // ---------- Conflito de edição (duas pessoas mexendo na mesma linha) ----------
 // Antes de gravar, relê a planilha e compara Situação/Data agendada com o que esta tela sabia.
 function verificarConflitosAg(linhas){
@@ -1818,6 +1862,7 @@ document.addEventListener('DOMContentLoaded',function(){
   var ini=document.getElementById('agendamentosInicio');if(ini)ini.value=isoAg(diaUtilAg(amanhaAg()));
   document.getElementById('agendamentosGerar').addEventListener('click',function(){gerarAg(false);});
   var rfEl=document.getElementById('agendamentosReagendar');if(rfEl)rfEl.addEventListener('click',reagendarFaltososAg);
+  var antEl=document.getElementById('agendamentosAntecipar');if(antEl)antEl.addEventListener('click',anteciparAg);
   document.getElementById('agendamentosSalvarGerados').addEventListener('click',salvarGeradosAg);
   document.getElementById('agendamentosDescartar').addEventListener('click',descartarAg);
   document.querySelector('.tab[data-tab="agendamentos"]').addEventListener('click',loadAg);
