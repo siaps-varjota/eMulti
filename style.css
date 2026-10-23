@@ -1535,7 +1535,7 @@ h1,h2,h3,.serif{font-optical-sizing:auto;}
 .tabbar::-webkit-scrollbar{display:none;}
 .tabbar .tab{
   flex:0 0 auto;white-space:nowrap;background:transparent;border:none;border-radius:999px;
-  padding:8px 15px;font-size:13.8px;font-weight:600;letter-spacing:0;line-height:1.1;color:var(--ink-soft);
+  padding:7.2px 13.5px;font-size:12.4px;font-weight:600;letter-spacing:0;line-height:1.1;color:var(--ink-soft);
   transition:background .15s,color .15s;
 }
 .tabbar .tab:hover{background:transparent;color:var(--ink);}
@@ -1549,7 +1549,7 @@ h1,h2,h3,.serif{font-optical-sizing:auto;}
 }
 .ag-pills .pill-btn{
   border:none;background:transparent;color:var(--ink-soft);box-shadow:none;
-  padding:8px 15px;font-size:13.8px;font-weight:600;line-height:1.1;border-radius:999px;white-space:nowrap;
+  padding:7.2px 13.5px;font-size:12.4px;font-weight:600;line-height:1.1;border-radius:999px;white-space:nowrap;
 }
 .ag-pills .pill-btn:hover{background:transparent;color:var(--ink);border:none;}
 .ag-pills .pill-btn.active,.ag-pills .pill-btn.active:hover{background:#153F35;color:#fff;box-shadow:none;}
