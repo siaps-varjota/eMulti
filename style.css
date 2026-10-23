@@ -1516,3 +1516,40 @@ h1,h2,h3,.serif{font-optical-sizing:auto;}
 #tabAgendamentos .ag-menu>.agendamentos-gerar{justify-content:center;gap:12px 14px}
 #tabAgendamentos .ag-menu>.agendamentos-gerar label{font-size:15px;font-weight:700;color:#153F35}
 #tabAgendamentos .ag-menu>.agendamentos-gerar input[type=date]{flex:0 0 auto}
+
+/* =====================================================================
+   Controle segmentado: mesmo visual do filtro Semana | Mês | Quadrimestre
+   da aba Tendência, agora também na barra de abas principal e nos botões
+   Agendamentos | Agenda | Faltas. Só aparência: HTML e JS não mudam.
+   ===================================================================== */
+/* Barra de abas: o <nav> vira a "pista" do controle, centralizada. O fundo
+   da faixa passa para o .header-group (que gruda no topo ao rolar). */
+.header-group{background:#FAFBF8;border-bottom:1px solid var(--line);}
+.tabbar{
+  display:flex;align-items:center;justify-content:flex-start;flex-wrap:nowrap;
+  width:max-content;max-width:calc(100% - 24px);margin:9px auto;padding:2px;gap:2px;
+  background:var(--paper);border:1px solid var(--line);border-bottom:1px solid var(--line);border-radius:999px;
+  box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;
+  overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;
+}
+.tabbar::-webkit-scrollbar{display:none;}
+.tabbar .tab{
+  flex:0 0 auto;white-space:nowrap;background:transparent;border:none;border-radius:999px;
+  padding:7px 13px;font-size:12.5px;font-weight:600;letter-spacing:0;line-height:1;color:var(--ink-soft);
+  transition:background .15s,color .15s;
+}
+.tabbar .tab:hover{background:transparent;color:var(--ink);}
+.tabbar .tab.active,.tabbar .tab.active:hover{background:#153F35;color:#fff;border:none;font-weight:600;}
+.tabbar .tab:focus-visible{outline:2px solid var(--header-bg);outline-offset:1px;border-radius:999px;}
+
+/* Agendamentos | Agenda | Faltas */
+.ag-pills{
+  display:inline-flex;align-items:center;gap:0;padding:2px;
+  background:var(--paper);border:1px solid var(--line);border-radius:999px;
+}
+.ag-pills .pill-btn{
+  border:none;background:transparent;color:var(--ink-soft);box-shadow:none;
+  padding:4px 11px;font-size:11.5px;font-weight:600;line-height:1;border-radius:999px;white-space:nowrap;
+}
+.ag-pills .pill-btn:hover{background:transparent;color:var(--ink);border:none;}
+.ag-pills .pill-btn.active,.ag-pills .pill-btn.active:hover{background:#153F35;color:#fff;box-shadow:none;}
