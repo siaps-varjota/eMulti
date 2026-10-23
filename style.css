@@ -1549,7 +1549,7 @@ h1,h2,h3,.serif{font-optical-sizing:auto;}
 }
 .ag-pills .pill-btn{
   border:none;background:transparent;color:var(--ink-soft);box-shadow:none;
-  padding:4px 11px;font-size:11.5px;font-weight:600;line-height:1;border-radius:999px;white-space:nowrap;
+  padding:8px 15px;font-size:13.8px;font-weight:600;line-height:1.1;border-radius:999px;white-space:nowrap;
 }
 .ag-pills .pill-btn:hover{background:transparent;color:var(--ink);border:none;}
 .ag-pills .pill-btn.active,.ag-pills .pill-btn.active:hover{background:#153F35;color:#fff;box-shadow:none;}
