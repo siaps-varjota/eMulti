@@ -363,7 +363,7 @@
     <div id="agVisaoAgenda" hidden>
     <div class="card agenda-card">
       <div class="agenda-toolbar">
-        <select id="agendaProf" aria-label="Profissional"><option value="">Todos os profissionais</option></select>
+        <details id="agendaProfMulti" class="agendamentos-meses agenda-prof-multi"><summary><span id="agendaProfResumo">Todos os profissionais</span></summary><div class="agendamentos-meses-painel"><div id="agendaProfLista"></div><button id="agendaProfLimpar" type="button" class="agendamentos-meses-limpar">Todos os profissionais</button></div></details>
         <span class="agenda-nav agenda-nav-sem"><button type="button" id="agendaSemPrev" title="Semana anterior" aria-label="Semana anterior">‹ Semana</button><select id="agendaSemana" aria-label="Semana"><option value="">Todo o mês</option></select><button type="button" id="agendaSemNext" title="Avançar semana" aria-label="Avançar semana">Semana ›</button></span>
         <span class="agenda-nav"><button type="button" id="agendaPrev" aria-label="Mês anterior">‹</button><strong id="agendaMes">—</strong><button type="button" id="agendaNext" aria-label="Próximo mês">›</button></span>
         <span class="agenda-export">

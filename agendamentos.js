@@ -169,6 +169,8 @@ var PROF_UNIDADES_AG={
 };
 // Unidade da regra x unidade vinda do PEC (coluna equipe): igual ou uma contém a outra ("EMULTI Vila Naiara" casa com "Vila Naiara").
 function unidCasaAg(a,b){var x=normAg(a),y=normAg(b);return !!x&&!!y&&(x===y||x.indexOf(y)>=0||y.indexOf(x)>=0);}
+// Unidade para mostrar na Agenda: nome padronizado (Ararinha, Centro...) sem o prefixo "EMULTI ".
+function unidExibirAg(u){var s=String(u==null?'':u).trim();if(!s)return '';return String(nomeUnidAg(s)).replace(/^emulti\s+/i,'').trim();}
 function nomeUnidAg(n){for(var i=0;i<UNIDADES_AG.length;i++)if(unidCasaAg(UNIDADES_AG[i],n))return UNIDADES_AG[i];return String(n||'');}
 function regraOkAg(r){
   if(!r||typeof r!=='object'||!(r.dia>=0&&r.dia<=6))return false;
@@ -1115,7 +1117,7 @@ window.__emultiAgendaDados=function(){
     var k=chaveProfAg(r,uc),semProf=!k;if(semProf){k='__sem_profissional';diag.semProf++;}
     var t=turnos[ix];
     emitidos[chaveHistAg(r.Nome,d)]=true;
-    ev.push({atual:true,data:d,nome:String(r.Nome||''),prof:semProf?'Sem profissional definido':nomeProfAg(r,uc),profKey:k,tipo:prop?'sugerido':(sit==='Realizado'?'realizado':'agendado'),situacao:sit,turno:t?t.rotulo:'',ult:ultimoDeAg(r,uc),capDia:semProf?0:capNoDiaAg(capAg(k),d).dia});
+    ev.push({atual:true,data:d,nome:String(r.Nome||''),prof:semProf?'Sem profissional definido':nomeProfAg(r,uc),profKey:k,tipo:prop?'sugerido':(sit==='Realizado'?'realizado':'agendado'),situacao:sit,turno:t?t.rotulo:'',ult:ultimoDeAg(r,uc),unid:semProf?'':unidExibirAg(uc.ultUnid&&uc.ultUnid[normAg(r.Nome)]),capDia:semProf?0:capNoDiaAg(capAg(k),d).dia});
   });
   // Desfechos de agendamentos antigos (a linha da pessoa já foi sobrescrita por um novo agendamento).
   histAg.forEach(function(h){
@@ -1124,7 +1126,7 @@ window.__emultiAgendaDados=function(){
     var pk=normAg(h.Profissional),un=normAg(h.Unidade),sep=pk&&uc.multi&&uc.multi[pk]&&un;
     var k=pk?(sep?pk+'@'+un:pk):'__sem_profissional';
     emitidos[chaveHistAg(h.Nome,d)]=true;
-    ev.push({data:d,nome:String(h.Nome||''),prof:pk?(sep?h.Profissional+' — '+h.Unidade:h.Profissional):'Sem profissional definido',profKey:k,tipo:h.Desfecho==='Faltou'?'faltou':'realizado',situacao:h.Desfecho==='Faltou'?'Faltou':'Realizado',turno:String(h.Turno||''),ult:'',capDia:pk?capNoDiaAg(capAg(k),d).dia:0});
+    ev.push({data:d,nome:String(h.Nome||''),prof:pk?(sep?h.Profissional+' — '+h.Unidade:h.Profissional):'Sem profissional definido',profKey:k,tipo:h.Desfecho==='Faltou'?'faltou':'realizado',situacao:h.Desfecho==='Faltou'?'Faltou':'Realizado',turno:String(h.Turno||''),ult:'',unid:unidExibirAg(h.Unidade),capDia:pk?capNoDiaAg(capAg(k),d).dia:0});
   });
   return {eventos:ev,pronto:true,diag:diag};
 };

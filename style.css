@@ -1149,6 +1149,7 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 .agenda-num{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;font-size:12px;font-weight:600}
 .agenda-dia.hoje .agenda-num{background:#1C6D53;color:#fff}
 .agenda-lot{font-size:9px;font-weight:700;color:#B5474B}
+.agenda-unid{flex:1 1 auto;min-width:0;margin:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;font-size:10px;font-weight:600;color:var(--ink-soft)}
 .agenda-ev{display:block;margin-bottom:2px;padding:2px 5px;border-radius:5px;font-size:10.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .agenda-ev.agendado{background:#E3F1EB;color:#1F5F4A}
 .agenda-ev.sugerido{background:#FFF0D9;color:#8A5A12}
@@ -1195,7 +1196,13 @@ h1,h2,h3,.serif{letter-spacing:-.012em;}
 .main:has(#tabAgendamentos.active){padding-top:12px}
 /* Agenda: profissional no início da linha; tudo numa linha em telas largas */
 .agenda-toolbar{justify-content:flex-start}
-.agenda-toolbar select#agendaProf{flex:1 1 150px;min-width:130px;max-width:300px}
+.agenda-prof-multi{flex:1 1 150px;min-width:130px;max-width:300px}
+.agenda-prof-multi>summary{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;font-size:inherit;font-weight:500;color:var(--ink)}
+.agenda-prof-multi>summary>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.agenda-prof-multi .agendamentos-meses-painel{min-width:290px;max-height:320px}
+.agenda-prof-multi .agendamentos-meses-painel label{white-space:nowrap}
+.agenda-prof-multi input[type=checkbox]{width:auto;min-width:0;padding:0;margin:0;flex:none}
+#tabAgendamentos .agenda-toolbar .agenda-prof-multi .agendamentos-meses-limpar{width:100%;margin-top:6px;padding:6px 8px;font-size:12px;font-weight:500;color:var(--ink);border-color:var(--line)}
 .agenda-nav strong{min-width:110px}
 .agenda-toolbar button{white-space:nowrap}
 @media(min-width:1150px){.agenda-toolbar{flex-wrap:nowrap}}
