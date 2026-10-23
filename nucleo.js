@@ -42,9 +42,11 @@ var BASE_SHEET_NAMES = [
 // valor da coluna "equipe_unidade" pra a linha pertencer a esta equipe.
 // Ex.: "EMULTI CROATA DOS MARTINS - Croata" e "EMULTI CROATA DOS
 // MARTINS" (formatos variam entre abas) casam com "CROATA".
+// "EMULTI PEDREIRA" (aba SIAPS-OFICIAL e demais abas) casa com "PEDREIRA".
 export var EQUIPES = [
   {key:"centro", label:"EMULTI Centro", suffix:"Centro", matchKeyword:"CENTRO"},
-  {key:"croata", label:"EMULTI Croatá", suffix:"Croatá", matchKeyword:"CROATA"}
+  {key:"croata", label:"EMULTI Croatá", suffix:"Croatá", matchKeyword:"CROATA"},
+  {key:"pedreira", label:"EMULTI Pedreira", suffix:"Pedreira", matchKeyword:"PEDREIRA"}
 ];
 
 // Indicadores de resultado (Composição do numerador, denominador etc.)
