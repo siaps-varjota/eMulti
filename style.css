@@ -1535,7 +1535,7 @@ h1,h2,h3,.serif{font-optical-sizing:auto;}
 .tabbar::-webkit-scrollbar{display:none;}
 .tabbar .tab{
   flex:0 0 auto;white-space:nowrap;background:transparent;border:none;border-radius:999px;
-  padding:7.2px 13.5px;font-size:12.4px;font-weight:600;letter-spacing:0;line-height:1.1;color:var(--ink-soft);
+  padding:7.6px 14.2px;font-size:13px;font-weight:600;letter-spacing:0;line-height:1.1;color:var(--ink-soft);
   transition:background .15s,color .15s;
 }
 .tabbar .tab:hover{background:transparent;color:var(--ink);}
