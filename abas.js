@@ -2467,13 +2467,7 @@ function metaProgressoHTML(cardsCfg){
 // é uma projeção baseada só nos meses já decorridos (ver
 // mesesElapsedDoQuadrimestre), mostra "Projeção (base: <meses>)" em vez do
 // "Preliminar" genérico.
-// Linha extra com o que já foi feito no mês em andamento (ainda não fechou, por isso fica
-// fora do resultado e do "faltam" — que usam só meses fechados).
-function mqParcialHTML(html){
-  if(!html) return '';
-  return '<p class="mq-parcial" style="margin:10px 0 0;padding:8px 10px;border-left:3px solid #2563EB;background:rgba(37,99,235,.06);border-radius:0 8px 8px 0;font-size:12px;line-height:1.45;color:var(--ink-soft,#51605A);">'+html+'</p>';
-}
-export function metaQuadrimestreHTML(titulo, base, baseLabel, cardsCfg, preliminar, projecaoLabel, parcialHtml){
+export function metaQuadrimestreHTML(titulo, base, baseLabel, cardsCfg, preliminar, projecaoLabel){
   var cardsHtml = cardsCfg.map(metaCardHTML).join('');
   var selo = projecaoLabel
     ? '<span class="pill-preliminar" title="Meses ainda sem dado real são projetados pelo ritmo de '+escapeHtml(projecaoLabel)+'"><i></i>Projeção (base: '+escapeHtml(projecaoLabel)+')</span>'
@@ -2486,7 +2480,6 @@ export function metaQuadrimestreHTML(titulo, base, baseLabel, cardsCfg, prelimin
     + '</div>'
     + metaProgressoHTML(cardsCfg)
     + '<div class="mq-tiers">'+cardsHtml+'</div>'
-    + mqParcialHTML(parcialHtml)
     + '</div>';
 }
 
@@ -2499,7 +2492,7 @@ export function metaQuadrimestreHTML(titulo, base, baseLabel, cardsCfg, prelimin
 // abas M1/M2 (ver mm-comp-col). Mostra só o essencial: alvo de cada
 // faixa (Bom/Ótimo) e quanto falta, sem os detalhes de ritmo médio
 // (que só aparecem no bloco completo da Visão geral).
-export function metaQuadrimestreMiniHTML(base, baseLabel, cardsCfg, preliminar, projecaoLabel, parcialHtml){
+export function metaQuadrimestreMiniHTML(base, baseLabel, cardsCfg, preliminar, projecaoLabel){
   // Cada faixa (Bom/Ótimo) agora é uma "caixa" própria — ponto colorido +
   // rótulo/alvo à esquerda, badge de status (faltam X / meta atingida) à
   // direita — no modelo das imagens de referência.
@@ -2539,7 +2532,6 @@ export function metaQuadrimestreMiniHTML(base, baseLabel, cardsCfg, preliminar, 
           ? ' <span class="pill-preliminar-mini" title="Meses ainda sem dado real são projetados pelo ritmo de '+escapeHtml(projecaoLabel)+'">Projeção</span>'
           : (preliminar ? ' <span class="pill-preliminar-mini">Preliminar</span>' : ''))+'</h4></div>'
     + '<div class="meta-mini-rows">'+rows+'</div>'
-    + mqParcialHTML(parcialHtml)
     + '</div>';
 }
 

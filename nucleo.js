@@ -213,25 +213,27 @@ function mesesDoQuadrimestre(ano, qIndex){
   return meses;
 }
 
-// Só os meses do quadrimestre que já terminaram (mês cheio, fim do mês
-// <= hoje) — usado pra "Meta do quadrimestre" e pra Visão geral não
-// diluir a média do quadrimestre com meses futuros que ainda não têm
-// nenhum atendimento/atividade real (o que puxaria o resultado pra
-// baixo artificialmente). O ritmo médio desses meses já decorridos é
-// usado como PROJEÇÃO pros meses que faltam (ver mediaDeMeses e
-// aplicarMesReferencia): matematicamente, preencher os meses futuros
-// com a própria média dos meses decorridos dá o mesmo resultado que
-// simplesmente tirar a média só dos meses decorridos — por isso o
-// cálculo abaixo não recalcula nada pros meses futuros, só os exclui.
-// Se o quadrimestre acabou de começar (nenhum mês ainda fechou), usa
-// ao menos o 1º mês (mesmo em andamento) pra não ficar sem nenhum
-// dado.
+// Só os meses do quadrimestre que já COMEÇARAM (inclui o mês em andamento,
+// mesmo que ainda não tenha fechado) — usado pra "Meta do quadrimestre" e
+// pra Visão geral não diluir a média do quadrimestre com meses futuros que
+// ainda não têm nenhum atendimento/atividade real (o que puxaria o
+// resultado pra baixo artificialmente). Assim o resultado do quadrimestre
+// acompanha os cards de cada mês exibidos logo abaixo (ex.: em outubro,
+// Set+Out). O mês em andamento está incompleto: o resultado dele pode
+// subir quando chegarem registros atrasados do PEC. O ritmo médio desses
+// meses é usado como PROJEÇÃO pros meses que faltam (ver mediaDeMeses e
+// aplicarMesReferencia): matematicamente, preencher os meses futuros com a
+// própria média dos meses usados dá o mesmo resultado que simplesmente
+// tirar a média só deles — por isso o cálculo abaixo não recalcula nada
+// pros meses futuros, só os exclui.
+// Se o quadrimestre ainda não começou, usa ao menos o 1º mês pra não ficar
+// sem nenhum dado.
 function mesesElapsedDoQuadrimestre(ano, qIndex){
   var meses = mesesDoQuadrimestre(ano, qIndex);
   var hoje = new Date();
   var elapsed = meses.filter(function(m){
-    var fimMes = new Date(m.getFullYear(), m.getMonth()+1, 0, 23,59,59,999);
-    return fimMes <= hoje;
+    var inicioMes = new Date(m.getFullYear(), m.getMonth(), 1, 0,0,0,0);
+    return inicioMes <= hoje;
   });
   return elapsed.length ? elapsed : meses.slice(0,1);
 }
