@@ -237,7 +237,8 @@ function capNoDiaAg(cap,iso){
 // Último atendimento de uma linha de Pessoas atendidas: usa a data completa
 // (listas.js) e, se ela não existir, a maior das colunas "Data 1..N" (índice 6+).
 function ultimoAg(r){if(r.ultimoAtendimentoISO)return r.ultimoAtendimentoISO;var best='';for(var i=6;i<r.length;i++){var m=String(r[i]==null?'':r[i]).match(/^(\d{2})\/(\d{2})\/(\d{4})$/);if(m){var iso=m[3]+'-'+m[2]+'-'+m[1];if(iso>best)best=iso;}}return best;}
-function normAg(v){return String(v==null?'':v).trim().toLocaleLowerCase('pt-BR').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ');}
+var normCacheAg=new Map();
+function normAg(v){var k=v==null?'':String(v),h=normCacheAg.get(k);if(h!==undefined)return h;h=k.trim().toLocaleLowerCase('pt-BR').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ');if(normCacheAg.size>20000)normCacheAg.clear();normCacheAg.set(k,h);return h;}
 // Mapa pessoa -> profissionais (histórico completo), vindo de Pessoas atendidas
 // (coluna "Profissional"). Também junta a lista de profissionais para o datalist.
 function profMapAg(){
@@ -383,17 +384,18 @@ function chaveSortAg(col,r,ix,uc,turnos){
   }
   return null;
 }
+var collAg=new Intl.Collator('pt-BR'),collNumAg=new Intl.Collator('pt-BR',{numeric:true});
 function ordenarAg(list,uc,turnos){
   var col=sortAg.col,mult=sortAg.dir==='asc'?1:-1,pos=new Map();
   rowsAg.forEach(function(r,i){pos.set(r,i);});
-  var itens=list.map(function(r){var ix=pos.get(r);return {r:r,ix:ix,k:chaveSortAg(col,r,ix,uc,turnos)};});
+  var itens=list.map(function(r){var ix=pos.get(r);return {r:r,ix:ix,k:chaveSortAg(col,r,ix,uc,turnos),n:normAg(r.Nome)};});
   itens.sort(function(a,b){
     if(a.k===null&&b.k!==null)return 1;   // vazios sempre por último
     if(b.k===null&&a.k!==null)return -1;
     var c=0;
-    if(a.k!==null){c=typeof a.k==='number'?a.k-b.k:String(a.k).localeCompare(String(b.k),'pt-BR',{numeric:true});}
+    if(a.k!==null){c=typeof a.k==='number'?a.k-b.k:collNumAg.compare(String(a.k),String(b.k));}
     if(c)return c*mult;
-    return normAg(a.r.Nome).localeCompare(normAg(b.r.Nome),'pt-BR');  // desempate estável por nome
+    return collAg.compare(a.n,b.n);  // desempate estável por nome
   });
   return itens.map(function(x){return x.r;});
 }
@@ -532,8 +534,9 @@ function planejarAg(cands,ocupados,inicio,opt){
 // vagas, dias de atendimento e lotação. Os demais continuam com a chave simples (nome normalizado).
 function chaveProfAg(r,uc){
   var n=normAg(r.Nome),p=uc&&uc.ultProf[n];if(!p)return '';
+  var c=uc._chaves||(uc._chaves={});if(c[n]!==undefined)return c[n];
   var k=normAg(p),u=uc.ultUnid&&uc.ultUnid[n];
-  return (uc.multi&&uc.multi[k]&&u)?k+'@'+normAg(u):k;
+  return c[n]=(uc.multi&&uc.multi[k]&&u)?k+'@'+normAg(u):k;
 }
 // Nome para exibir: "Profissional — Unidade" quando a agenda é separada por unidade.
 function nomeProfAg(r,uc){
@@ -970,7 +973,7 @@ function executarSalvarGeradosAg(ixs){
     msgAg(ok+(ok===1?' agendamento salvo':' agendamentos salvos')+(falhas?'; '+falhas+' não foram salvos'+(ultimoErro?' ('+ultimoErro+')':'')+' e continuam como proposta — clique em "Salvar datas geradas" para tentar de novo.':'.'),falhas>0);
   }
 }
-function loadAg(){if(busyAg)return;busyAg=true;profCacheAg=null;propostaAg={};atualizarBotoesGeracaoAg();msgAg('Carregando agendamentos…');renderAg();carregarBloqueiosAg().then(carregarConfigServidorAg).then(function(){return apiAg({action:'agendamentos.list'});}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:[];completarVirtuaisAg();msgAg('');carregarHistoricoAg();}).catch(function(e){msgAg(e.message||'Falha ao carregar.',true);}).finally(function(){busyAg=false;renderAg();renderConfigAg();try{gerarAg(true);}catch(e){if(window.console)console.error(e);msgAg('Lista carregada, mas não foi possível sugerir datas: '+((e&&e.message)||e),true);}});}
+function loadAg(){if(busyAg)return;busyAg=true;profCacheAg=null;propostaAg={};atualizarBotoesGeracaoAg();msgAg('Carregando agendamentos…');renderAg();var listaReq=apiAg({action:'agendamentos.list'});listaReq.catch(function(){});carregarBloqueiosAg().then(carregarConfigServidorAg).then(function(){return listaReq;}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:[];completarVirtuaisAg();msgAg('');carregarHistoricoAg();}).catch(function(e){msgAg(e.message||'Falha ao carregar.',true);}).finally(function(){busyAg=false;renderAg();renderConfigAg();try{gerarAg(true);}catch(e){if(window.console)console.error(e);msgAg('Lista carregada, mas não foi possível sugerir datas: '+((e&&e.message)||e),true);}});}
 function syncAg(){if(busyAg)return;profCacheAg=null;var list=window.__emultiPessoasAtendidas&&window.__emultiPessoasAtendidas();if(!list||!Array.isArray(list.rows)||!list.rows.length){msgAg('Atualize os dados do painel para carregar Pessoas atendidas antes de sincronizar.',true);return;}var pessoas=list.rows.filter(function(r){return r.agendavel===true;}).map(function(r){return{nome:String(r[0]||'').trim(),at:Number(r[1])||0,total:Number(r[3])||0,ultimo:r.ultimoAtendimentoAgendaISO||''};}).filter(function(x){return x.nome;});if(!pessoas.length){msgAg('Nenhuma pessoa em Pessoas atendidas. Atualize os dados do painel e tente de novo.',true);return;}busyAg=true;msgAg('Sincronizando '+pessoas.length+' pessoas…');renderAg();var syncMsg='';apiAg({action:'agendamentos.sync',rows:pessoas}).then(function(r){syncMsg='Sincronização concluída: '+(Number(r.inseridos)||0)+' novos; '+(Number(r.atualizados)||0)+' atualizados ('+pessoas.length+' pessoas em Pessoas atendidas).';msgAg(syncMsg);return apiAg({action:'agendamentos.list'});}).then(function(r){rowsAg=Array.isArray(r.rows)?r.rows:rowsAg;completarVirtuaisAg();}).catch(function(e){msgAg(e.message||'Falha ao sincronizar.',true);}).finally(function(){busyAg=false;renderAg();renderConfigAg();if(syncMsg){propostaAg={};gerarAg(true,syncMsg);}});}
 
 // ---------- Histórico de desfechos (Realizado/Faltou) ----------
