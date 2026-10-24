@@ -160,7 +160,7 @@ function capAg(k){
 //          turno:'ambos'|'manha'|'tarde', m:vagas manhã (opcional), t:vagas tarde (opcional)}
 //  '1' = toda semana · '2'/'3'/'4' = a cada N semanas, contando a partir da semana de "desde" ·
 //  'mes' = só nas semanas escolhidas do mês (1ª, 2ª… ocorrência desse dia da semana no mês).
-var UNIDADES_AG=['Ararinha','Centro','Vila Naiara','Croatá','Empréstimos'];
+var UNIDADES_AG=['Ararinha','Centro','Pedreira','Vila Naiara','Croatá','Empréstimos'];
 // Unidades em que cada profissional atende (nome normalizado -> unidades). Quem está aqui tem uma agenda por unidade
 // (vagas, dias e lotação separados) mesmo que ainda não haja atendimento ou regra cadastrada em todas elas.
 // Para incluir outro profissional que atende em 2+ unidades, basta acrescentar uma linha.
