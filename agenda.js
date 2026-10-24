@@ -27,9 +27,9 @@ function pad2Agenda(n){return ('0'+n).slice(-2);}
 function isoParaDataAgenda(iso){var m=String(iso||'').match(/^(\d{4})-(\d\d)-(\d\d)$/);return m?new Date(+m[1],+m[2]-1,+m[3]):null;}
 function brAgenda(d){return pad2Agenda(d.getDate())+'/'+pad2Agenda(d.getMonth()+1)+'/'+d.getFullYear();}
 // Agrupa os atendimentos de um dia por período e unidade: manhã primeiro, depois tarde, excedente e sem turno;
-// dentro do mesmo período, ordem alfabética da unidade. Cada grupo vira "Unidade (M)" / "Unidade (T)".
+// dentro do mesmo período, ordem alfabética da unidade. Cada grupo vira "Unidade - Manhã" / "Unidade - Tarde".
 var ORDEM_TURNO_AGENDA={'Manhã':0,'Tarde':1,'Excedente':2};
-function letraTurnoAgenda(t){return t==='Manhã'?'M':(t==='Tarde'?'T':(t==='Excedente'?'Exc.':''));}
+function letraTurnoAgenda(t){return t==='Manhã'||t==='Tarde'||t==='Excedente'?t:'';}
 function gruposDiaAgenda(evs){
   var g={},ch=[];
   evs.forEach(function(e){var t=e.turno||'',u=e.unid||'',k=t+'|'+u;if(!g[k]){g[k]={turno:t,unid:u,evs:[]};ch.push(k);}g[k].evs.push(e);});
@@ -37,7 +37,7 @@ function gruposDiaAgenda(evs){
   ch.sort(function(a,b){var A=g[a],B=g[b];if(pos(A.turno)!==pos(B.turno))return pos(A.turno)-pos(B.turno);return A.unid.localeCompare(B.unid,'pt-BR');});
   return ch.map(function(k){return g[k];});
 }
-function rotuloGrupoAgenda(g){var l=letraTurnoAgenda(g.turno);return g.unid?g.unid+(l?' ('+l+')':''):(g.turno||'Sem turno');}
+function rotuloGrupoAgenda(g){var l=letraTurnoAgenda(g.turno);return g.unid?g.unid+(l?' - '+l:''):(g.turno||'Sem turno');}
 function chaveDiaAgenda(d){return d.getFullYear()+'-'+pad2Agenda(d.getMonth()+1)+'-'+pad2Agenda(d.getDate());}
 function mesmoDiaAgenda(a,b){return a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();}
 
@@ -194,8 +194,8 @@ function renderAgenda(){
     var fora=st.sem&&(dia<st.sem.inicio||dia>st.sem.fim);
     var fer=window.__emultiFeriadoAg?window.__emultiFeriadoAg(k):'';
     var selecionado=!!(st.dia&&st.dia.chave===k);
-    // Unidade por período (entre o número do dia e o selo LOTADO): "Centro (M)" no topo; os próximos períodos/unidades
-    // (ex.: "Pedreira (T)") aparecem como separador logo antes da respectiva lista.
+    // Unidade por período (entre o número do dia e o selo LOTADO): "Centro - Manhã" no topo; os próximos períodos/unidades
+    // (ex.: "Centro - Tarde") aparecem como separador logo antes da respectiva lista.
     var grs=gruposDiaAgenda(evs);
     var unidHtml=grs.length?'<span class="agenda-unid" title="'+escAgenda(grs.map(rotuloGrupoAgenda).join(' · '))+'">'+escAgenda(rotuloGrupoAgenda(grs[0]))+'</span>':'';
     cel.push('<div class="agenda-dia'+(mesmoDiaAgenda(dia,hoje)?' hoje':st.lotados[k]?' lotado':fer?' feriado':'')+(selecionado?' sel':'')+'" data-dia="'+k+'" role="button" tabindex="0" aria-pressed="'+selecionado+'" aria-label="'+escAgenda(rotuloDiaAgenda(dia)+' — '+evs.length+(evs.length===1?' pessoa':' pessoas')+'. Selecionar para gerar PDF, WhatsApp ou imagem só deste dia')+'"'+(fer?' title="'+escAgenda(fer)+'"':'')+'>'
