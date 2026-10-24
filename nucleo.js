@@ -609,9 +609,8 @@ export function calcularIndicadoresDoPeriodo(wb, periodo){
   // NT 44/2026: específico = registrado por apenas 1 profissional;
   // compartilhado = 2+ profissionais diferentes (CNS diferentes) com
   // pelo menos 1 da eMulti. Esta extração não traz a lista de
-  // profissionais secundários do atendimento, então a detecção usa a
-  // mesma aproximação da lista "Atendimentos interprofissionais": mesma
-  // pessoa (CNS/CPF, ou nome) no mesmo dia atendida por 2+ profissionais
+  // profissionais secundários do atendimento, então a detecção usa uma
+  // aproximação: mesma pessoa (CNS/CPF, ou nome) no mesmo dia atendida por 2+ profissionais
   // distintos. Cada grupo pessoa+dia compartilhado conta como 1 ação
   // compartilhada (as linhas duplicadas de ação específica são
   // desconsideradas, como manda a NT); grupos com 1 só profissional
@@ -1652,7 +1651,7 @@ export function init_nucleo_dados(){
 
 // ---------- Listas complementares ----------
 // As abas M1 e M2 mostram as MESMAS 7 tabelas, na mesma ordem.
-function listasComplementaresNomes(){ return ["Atendimentos", "Atendimentos interprofissionais", "Participantes Ativ. Coletiva", "Pessoas atendidas", "Busca-Ativa", "Resumo Reuniões", "Resumo Atividade Coletiva"].map(suffixedName); }
+function listasComplementaresNomes(){ return ["Atendimentos", "Participantes Ativ. Coletiva", "Pessoas atendidas", "Busca-Ativa", "Resumo Reuniões", "Resumo Atividade Coletiva"].map(suffixedName); }
 
 export function m1ListNames(){ return listasComplementaresNomes(); }
 

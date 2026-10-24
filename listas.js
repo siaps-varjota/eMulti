@@ -907,85 +907,6 @@ export function profissionalColIndex(headerRow){
 // ======================================================================
 
 
-// Agrupa por paciente e dia e mantém apenas os grupos com dois ou mais
-// profissionais distintos, para identificar atendimentos interprofissionais.
-function atendimentosInterprofissionaisParaLista(){
-  var source = estadoApp.latestSheets[suffixedName("Atendimentos")];
-  var outHeaders = ["Data","Paciente","Idade","Profissionais no dia","Qtd. de atendimentos"];
-  if(!source || !source.headers || !source.rows) return {headers:outHeaders, rows:[]};
-  var headers = source.headers;
-  var iData = colIndex(headers, "data_hora");
-  var iNome = colIndex(headers, "nome");
-  var iProf = colIndex(headers, "profissional");
-  var iId = -1;
-  headers.forEach(function(h, i){
-    var key = normalizeText(h).replace(/[^A-Z0-9]/g, '');
-    if(iId < 0 && (key === 'CNS' || key === 'CPF' || key.indexOf('CARTAONACIONALDESAUDE') >= 0 || key.indexOf('CPF') >= 0)) iId = i;
-  });
-  if(iData < 0 || iNome < 0 || iProf < 0){
-    console.warn('[Atendimentos interprofissionais] faltam colunas de data, nome ou profissional. Cabeçalho:', headers);
-    return {headers:outHeaders, rows:[]};
-  }
-  // Idade do paciente: vem da data de nascimento (calculada na data do
-  // atendimento) ou, se a aba não tiver nascimento, da coluna de idade.
-  var iNasc = -1, iIdade = -1;
-  headers.forEach(function(h, i){
-    var key = normalizeText(h).replace(/[^A-Z0-9]/g, '');
-    if(iNasc < 0 && key.indexOf('NASC') >= 0) iNasc = i;
-    if(iIdade < 0 && key.indexOf('IDADE') === 0 && key.indexOf('GESTAC') < 0) iIdade = i;
-  });
-  if(iNasc < 0 && iIdade < 0){
-    console.warn('[Atendimentos interprofissionais] nenhuma coluna de idade ou data de nascimento encontrada na aba Atendimentos — a coluna Idade fica com "—". Cabeçalho:', headers);
-  }
-  function formatarIdade(anos, meses){
-    if(anos >= 1) return anos + (anos === 1 ? ' ano' : ' anos');
-    return '<1 ano';
-  }
-  function idadeDaLinha(r, dataAtendimento){
-    if(iNasc >= 0){
-      var nasc = parseBRDate(r[iNasc]);
-      if(nasc && nasc <= dataAtendimento){
-        var anos = dataAtendimento.getFullYear() - nasc.getFullYear();
-        var jaFezAniversario = (dataAtendimento.getMonth() > nasc.getMonth())
-          || (dataAtendimento.getMonth() === nasc.getMonth() && dataAtendimento.getDate() >= nasc.getDate());
-        if(!jaFezAniversario) anos--;
-        return formatarIdade(anos);
-      }
-    }
-    if(iIdade >= 0){
-      var bruto = String(r[iIdade] === undefined || r[iIdade] === null ? '' : r[iIdade]).trim();
-      if(/^\d+$/.test(bruto)) return formatarIdade(parseInt(bruto, 10));
-      if(bruto) return bruto;
-    }
-    return '';
-  }
-  var grupos = {};
-  source.rows.forEach(function(r){
-    var nome = String(r[iNome] || '').trim();
-    var data = parseBRDate(r[iData]);
-    var profissional = String(r[iProf] || '').trim();
-    if(!nome || !data || !profissional) return;
-    var id = iId >= 0 ? String(r[iId] || '').trim() : '';
-    var paciente = id ? 'ID:' + normalizeText(id).replace(/[^A-Z0-9]/g, '') : 'NOME:' + normalizeText(nome).trim();
-    var dia = data.getFullYear() + '-' + String(data.getMonth()+1).padStart(2,'0') + '-' + String(data.getDate()).padStart(2,'0');
-    var key = paciente + '|' + dia;
-    if(!grupos[key]) grupos[key] = {data:data, nome:nome, idade:'', profissionais:{}, quantidade:0};
-    if(!grupos[key].idade) grupos[key].idade = idadeDaLinha(r, data);
-    var profKey = normalizeText(profissional).trim();
-    if(!grupos[key].profissionais[profKey]) grupos[key].profissionais[profKey] = profissional;
-    grupos[key].quantidade++;
-  });
-  var rows = Object.keys(grupos).map(function(key){
-    var g = grupos[key];
-    var profissionais = Object.keys(g.profissionais).map(function(k){ return g.profissionais[k]; })
-      .sort(function(a,b){ return a.localeCompare(b, 'pt-BR'); });
-    return profissionais.length >= 2 ? [fmtBRDate(g.data), g.nome, g.idade || '—', profissionais.join('; '), g.quantidade] : null;
-  }).filter(Boolean).sort(function(a,b){
-    return (parseBRDate(b[0]) - parseBRDate(a[0])) || a[1].localeCompare(b[1], 'pt-BR');
-  });
-  return {headers:outHeaders, rows:rows};
-}
-
 // Monta o modelo de dados de uma lista: pra cada linha guarda o HTML de
 // cada <td> (c) e o texto "completo" de cada célula (t) usado por
 // busca/filtro por coluna/ordenação/PDF (o mesmo que cellFullText lia do
@@ -1072,19 +993,16 @@ function renderListCard(name, containerId){
   // (dedup de Atendimentos + Participantes Ativ. Coletiva) — ver
   // pessoasAtendidasParaMeses. Tem filtro de mês PRÓPRIO, independente
   // do filtro de Mês do topo da página.
-  var isInterprofissional = (name === suffixedName("Atendimentos interprofissionais"));
   var isPessoasAtendidas = (name === suffixedName("Pessoas atendidas"));
   // "Busca-Ativa" (só na aba M1): outra lista calculada aqui mesmo — ver
   // buscaAtivaCompute — sem filtro de mês próprio, pois a janela (31 a
   // 120 dias sem atendimento, contados do fim do mês atual) já é fixa.
   var isBuscaAtiva = (name === suffixedName("Busca-Ativa"));
-  var cached = isInterprofissional
-    ? estadoApp.latestSheets[name]
-    : isPessoasAtendidas
-      ? pessoasAtendidasParaMeses(listMonthFilters[sk] || [])
-      : isBuscaAtiva
-        ? buscaAtivaCompute()
-        : estadoApp.latestSheets[name];
+  var cached = isPessoasAtendidas
+    ? pessoasAtendidasParaMeses(listMonthFilters[sk] || [])
+    : isBuscaAtiva
+      ? buscaAtivaCompute()
+      : estadoApp.latestSheets[name];
   if(isPessoasAtendidas || isBuscaAtiva) estadoApp.latestSheets[name] = cached;
   var body;
   var hasTable = false;
@@ -1248,10 +1166,6 @@ export function renderListsSection(containerId, names){
     return;
   }
   listsRenderedForWb[containerId] = latestWb;
-  var interprofissionalName = suffixedName("Atendimentos interprofissionais");
-  if(names.indexOf(interprofissionalName) >= 0){
-    estadoApp.latestSheets[interprofissionalName] = atendimentosInterprofissionaisParaLista();
-  }
   // "Pessoas atendidas" e "Busca-Ativa" são calculadas no navegador (não
   // vêm prontas da planilha) e só ficavam em latestSheets depois que
   // renderListCard rodava pra cada uma — como isso só acontece DEPOIS
