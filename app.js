@@ -138,6 +138,10 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
   var metaM1 = calcularMetasQuadrimestre(numM1Gauge, denM1Gauge, M1_META_THRESHOLDS, 'atendimentos',
     'atendimentos (retornos) de pessoas que foram atendidas nos últimos 4 meses');
   var metaM2 = calcularMetasQuadrimestre(numM2Gauge, denM2Gauge, M2_META_THRESHOLDS, 'ações');
+  // Mês em andamento (ainda não fechou): fica fora do resultado e do "faltam", mas aparece como linha extra.
+  var parcial = parcialMesAndamento(d);
+  var parcialM1 = parcial ? '<b>Mês em andamento</b> — '+parcial.rotulo+' (até '+parcial.ate+'): <b>'+fmtInt(parcial.data.numeradorM1||0)+'</b> atendimentos (individuais + participações coletivas) de <b>'+fmtInt(parcial.data.denominadorM1||0)+'</b> pessoas. Ainda não entra no resultado acima; passa a contar quando o mês fechar.' : '';
+  var parcialM2 = parcial ? '<b>Mês em andamento</b> — '+parcial.rotulo+' (até '+parcial.ate+'): <b>'+fmtInt(parcial.data.numeradorM2||0)+'</b> ações compartilhadas de <b>'+fmtInt(parcial.data.denominadorM2||0)+'</b> ações realizadas. Ainda não entra no resultado acima; passa a contar quando o mês fechar.' : '';
 
   // ---- Visão geral: 3 cards no modelo "ícone + anel + evolução" ----
   var quadAnterior = calcularQuadrimestreAnterior();
@@ -171,8 +175,8 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
       });
 
   document.getElementById('metaQuadRow').innerHTML =
-      metaQuadrimestreHTML('Meta do quadrimestre — M1', denM1Gauge, 'pessoas atendidas', metaM1.cards, metaM1.preliminar, d.mesesProjecaoLabel)
-    + metaQuadrimestreHTML('Meta do quadrimestre — M2', denM2Gauge, 'ações realizadas', metaM2.cards, metaM2.preliminar, d.mesesProjecaoLabel);
+      metaQuadrimestreHTML('Meta do quadrimestre — M1', denM1Gauge, 'pessoas atendidas', metaM1.cards, metaM1.preliminar, d.mesesProjecaoLabel, parcialM1)
+    + metaQuadrimestreHTML('Meta do quadrimestre — M2', denM2Gauge, 'ações realizadas', metaM2.cards, metaM2.preliminar, d.mesesProjecaoLabel, parcialM2);
 
   // ---- Aba M1: layout de 3 colunas (gauge + evolução | composição |
   // meta), igual ao modelo de referência, + leitura textual + listas ----
@@ -184,7 +188,7 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
       '<div class="card comp-card">'+compCardHeaderHTML('Composição do numerador', numM1Gauge)+numM1Bar+'</div>'
     + '<div class="card comp-card">'+compCardHeaderHTML('Denominador do M1', denM1Gauge)+denM1Bar+'</div>';
   document.getElementById('sideRowM1').innerHTML =
-    metaQuadrimestreMiniHTML(denM1Gauge, 'pessoas atendidas', metaM1.cards, metaM1.preliminar, d.mesesProjecaoLabel);
+    metaQuadrimestreMiniHTML(denM1Gauge, 'pessoas atendidas', metaM1.cards, metaM1.preliminar, d.mesesProjecaoLabel, parcialM1);
   // Últimos 12 meses de cada indicador, acima do bloco "Leitura".
   var ultimos12Meses = serieTendencia.slice(-12);
   document.getElementById('mesesM1').innerHTML = ultimos12Meses.length
@@ -204,7 +208,7 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
       '<div class="card comp-card">'+compCardHeaderHTML('Composição do numerador', numM2Gauge)+numM2Bar+'</div>'
     + '<div class="card comp-card">'+compCardHeaderHTML('Denominador do M2', denM2Gauge)+denM2Bar+'</div>';
   document.getElementById('sideRowM2').innerHTML =
-    metaQuadrimestreMiniHTML(denM2Gauge, 'ações realizadas', metaM2.cards, metaM2.preliminar, d.mesesProjecaoLabel);
+    metaQuadrimestreMiniHTML(denM2Gauge, 'ações realizadas', metaM2.cards, metaM2.preliminar, d.mesesProjecaoLabel, parcialM2);
   document.getElementById('readingM2').innerHTML =
     ipReadingHTML('Leitura do M2', d.m2, d.classificacaoM2, quadAnterior.m2, 2, '%', CLASS_BANDS_M2, 'de ações compartilhadas');
   renderListsSection('listsM2', m2ListNames());
@@ -616,6 +620,20 @@ export var latestRawSheets = {};
 // no histórico se os dados mudaram desde a última do mesmo período/equipe.
 // saveHistory=false (usado ao trocar o seletor de mês): só recalcula e
 // renderiza na hora, sem criar entrada nova no histórico de leituras.
+// Mês em andamento do quadrimestre (ex.: outubro em 24/10): o que já foi feito até hoje, só para
+// exibir. Só existe na "Média do quadrimestre" (sem mês escolhido) e quando o mês atual faz parte
+// do quadrimestre e ainda não entrou na base de cálculo (meses fechados).
+function parcialMesAndamento(d){
+  if(!latestWb || !d || !d.mesesProjecaoLabel || estadoApp.refMonthDates.length) return null;
+  var hoje = new Date(), mesHoje = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  function chave(m){ return m.getFullYear()+'-'+m.getMonth(); }
+  var doQuad = mesesDosQuadsSelecionadosUniao().some(function(m){ return chave(m)===chave(mesHoje); });
+  var jaNaBase = mesesElapsedDosQuadsSelecionadosUniao().some(function(m){ return chave(m)===chave(mesHoje); });
+  if(!doQuad || jaNaBase) return null;
+  var r = calcularIndicadoresDoPeriodo(latestWb, {inicio: mesHoje, fim: new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate(), 23,59,59,999)});
+  return {rotulo: monthShortLabel(mesHoje), ate: fmtBRDate(hoje), data: r.data};
+}
+
 export function aplicarMesReferencia(saveHistory){
   if(!latestWb) return;
 
