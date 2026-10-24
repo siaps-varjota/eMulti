@@ -606,51 +606,16 @@ export function calcularIndicadoresDoPeriodo(wb, periodo){
   var atendimentosIndividuais = atFiltradas.length;
 
   // ---- Atendimentos individuais: específicos x compartilhados (M2) ----
-  // NT 44/2026: específico = registrado por apenas 1 profissional;
-  // compartilhado = 2+ profissionais diferentes (CNS diferentes) com
-  // pelo menos 1 da eMulti. Esta extração não traz a lista de
-  // profissionais secundários do atendimento, então a detecção usa uma
-  // aproximação: mesma pessoa (CNS/CPF, ou nome) no mesmo dia atendida por 2+ profissionais
-  // distintos. Cada grupo pessoa+dia compartilhado conta como 1 ação
-  // compartilhada (as linhas duplicadas de ação específica são
-  // desconsideradas, como manda a NT); grupos com 1 só profissional
-  // contam 1 por linha, como ação específica. Só afeta o M2 — o M1
-  // continua usando atendimentosIndividuais (todas as linhas).
-  var iAtId = -1;
-  atHeader.forEach(function(h, i){
-    var key = normalizeText(h).replace(/[^A-Z0-9]/g, '');
-    if(iAtId < 0 && (key === 'CNS' || key === 'CPF' || key.indexOf('CARTAONACIONALDESAUDE') >= 0 || key.indexOf('CPF') >= 0)) iAtId = i;
-  });
-  var gruposAtend = {};
-  function chaveAtend(r){
-    var d = parseBRDate(r[iData]);
-    var nm = String(r[iNome]||'').trim();
-    var id = iAtId >= 0 ? String(r[iAtId]||'').trim() : '';
-    var pac = id ? 'ID:'+normalizeText(id).replace(/[^A-Z0-9]/g,'') : 'NOME:'+normalizeText(nm).trim();
-    var dia = d ? (d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate()) : '';
-    return pac+'|'+dia;
-  }
-  // Os profissionais do grupo vêm de TODAS as linhas do período (inclui
-  // profissionais fora da eMulti, ex.: eSF/eSB); só entram grupos que
-  // têm ao menos 1 linha de profissional da eMulti (atFiltradas).
-  atRows.slice(1).forEach(function(r){
-    var nm = String(r[iNome]||'').trim();
-    if(!nm || !withinPeriod(parseBRDate(r[iData]), periodo.inicio, periodo.fim)) return;
-    var prof = iAtProf >= 0 ? normalizeText(String(r[iAtProf]||'')).trim() : '';
-    if(!prof) return;
-    var k = chaveAtend(r);
-    if(!gruposAtend[k]) gruposAtend[k] = {profs:{}};
-    gruposAtend[k].profs[prof] = 1;
-  });
-  var atendimentosEspecificos = 0;
-  var gruposCompartilhados = {};
-  atFiltradas.forEach(function(r){
-    var k = chaveAtend(r);
-    var g = gruposAtend[k];
-    if(g && Object.keys(g.profs).length >= 2) gruposCompartilhados[k] = 1;
-    else atendimentosEspecificos++;
-  });
-  var atendimentosCompartilhados = Object.keys(gruposCompartilhados).length;
+  // NT 44/2026: compartilhado = atendimento registrado por 2+ profissionais
+  // diferentes (CNS diferentes), com pelo menos 1 da eMulti. Esta extração
+  // não traz os profissionais secundários do atendimento, e "mesma pessoa
+  // atendida no mesmo dia por profissionais diferentes" NÃO comprova um
+  // atendimento conjunto — por isso não se infere compartilhamento aqui:
+  // todo atendimento individual da eMulti entra no denominador como
+  // específico e nenhum entra no numerador do M2. (O M1 continua usando
+  // atendimentosIndividuais, todas as linhas.)
+  var atendimentosEspecificos = atFiltradas.length;
+  var atendimentosCompartilhados = 0;
 
   // ---------- Participantes Ativ. Coletiva ----------
   var partRows = rowsOf("Participantes Ativ. Coletiva");
@@ -1610,7 +1575,7 @@ export var NOTAS_METODOLOGICAS = [
   "Atendimento individual (M1) só conta quando o profissional responsável (coluna 'profissional' da aba Atendimentos) está cadastrado na aba PROFISSIONAIS como sendo da eMulti — atendimentos de profissionais de fora da eMulti não entram no numerador.",
   "Participação coletiva (M1) só conta quando pelo menos um dos profissionais da atividade (coluna do Responsável — identificada pelo nome do cabeçalho ou, se não encontrada por nome, pela 4ª coluna da tabela — ou 'Profissional 1' a 'Profissional 5' da aba Participantes Ativ. Coletiva) está cadastrado na aba PROFISSIONAIS como sendo da eMulti — participações conduzidas só por profissionais de fora da eMulti não entram no numerador.",
   "M2 oficial soma 3 componentes: atendimentos individuais compartilhados, atividades coletivas compartilhadas e compartilhamento de cuidado (PEC). Esta extração só consegue aproximar as parcelas de 'atividades coletivas' e 'reuniões'. Regra de ação compartilhada aplicada: pelo menos 1 profissional identificado (CNS/CPF) da eMulti — seja como responsável ou como profissional envolvido, não precisa ser especificamente o responsável — e 2 ou mais profissionais distintos no total; compartilhamentos com eSB ou com qualquer profissional da APS contam igual, desde que identificados. Ainda não é possível checar CBO/CNS propriamente ditos (só o cadastro da aba PROFISSIONAIS), nem aplicar a regra de descartar ação específica duplicada quando a mesma pessoa/grupo também teve ação compartilhada registrada no mesmo dia.",
-  "Atendimentos individuais compartilhados são APROXIMADOS aqui (mesma pessoa, mesmo dia, 2+ profissionais distintos na lista de Atendimentos — a lista não traz os profissionais secundários nem o horário simultâneo); cada pessoa/dia compartilhado conta 1 ação e os registros específicos duplicados são desconsiderados. O compartilhamento de cuidado (PEC) NÃO entra aqui (não há aba equivalente) — por isso o M2 calculado tende a ficar ABAIXO do valor oficial. O denominador do M2 é o TOTAL de ações da eMulti no período: atendimentos individuais (específicos + compartilhados) + atividades coletivas (todas, específicas e compartilhadas, incluindo reuniões) — sem contar solicitações de compartilhamento de cuidado no PEC, pelo mesmo motivo.",
+  "Atendimentos individuais compartilhados NÃO são medidos aqui: a lista de Atendimentos não traz os profissionais secundários nem o horário simultâneo, e atendimento da mesma pessoa no mesmo dia por profissionais diferentes não comprova atendimento conjunto. Por isso todos os atendimentos individuais entram no denominador do M2 como específicos e nenhum entra no numerador. O compartilhamento de cuidado (PEC) NÃO entra aqui (não há aba equivalente) — por isso o M2 calculado tende a ficar ABAIXO do valor oficial. O denominador do M2 é o TOTAL de ações da eMulti no período: atendimentos individuais (todos contados como específicos) + atividades coletivas (todas, específicas e compartilhadas, incluindo reuniões) — sem contar solicitações de compartilhamento de cuidado no PEC, pelo mesmo motivo.",
   "Atividade Coletiva só conta como 'compartilhada' aqui quando tem pelo menos 1 profissional da eMulti (coluna 'Total de Profissionais da EMulti', de Participantes Ativ. Coletiva) e 2 ou mais profissionais no total ('Qtd total de profissionais') — sem restrição de tipo de atividade, EXCETO reuniões (tipo 'Reunião de equipe' etc.): essas só contam quando o tema é 'Discussão de caso / Projeto terapêutico singular'; se a aba não trouxer coluna de temas, a reunião não entra no numerador.",
   "Reuniões (Resumo Reuniões) só contam pra M2 quando o 'Tipo' é Reunião de Equipe, Reunião com outras equipes de saúde ou Reunião intersetorial/Conselho local de saúde/Controle social (códigos 01-03) E têm 2+ participantes E o tema 'Discussão de caso / Projeto terapêutico singular' marcado na coluna 'Temas da reunião' (a célula pode ter vários temas). Reuniões que não batem essas condições aparecem no total de reuniões, mas não entram como 'compartilhadas'. Se a coluna de temas não existir na aba, NENHUMA reunião entra no numerador (o tema não pode ser confirmado). O total anual 'TOTAL RELATÓRIO AC', quando maior que a contagem detalhada, é um número fechado do relatório e não pode ser filtrado por tema.",
   "'Desempenho quadrimestral' usa a fórmula oficial da Nota Final do Componente III (Qualidade) para eMulti — NT 8/2026-DEAPS/SAPS/MS, Quadro 4: Nota final = pontos M1 × 6 + pontos M2 × 4 (pontos por classificação: Regular=0,25, Suficiente=0,5, Bom=0,75, Ótimo=1), classificada conforme o Quadro 6 da mesma nota: Regular ≤ 2,5, Suficiente > 2,5 e < 5, Bom ≥ 5 e ≤ 7,5, Ótimo > 7,5. O que NÃO é oficial aqui é o DADO de entrada: o M1 e o M2 usados nessa conta são os calculados por este painel a partir dos dados brutos (ver notas acima), não os valores publicados pelo Siaps — por isso o resultado exibido é uma aproximação do Componente III oficial, não o valor de cofinanciamento em si.",

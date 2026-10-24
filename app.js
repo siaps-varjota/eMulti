@@ -99,8 +99,8 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
   // Parcelas do numerador do M2 que esta extração não consegue medir
   // (não há aba com esses dados), mas que devem aparecer SEMPRE na
   // composição, mesmo zeradas — ver numM2Bar abaixo.
-  var DEF_ATEND_COMPARTILHADO = 'Atendimento individual realizado em conjunto por 2 ou mais profissionais diferentes (CNS diferentes), com pelo menos 1 da eMulti — conta como ação compartilhada no Numerador e no Denominador do M2 (NT 44/2026). Aproximação desta extração: mesma pessoa, no mesmo dia, atendida por 2+ profissionais distintos (cada pessoa/dia conta 1 vez, e os registros específicos duplicados são desconsiderados).';
-  var DEF_ATEND_ESPECIFICO = 'Atendimento individual registrado por apenas 1 profissional da eMulti (NT 44/2026) — entra no Denominador do M2, mas NÃO no Numerador. Não inclui pessoa/dia que já foi contada como atendimento compartilhado.';
+  var DEF_ATEND_COMPARTILHADO = 'Atendimento individual realizado em conjunto por 2 ou mais profissionais diferentes (CNS diferentes), com pelo menos 1 da eMulti — contaria como ação compartilhada no Numerador e no Denominador do M2 (NT 44/2026). Esta extração não informa os profissionais secundários do atendimento, e atendimento no mesmo dia por profissionais diferentes não comprova atendimento conjunto, então este valor não é inferido e aparece zerado.';
+  var DEF_ATEND_ESPECIFICO = 'Atendimento individual registrado por profissional da eMulti (NT 44/2026) — entra no Denominador do M2, mas NÃO no Numerador. Como esta extração não identifica atendimento conjunto, todos os atendimentos individuais são contados aqui.';
   var DEF_COMPART_CUIDADO = 'Solicitações respondidas de compartilhamento de cuidado no PEC — conta como ação compartilhada no Numerador do M2 (NT 44/2026). Não existe aba equivalente nesta extração, então o valor aparece zerado.';
 
   // ---- Composição (4 cartões: Numerador/Denominador de M1 e M2) ----
