@@ -132,6 +132,13 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
     + '<div class="card comp-card">'+compCardHeaderHTML('Numerador do M2', numM2Gauge)+numM2Bar+'</div>'
     + '<div class="card comp-card">'+compCardHeaderHTML('Denominador do M2', denM2Gauge)+denM2Bar+'</div>';
 
+  // ---- Meta do quadrimestre: alvo de atendimentos/ações compartilhadas
+  // pra bater "Bom" e "Ótimo" em M1 e M2, com ritmo médio necessário.
+  // (Calculada antes dos cards: a Evolução mostra quanto falta pra próxima meta.) ----
+  var metaM1 = calcularMetasQuadrimestre(numM1Gauge, denM1Gauge, M1_META_THRESHOLDS, 'atendimentos',
+    'atendimentos (retornos) de pessoas que foram atendidas nos últimos 4 meses');
+  var metaM2 = calcularMetasQuadrimestre(numM2Gauge, denM2Gauge, M2_META_THRESHOLDS, 'ações');
+
   // ---- Visão geral: 3 cards no modelo "ícone + anel + evolução" ----
   var quadAnterior = calcularQuadrimestreAnterior();
   // Últimos 4 meses (terminando no mês de referência) pros cards pequenos
@@ -144,7 +151,7 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
         valueTxt:fmtDec(d.m1,2), valueCap:fmtInt(numM1Gauge)+' atendimentos ÷ '+fmtInt(denM1Gauge)+' pessoas',
         ringTxt:fmtDec(d.m1,2),
         anterior:quadAnterior.m1, legend:OV_LEGEND_M1,
-        mesesKind:'m1', meses:ultimos4Meses
+        mesesKind:'m1', meses:ultimos4Meses, metaCards:metaM1.cards
       })
     + overviewCardHTML({
         iconKind:'users', title:'M2 — Ações Interprofissionais', classe:d.classificacaoM2,
@@ -152,7 +159,7 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
         valueTxt:fmtDec(d.m2,1)+'%', valueCap:fmtInt(numM2Gauge)+' compartilhadas ÷ '+fmtInt(denM2Gauge)+' ações',
         ringTxt:fmtDec(d.m2,1),
         anterior:quadAnterior.m2, legend:OV_LEGEND_M2,
-        mesesKind:'m2', meses:ultimos4Meses
+        mesesKind:'m2', meses:ultimos4Meses, metaCards:metaM2.cards
       })
     + overviewCardHTML({
         iconKind:'speed', title:'Desempenho Quadrimestral', classe:d.desempenho,
@@ -163,11 +170,6 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
         mesesKind:'nota', meses:ultimos4Meses
       });
 
-  // ---- Meta do quadrimestre: alvo de atendimentos/ações compartilhadas
-  // pra bater "Bom" e "Ótimo" em M1 e M2, com ritmo médio necessário. ----
-  var metaM1 = calcularMetasQuadrimestre(numM1Gauge, denM1Gauge, M1_META_THRESHOLDS, 'atendimentos',
-    'atendimentos (retornos) de pessoas que foram atendidas nos últimos 4 meses');
-  var metaM2 = calcularMetasQuadrimestre(numM2Gauge, denM2Gauge, M2_META_THRESHOLDS, 'ações');
   document.getElementById('metaQuadRow').innerHTML =
       metaQuadrimestreHTML('Meta do quadrimestre — M1', denM1Gauge, 'pessoas atendidas', metaM1.cards, metaM1.preliminar, d.mesesProjecaoLabel)
     + metaQuadrimestreHTML('Meta do quadrimestre — M2', denM2Gauge, 'ações realizadas', metaM2.cards, metaM2.preliminar, d.mesesProjecaoLabel);
@@ -177,7 +179,7 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
   document.getElementById('gaugeRowM1').innerHTML =
     ipGaugeCardHTML(d.m1, 4, CLASS_BANDS_M1, 'needle-m1tab-m1', fmtDec(d.m1,2), d.classificacaoM1,
       fmtInt(numM1Gauge)+' atendimentos ÷ '+fmtInt(denM1Gauge)+' pessoas',
-      quadAnterior.m1, 2, '', LEGEND_M1, 'pulse');
+      quadAnterior.m1, 2, '', LEGEND_M1, 'pulse', metaM1.cards);
   document.getElementById('compRowM1').innerHTML =
       '<div class="card comp-card">'+compCardHeaderHTML('Composição do numerador', numM1Gauge)+numM1Bar+'</div>'
     + '<div class="card comp-card">'+compCardHeaderHTML('Denominador do M1', denM1Gauge)+denM1Bar+'</div>';
@@ -197,7 +199,7 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
   document.getElementById('gaugeRowM2').innerHTML =
     ipGaugeCardHTML(d.m2, 8, CLASS_BANDS_M2, 'needle-m2tab-m2', fmtDec(d.m2,2)+'<span class="unit">%</span>', d.classificacaoM2,
       fmtInt(numM2Gauge)+' compartilhadas ÷ '+fmtInt(denM2Gauge)+' ações',
-      quadAnterior.m2, 2, '%', LEGEND_M2, 'users');
+      quadAnterior.m2, 2, '%', LEGEND_M2, 'users', metaM2.cards);
   document.getElementById('compRowM2').innerHTML =
       '<div class="card comp-card">'+compCardHeaderHTML('Composição do numerador', numM2Gauge)+numM2Bar+'</div>'
     + '<div class="card comp-card">'+compCardHeaderHTML('Denominador do M2', denM2Gauge)+denM2Bar+'</div>';

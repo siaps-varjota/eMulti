@@ -2291,7 +2291,7 @@ var IP_TREND_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentCol
 // Conteúdo interno de "Evolução (Quadrimestre)" — sem o wrapper de card
 // próprio, pra poder ser embutido dentro de outro cartão (o do gauge)
 // ou, se algum dia precisar de novo isolado, envolvido por fora.
-function ipEvoContentHTML(value, anterior, domainMax, decimals, suffix, bands, classLabel){
+function ipEvoContentHTML(value, anterior, domainMax, decimals, suffix, bands, classLabel, metaCards){
   suffix = suffix || '';
   if(anterior==null || value==null){
     return '<div class="ip-evo-head"><div class="ip-evo-head-left">'+IP_TREND_ICON_SVG+'<h4>Evolução (Quadrimestre)</h4></div></div>'
@@ -2306,13 +2306,13 @@ function ipEvoContentHTML(value, anterior, domainMax, decimals, suffix, bands, c
     +   '<div class="ip-evo-head-left">'+IP_TREND_ICON_SVG+'<h4>Evolução (Quadrimestre)</h4></div>'
     +   '<span class="ip-evo-delta" style="color:'+color+';">'+arrow+' '+deltaTxt+'</span>'
     + '</div>'
-    + evoTrackHTML(value, anterior, domainMax, decimals, suffix, bands, classLabel);
+    + evoTrackHTML(value, anterior, domainMax, decimals, suffix, bands, classLabel, metaCards);
 }
 
 // Cartão do gauge (coluna 1): arco + resultado no topo, legenda de
 // faixas logo abaixo do arco, e a Evolução do quadrimestre embutida no
 // final, dentro do mesmo cartão.
-export function ipGaugeCardHTML(value, domainMax, bands, gaugeId, valueHtml, classLabel, capText, anterior, decimals, suffix, legend, iconKind){
+export function ipGaugeCardHTML(value, domainMax, bands, gaugeId, valueHtml, classLabel, capText, anterior, decimals, suffix, legend, iconKind, metaCards){
   // Sem gauge: o resultado vira um número grande num painel na cor do
   // status (ver kpiPanelHTML). gaugeId/bands seguem na assinatura só por
   // compatibilidade — bands ainda é usado pela trilha de Evolução.
@@ -2325,7 +2325,7 @@ export function ipGaugeCardHTML(value, domainMax, bands, gaugeId, valueHtml, cla
     + '</div>'
     + kpiPanelHTML(st, kpiPanelIcon(iconKind), valueHtml, capText, value, domainMax)
     + (legend ? '<div class="ip-gauge-legend-row">'+gaugeLegendHTML(legend)+'</div>' : '')
-    + '<div class="ip-evo-embed">'+ipEvoContentHTML(value, anterior, domainMax, decimals, suffix, bands, classLabel)+'</div>'
+    + '<div class="ip-evo-embed">'+ipEvoContentHTML(value, anterior, domainMax, decimals, suffix, bands, classLabel, metaCards)+'</div>'
     + '</div>';
 }
 
@@ -2692,7 +2692,7 @@ function evoTrackGradient(bands, domainMax){
   return 'linear-gradient(90deg,' + stops.join(',') + ')';
 }
 
-export function evoTrackHTML(atual, anterior, domainMax, decimals, suffix, bands, classLabel){
+export function evoTrackHTML(atual, anterior, domainMax, decimals, suffix, bands, classLabel, metaCards){
   var delta = atual - anterior;
   var dir = delta > 0.0001 ? 'up' : (delta < -0.0001 ? 'down' : 'flat');
   var fracAtual = Math.max(0, Math.min(1, atual/domainMax));
@@ -2712,12 +2712,18 @@ export function evoTrackHTML(atual, anterior, domainMax, decimals, suffix, bands
   var metaLineHTML = '';
   if(next){
     var fracMeta = Math.max(0, Math.min(1, next.threshold/domainMax));
+    // Quanto falta, em número absoluto (atendimentos no M1, ações no M2), para bater essa faixa —
+    // o mesmo "faltam N" do card "Meta do quadrimestre" da faixa correspondente.
+    var metaCard = (metaCards || []).filter(function(c){ return metaSplitLabel(c.label).nome === next.label; })[0];
+    var faltaAbs = metaCard && metaCard.faltam > 0 ? metaCard : null;
     metaMarkHTML = '<div class="ov-evo-mark ov-evo-mark-meta" style="position:absolute;top:0;bottom:0;left:'
       +(fracMeta*100).toFixed(1)+'%;width:2px;background:#2563EB;z-index:2;" title="Próxima meta ('+escapeHtml(next.label)+'): '
-      +fmtDec(next.threshold,decimals)+suffix+'"></div>';
+      +fmtDec(next.threshold,decimals)+suffix+(faltaAbs?' — faltam '+fmtInt(faltaAbs.faltam)+' '+faltaAbs.unidade:'')+'"></div>';
     metaLineHTML = '<div class="ov-evo-meta-line" style="text-align:center;font-size:11px;color:var(--ink-soft,#6b7a72);margin-top:6px;">'
       + '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#2563EB;margin-right:5px;vertical-align:middle;"></span>'
-      + 'Próxima meta ('+escapeHtml(next.label)+'): <b>'+fmtDec(next.threshold,decimals)+suffix+'</b></div>';
+      + 'Próxima meta ('+escapeHtml(next.label)+'): <b>'+fmtDec(next.threshold,decimals)+suffix+'</b>'
+      + (faltaAbs ? ' <span class="ov-evo-falta" style="margin-left:4px;padding-left:8px;border-left:1px solid var(--line,#d5ddd8);">faltam <b>'+fmtInt(faltaAbs.faltam)+'</b> '+escapeHtml(faltaAbs.unidade)+'</span>' : '')
+      + '</div>';
   } else if(classLabel==='Ótimo'){
     metaLineHTML = '<div class="ov-evo-meta-line" style="text-align:center;font-size:11px;color:var(--ink-soft,#6b7a72);margin-top:6px;">Já na faixa máxima (Ótimo) — sem próxima meta.</div>';
   }
@@ -2751,7 +2757,7 @@ export function evoTrackHTML(atual, anterior, domainMax, decimals, suffix, bands
 // quadrimestre anterior (calcularQuadrimestreAnterior). Sem dado
 // suficiente pra reconstruir o período anterior, mostra um aviso em vez
 // da barra de comparação.
-function ovEvoHTML(atual, anterior, domainMax, decimals, suffix, bands, classLabel){
+function ovEvoHTML(atual, anterior, domainMax, decimals, suffix, bands, classLabel, metaCards){
   suffix = suffix || '';
   if(anterior==null || atual==null){
     return '<div class="ov-evo">'
@@ -2769,7 +2775,7 @@ function ovEvoHTML(atual, anterior, domainMax, decimals, suffix, bands, classLab
     +   '<p class="ov-evo-title">Evolução (quadrimestre)</p>'
     +   '<span class="ov-evo-delta" style="color:'+deltaColor+';">'+arrow+' '+deltaTxt+'</span>'
     + '</div>'
-    + evoTrackHTML(atual, anterior, domainMax, decimals, suffix, bands, classLabel)
+    + evoTrackHTML(atual, anterior, domainMax, decimals, suffix, bands, classLabel, metaCards)
     + '</div>';
 }
 
@@ -2830,7 +2836,7 @@ export function overviewCardHTML(opts){
     +   '<span class="ov-badge" style="background:'+st.badgeBg+';color:'+st.badgeText+';">'+st.icon+' '+(opts.classe||'—')+'</span>'
     + '</div>'
     + kpiPanelHTML(st, kpiPanelIcon(opts.iconKind), opts.valueTxt, opts.valueCap, opts.value, opts.domainMax)
-    + ovEvoHTML(opts.value, opts.anterior, opts.domainMax, opts.decimals, opts.suffix||'', opts.bands, opts.classe)
+    + ovEvoHTML(opts.value, opts.anterior, opts.domainMax, opts.decimals, opts.suffix||'', opts.bands, opts.classe, opts.metaCards)
     + ovLegendHTML(opts.legend)
     + '</div>';
   return '<div class="ov-col">'+card+mesesHtml+'</div>';
