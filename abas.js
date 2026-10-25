@@ -2358,7 +2358,7 @@ export function ipReadingHTML(title, value, classLabel, anterior, decimals, suff
   var next = nextTierInfo(classLabel, bands);
   if(next){
     nextTxt = ' Para alcançar a faixa <b>'+next.label+'</b>, é necessário atingir pelo menos '+fmtDec(next.threshold,decimals)+suffix+' '+unitLabel+'.';
-    var f2 = somaDen ? faltaM2ParaMeta(somaDen.num, somaDen.den, next.threshold) : null;
+    var f2 = somaDen ? faltaM2ParaMeta(somaDen.num, somaDen.den, next.threshold, somaDen.janelas) : null;
     if(f2 && f2.faltam>0){
       nextTxt += ' Faltam <b title="'+escapeHtml(faltaM2Texto(f2))+'" style="cursor:help;">'+fmtInt(f2.faltam)+' compartilhadas</b>.';
     }
@@ -2614,9 +2614,21 @@ export function calcularMetasQuadrimestre(numerador, denominador, thresholds, un
   var semanasQuad = diasQuad/7;
   var diasRestantes = Math.max(0, Math.round((fimQuad-hoje)/86400000));
   var semanasRestantes = diasRestantes/7;
+  var janelas = (opcoes && opcoes.janelas && opcoes.janelas.length>1) ? opcoes.janelas : null;
+  var isM2 = !!(opcoes && opcoes.somaNoDenominador);
   var cards = thresholds.map(function(t){
     var alvo = Math.ceil(t.value*denominador);
     var faltam = Math.max(0, alvo-(numerador||0));
+    // Vários meses no modo "média": o valor exibido é a média das razões de cada
+    // janela, então o que falta sai dessa mesma conta (e não de alvo - numerador
+    // médios). O alvo acompanha, pra barra de progresso e o "atual/alvo" baterem.
+    if(janelas){
+      var rJ = faltaMediaJanelas(janelas, isM2 ? t.value*100 : t.value, false, isM2);
+      if(rJ){
+        faltam = rJ.faltam;
+        if(faltam>0) alvo = (numerador||0) + faltam;
+      }
+    }
     return {
       label: t.label, color: t.color, unidade: unidade, unidadeFaltam: unidadeFaltam || unidade,
       alvo: alvo,
@@ -2630,7 +2642,7 @@ export function calcularMetasQuadrimestre(numerador, denominador, thresholds, un
   });
   // M2: guarda numerador/denominador atuais nos cards para a "Evolução" calcular o que falta
   // subindo os dois juntos (ver faltaM2ParaMeta). Propriedade do array: não muda quem só percorre os cards.
-  if(opcoes && opcoes.somaNoDenominador) cards.somaDen = {num: numerador||0, den: denominador||0};
+  if(opcoes && opcoes.somaNoDenominador) cards.somaDen = {num: numerador||0, den: denominador||0, janelas: janelas};
   return {cards: cards, preliminar: hoje < fimQuad};
 }
 
@@ -2703,8 +2715,15 @@ function evoTrackGradient(bands, domainMax){
 // total (denominador). Então, para chegar em t (ex.: 1%), cada nova ação compartilhada
 // soma +1 nos dois lados: (num+x)/(den+x) >= t  =>  x >= (t*den - num)/(1 - t).
 // (No M1 o denominador — pessoas — não muda, por isso lá é só alvo - numerador.)
-export function faltaM2ParaMeta(num, den, thresholdPct){
+export function faltaM2ParaMeta(num, den, thresholdPct, janelas){
   num = Number(num)||0; den = Number(den)||0;
+  // Vários meses no modo "média": M2 = média dos M2 de cada janela, e cada nova ação
+  // compartilhada entra no numerador E no denominador de cada janela.
+  if(janelas && janelas.length>1){
+    var rJ = faltaMediaJanelas(janelas, Number(thresholdPct), true, true);
+    if(!rJ) return null;
+    return {faltam:rJ.faltam, numAtual:num, denAtual:den, numNovo:num+rJ.faltam, denNovo:den+rJ.faltam, janelas:rJ.janelas};
+  }
   var t = Number(thresholdPct)/100;
   if(!(t>0) || t>=1 || den<=0) return null;
   var x = Math.max(0, Math.ceil((t*den - num)/(1 - t) - 1e-9));
@@ -2713,10 +2732,48 @@ export function faltaM2ParaMeta(num, den, thresholdPct){
   while(x>0 && (num+x-1) >= t*(den+x-1) - 1e-9) x--;
   return {faltam:x, numAtual:num, denAtual:den, numNovo:num+x, denNovo:den+x};
 }
+// Média das razões de várias janelas (um mês selecionado = uma janela), depois de somar
+// `x` ao numerador de cada uma (e ao denominador também, quando somaNoDen — M2).
+// pct=true devolve em % (M2); false, razão simples (M1).
+function mediaRazaoJanelas(janelas, x, somaNoDen, pct){
+  var soma = 0, n = 0;
+  janelas.forEach(function(j){
+    var den = j.den + (somaNoDen ? x : 0);
+    if(!(den>0)) return;
+    soma += (j.num + x)/den; n++;
+  });
+  return n ? (soma/n)*(pct ? 100 : 1) : null;
+}
+
+// Menor número inteiro x de atendimentos/ações a somar em CADA janela pra que a MÉDIA das
+// razões das janelas chegue em `alvo` (mesma conta do m1/m2 exibido quando há vários
+// meses no modo "média"). Devolve {faltam, janelas} ou null se não houver como calcular /
+// o alvo for inatingível (M2 nunca passa de 100%).
+export function faltaMediaJanelas(janelas, alvo, somaNoDen, pct){
+  var js = (janelas||[]).filter(function(j){ return j && j.den>0 && j.num!=null; });
+  alvo = Number(alvo);
+  if(!js.length || !isFinite(alvo)) return null;
+  var EPS = 1e-9;
+  function ok(x){ var v = mediaRazaoJanelas(js, x, somaNoDen, pct); return v!=null && v >= alvo - EPS; }
+  if(ok(0)) return {faltam:0, janelas:js.length};
+  if(somaNoDen && alvo >= (pct ? 100 : 1)) return null;
+  var hi = 1, guard = 0;
+  while(!ok(hi) && guard++ < 60) hi *= 2;
+  if(!ok(hi)) return null;
+  var lo = hi===1 ? 0 : hi/2; // lo sempre NÃO atinge; hi sempre atinge
+  while(hi-lo > 1){
+    var mid = Math.floor((lo+hi)/2);
+    if(ok(mid)) hi = mid; else lo = mid;
+  }
+  return {faltam:hi, janelas:js.length};
+}
+
 // Explicação (só em tooltip): cada ação compartilhada nova soma nos dois lados da conta.
 function faltaM2Texto(f){
-  return 'Cada ação compartilhada também entra no total de ações: +'+fmtInt(f.faltam)+' no numerador e +'+fmtInt(f.faltam)+' no denominador ('
+  var base = 'Cada ação compartilhada também entra no total de ações: +'+fmtInt(f.faltam)+' no numerador e +'+fmtInt(f.faltam)+' no denominador ('
     +fmtInt(f.numAtual)+' → '+fmtInt(f.numNovo)+' ÷ '+fmtInt(f.denAtual)+' → '+fmtInt(f.denNovo)+')';
+  if(f.janelas>1) base += '. Com '+f.janelas+' meses selecionados, o M2 é a média dos M2 de cada mês: o valor é o acréscimo necessário em cada mês pra essa média chegar na meta';
+  return base;
 }
 
 export function evoTrackHTML(atual, anterior, domainMax, decimals, suffix, bands, classLabel, metaCards){
@@ -2744,7 +2801,7 @@ export function evoTrackHTML(atual, anterior, domainMax, decimals, suffix, bands
     var metaCard = (metaCards || []).filter(function(c){ return metaSplitLabel(c.label).nome === next.label; })[0];
     var faltaAbs = metaCard && metaCard.faltam > 0 ? metaCard : null;
     // M2: o que falta sobe numerador E denominador (metaCards.somaDen vem de calcularMetasQuadrimestre).
-    var f2 = (metaCards && metaCards.somaDen) ? faltaM2ParaMeta(metaCards.somaDen.num, metaCards.somaDen.den, next.threshold) : null;
+    var f2 = (metaCards && metaCards.somaDen) ? faltaM2ParaMeta(metaCards.somaDen.num, metaCards.somaDen.den, next.threshold, metaCards.somaDen.janelas) : null;
     if(f2 && f2.faltam>0) faltaAbs = null; else f2 = null;
     metaMarkHTML = '<div class="ov-evo-mark ov-evo-mark-meta" style="position:absolute;top:0;bottom:0;left:'
       +(fracMeta*100).toFixed(1)+'%;width:2px;background:#2563EB;z-index:2;" title="Próxima meta ('+escapeHtml(next.label)+'): '

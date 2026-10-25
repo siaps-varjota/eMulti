@@ -136,8 +136,8 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
   // pra bater "Bom" e "Ótimo" em M1 e M2, com ritmo médio necessário.
   // (Calculada antes dos cards: a Evolução mostra quanto falta pra próxima meta.) ----
   var metaM1 = calcularMetasQuadrimestre(numM1Gauge, denM1Gauge, M1_META_THRESHOLDS, 'atendimentos',
-    'atendimentos (retornos) de pessoas que foram atendidas nos últimos 4 meses');
-  var metaM2 = calcularMetasQuadrimestre(numM2Gauge, denM2Gauge, M2_META_THRESHOLDS, 'ações', undefined, {somaNoDenominador:true});
+    'atendimentos (retornos) de pessoas que foram atendidas nos últimos 4 meses', {janelas: d.janelasM1});
+  var metaM2 = calcularMetasQuadrimestre(numM2Gauge, denM2Gauge, M2_META_THRESHOLDS, 'ações', undefined, {somaNoDenominador:true, janelas: d.janelasM2});
 
   // ---- Visão geral: 3 cards no modelo "ícone + anel + evolução" ----
   var quadAnterior = calcularQuadrimestreAnterior();

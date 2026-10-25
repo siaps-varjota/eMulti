@@ -2677,6 +2677,17 @@ export function mediaDeMeses(resultadosMensais, resultadosJanela, mesesProjecaoL
       // aplicado sobre a soma crua, então é o mesmo valor deduplicado de
       // denominadorM1Janela.
       denominadorM1CalculadoJanela: tipoCalculo === 'soma' ? pessoasLista.length : mediaJanela('denominadorM1Calculado'),
+      // Numerador/denominador de CADA janela (um por mês selecionado) — só no modo
+      // "média", em que m1/m2 são a MÉDIA DAS RAZÕES de cada janela (e não a razão
+      // das médias de numerador e denominador). A Meta/"próxima meta" usa isso pra
+      // calcular o que falta sobre a mesma conta do valor exibido. No modo "soma"
+      // fica null: lá m1/m2 já é a razão dos totais e o cálculo simples é exato.
+      janelasM1: tipoCalculo === 'soma' ? null : resultadosJanela.map(function(r){
+        return {num: r.data.numeradorM1, den: r.data.denominadorM1};
+      }).filter(function(j){ return j.num!=null && j.den!=null; }),
+      janelasM2: tipoCalculo === 'soma' ? null : resultadosJanela.map(function(r){
+        return {num: r.data.numeradorM2, den: r.data.denominadorM2};
+      }).filter(function(j){ return j.num!=null && j.den!=null; }),
       m1: m1,
       classificacaoM1: classificacaoM1,
       atividadesTotais: soma('atividadesTotais'),
