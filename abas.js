@@ -2341,7 +2341,7 @@ export function nextTierInfo(classLabel, bands){
 // Bloco "Leitura do M1/M2" (abaixo das 3 colunas): resume em texto o
 // valor atual, a variação em relação ao período anterior e o que falta
 // pra subir de faixa.
-export function ipReadingHTML(title, value, classLabel, anterior, decimals, suffix, bands, unitLabel){
+export function ipReadingHTML(title, value, classLabel, anterior, decimals, suffix, bands, unitLabel, somaDen){
   var valTxt = fmtDec(value,decimals)+suffix;
   var base = 'O indicador está em <b>'+valTxt+'</b>, classificado como <b>'+(classLabel||'—')+'</b>.';
   var deltaTxt = '';
@@ -2358,6 +2358,10 @@ export function ipReadingHTML(title, value, classLabel, anterior, decimals, suff
   var next = nextTierInfo(classLabel, bands);
   if(next){
     nextTxt = ' Para alcançar a faixa <b>'+next.label+'</b>, é necessário atingir pelo menos '+fmtDec(next.threshold,decimals)+suffix+' '+unitLabel+'.';
+    var f2 = somaDen ? faltaM2ParaMeta(somaDen.num, somaDen.den, next.threshold) : null;
+    if(f2 && f2.faltam>0){
+      nextTxt += ' Faltam <b>'+fmtInt(f2.faltam)+'</b> ações compartilhadas, que também entram no total de ações: '+escapeHtml(faltaM2Texto(f2))+'.';
+    }
   } else if(classLabel==='Ótimo'){
     nextTxt = ' O indicador já está na faixa máxima (Ótimo).';
   }
@@ -2601,7 +2605,7 @@ function m1DiagnosticoHTML(base, metaM1){
     + '</div>';
 }
 
-export function calcularMetasQuadrimestre(numerador, denominador, thresholds, unidade, unidadeFaltam){
+export function calcularMetasQuadrimestre(numerador, denominador, thresholds, unidade, unidadeFaltam, opcoes){
   var meses = mesesDosQuadsSelecionadosUniao();
   var inicioQuad = new Date(meses[0].getFullYear(), meses[0].getMonth(), 1, 0,0,0,0);
   var fimQuad = new Date(meses[meses.length-1].getFullYear(), meses[meses.length-1].getMonth()+1, 0, 23,59,59,999);
@@ -2624,6 +2628,9 @@ export function calcularMetasQuadrimestre(numerador, denominador, thresholds, un
       mediaSemanaFaltam: semanasRestantes>0 ? faltam/semanasRestantes : 0
     };
   });
+  // M2: guarda numerador/denominador atuais nos cards para a "Evolução" calcular o que falta
+  // subindo os dois juntos (ver faltaM2ParaMeta). Propriedade do array: não muda quem só percorre os cards.
+  if(opcoes && opcoes.somaNoDenominador) cards.somaDen = {num: numerador||0, den: denominador||0};
   return {cards: cards, preliminar: hoje < fimQuad};
 }
 
@@ -2692,6 +2699,25 @@ function evoTrackGradient(bands, domainMax){
   return 'linear-gradient(90deg,' + stops.join(',') + ')';
 }
 
+// M2 = compartilhadas ÷ total de ações, e toda ação compartilhada TAMBÉM entra no
+// total (denominador). Então, para chegar em t (ex.: 1%), cada nova ação compartilhada
+// soma +1 nos dois lados: (num+x)/(den+x) >= t  =>  x >= (t*den - num)/(1 - t).
+// (No M1 o denominador — pessoas — não muda, por isso lá é só alvo - numerador.)
+export function faltaM2ParaMeta(num, den, thresholdPct){
+  num = Number(num)||0; den = Number(den)||0;
+  var t = Number(thresholdPct)/100;
+  if(!(t>0) || t>=1 || den<=0) return null;
+  var x = Math.max(0, Math.ceil((t*den - num)/(1 - t) - 1e-9));
+  // confere (e corrige arredondamento de ponto flutuante)
+  while((num+x) < t*(den+x) - 1e-9) x++;
+  while(x>0 && (num+x-1) >= t*(den+x-1) - 1e-9) x--;
+  return {faltam:x, numAtual:num, denAtual:den, numNovo:num+x, denNovo:den+x};
+}
+function faltaM2Texto(f){
+  return '+'+fmtInt(f.faltam)+' no numerador e +'+fmtInt(f.faltam)+' no denominador ('
+    +fmtInt(f.numAtual)+' → '+fmtInt(f.numNovo)+' ÷ '+fmtInt(f.denAtual)+' → '+fmtInt(f.denNovo)+')';
+}
+
 export function evoTrackHTML(atual, anterior, domainMax, decimals, suffix, bands, classLabel, metaCards){
   var delta = atual - anterior;
   var dir = delta > 0.0001 ? 'up' : (delta < -0.0001 ? 'down' : 'flat');
@@ -2716,13 +2742,18 @@ export function evoTrackHTML(atual, anterior, domainMax, decimals, suffix, bands
     // o mesmo "faltam N" do card "Meta do quadrimestre" da faixa correspondente.
     var metaCard = (metaCards || []).filter(function(c){ return metaSplitLabel(c.label).nome === next.label; })[0];
     var faltaAbs = metaCard && metaCard.faltam > 0 ? metaCard : null;
+    // M2: o que falta sobe numerador E denominador (metaCards.somaDen vem de calcularMetasQuadrimestre).
+    var f2 = (metaCards && metaCards.somaDen) ? faltaM2ParaMeta(metaCards.somaDen.num, metaCards.somaDen.den, next.threshold) : null;
+    if(f2 && f2.faltam>0) faltaAbs = null; else f2 = null;
     metaMarkHTML = '<div class="ov-evo-mark ov-evo-mark-meta" style="position:absolute;top:0;bottom:0;left:'
       +(fracMeta*100).toFixed(1)+'%;width:2px;background:#2563EB;z-index:2;" title="Próxima meta ('+escapeHtml(next.label)+'): '
-      +fmtDec(next.threshold,decimals)+suffix+(faltaAbs?' — faltam '+fmtInt(faltaAbs.faltam)+' '+faltaAbs.unidade:'')+'"></div>';
+      +fmtDec(next.threshold,decimals)+suffix+(faltaAbs?' — faltam '+fmtInt(faltaAbs.faltam)+' '+faltaAbs.unidade:'')+(f2?' — faltam '+fmtInt(f2.faltam)+' ações compartilhadas ('+faltaM2Texto(f2)+')':'')+'"></div>';
     metaLineHTML = '<div class="ov-evo-meta-line" style="text-align:center;font-size:11px;color:var(--ink-soft,#6b7a72);margin-top:6px;">'
       + '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#2563EB;margin-right:5px;vertical-align:middle;"></span>'
       + 'Próxima meta ('+escapeHtml(next.label)+'): <b>'+fmtDec(next.threshold,decimals)+suffix+'</b>'
       + (faltaAbs ? ' <span class="ov-evo-falta" style="margin-left:4px;padding-left:8px;border-left:1px solid var(--line,#d5ddd8);">faltam <b>'+fmtInt(faltaAbs.faltam)+'</b> '+escapeHtml(faltaAbs.unidade)+'</span>' : '')
+      + (f2 ? ' <span class="ov-evo-falta" style="margin-left:4px;padding-left:8px;border-left:1px solid var(--line,#d5ddd8);">faltam <b>'+fmtInt(f2.faltam)+'</b> ações compartilhadas</span>'
+            + '<div class="ov-evo-falta-det" style="margin-top:3px;">'+escapeHtml(faltaM2Texto(f2))+'</div>' : '')
       + '</div>';
   } else if(classLabel==='Ótimo'){
     metaLineHTML = '<div class="ov-evo-meta-line" style="text-align:center;font-size:11px;color:var(--ink-soft,#6b7a72);margin-top:6px;">Já na faixa máxima (Ótimo) — sem próxima meta.</div>';
