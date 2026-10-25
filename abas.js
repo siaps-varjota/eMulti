@@ -2749,14 +2749,17 @@ export function evoTrackHTML(atual, anterior, domainMax, decimals, suffix, bands
     metaMarkHTML = '<div class="ov-evo-mark ov-evo-mark-meta" style="position:absolute;top:0;bottom:0;left:'
       +(fracMeta*100).toFixed(1)+'%;width:2px;background:#2563EB;z-index:2;" title="Próxima meta ('+escapeHtml(next.label)+'): '
       +fmtDec(next.threshold,decimals)+suffix+(faltaAbs?' — faltam '+fmtInt(faltaAbs.faltam)+' '+faltaAbs.unidade:'')+(f2?' — faltam '+fmtInt(f2.faltam)+' compartilhadas. '+faltaM2Texto(f2):'')+'"></div>';
-    metaLineHTML = '<div class="ov-evo-meta-line" style="text-align:center;font-size:11px;color:var(--ink-soft,#6b7a72);margin-top:6px;">'
-      + '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#2563EB;margin-right:5px;vertical-align:middle;"></span>'
+    var linhaTxt = 'Próxima meta ('+next.label+'): '+fmtDec(next.threshold,decimals)+suffix
+      +(faltaAbs?' | faltam '+fmtInt(faltaAbs.faltam)+' '+faltaAbs.unidade:'')+(f2?' | faltam '+fmtInt(f2.faltam)+' compartilhadas':'');
+    // Uma linha só (nowrap) para não desalinhar os cards vizinhos; se ainda assim não couber, corta com "…" (o texto inteiro fica no tooltip).
+    metaLineHTML = '<div class="ov-evo-meta-line" title="'+escapeHtml(linhaTxt)+'" style="text-align:center;font-size:10.5px;color:var(--ink-soft,#6b7a72);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
+      + '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#2563EB;margin-right:4px;vertical-align:middle;"></span>'
       + 'Próxima meta ('+escapeHtml(next.label)+'): <b>'+fmtDec(next.threshold,decimals)+suffix+'</b>'
-      + (faltaAbs ? ' <span class="ov-evo-falta" style="margin-left:4px;padding-left:8px;border-left:1px solid var(--line,#d5ddd8);">faltam <b>'+fmtInt(faltaAbs.faltam)+'</b> '+escapeHtml(faltaAbs.unidade)+'</span>' : '')
-      + (f2 ? ' <span class="ov-evo-falta" title="'+escapeHtml(faltaM2Texto(f2))+'" style="margin-left:4px;padding-left:8px;border-left:1px solid var(--line,#d5ddd8);cursor:help;">faltam <b>'+fmtInt(f2.faltam)+'</b> compartilhadas</span>' : '')
+      + (faltaAbs ? ' <span class="ov-evo-falta" style="margin-left:2px;padding-left:6px;border-left:1px solid var(--line,#d5ddd8);">faltam <b>'+fmtInt(faltaAbs.faltam)+'</b> '+escapeHtml(faltaAbs.unidade)+'</span>' : '')
+      + (f2 ? ' <span class="ov-evo-falta" title="'+escapeHtml(faltaM2Texto(f2))+'" style="margin-left:2px;padding-left:6px;border-left:1px solid var(--line,#d5ddd8);cursor:help;">faltam <b>'+fmtInt(f2.faltam)+'</b> compartilhadas</span>' : '')
       + '</div>';
   } else if(classLabel==='Ótimo'){
-    metaLineHTML = '<div class="ov-evo-meta-line" style="text-align:center;font-size:11px;color:var(--ink-soft,#6b7a72);margin-top:6px;">Já na faixa máxima (Ótimo) — sem próxima meta.</div>';
+    metaLineHTML = '<div class="ov-evo-meta-line" style="text-align:center;font-size:10.5px;color:var(--ink-soft,#6b7a72);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Já na faixa máxima (Ótimo) — sem próxima meta.</div>';
   }
   // Percentual em relação ao quadrimestre anterior (delta/anterior),
   // mostrado centralizado abaixo da barra, entre ela e a linha
