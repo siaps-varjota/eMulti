@@ -2360,7 +2360,7 @@ export function ipReadingHTML(title, value, classLabel, anterior, decimals, suff
     nextTxt = ' Para alcançar a faixa <b>'+next.label+'</b>, é necessário atingir pelo menos '+fmtDec(next.threshold,decimals)+suffix+' '+unitLabel+'.';
     var f2 = somaDen ? faltaM2ParaMeta(somaDen.num, somaDen.den, next.threshold) : null;
     if(f2 && f2.faltam>0){
-      nextTxt += ' Faltam <b>'+fmtInt(f2.faltam)+'</b> ações compartilhadas, que também entram no total de ações: '+escapeHtml(faltaM2Texto(f2))+'.';
+      nextTxt += ' Faltam <b title="'+escapeHtml(faltaM2Texto(f2))+'" style="cursor:help;">'+fmtInt(f2.faltam)+' compartilhadas</b>.';
     }
   } else if(classLabel==='Ótimo'){
     nextTxt = ' O indicador já está na faixa máxima (Ótimo).';
@@ -2713,8 +2713,9 @@ export function faltaM2ParaMeta(num, den, thresholdPct){
   while(x>0 && (num+x-1) >= t*(den+x-1) - 1e-9) x--;
   return {faltam:x, numAtual:num, denAtual:den, numNovo:num+x, denNovo:den+x};
 }
+// Explicação (só em tooltip): cada ação compartilhada nova soma nos dois lados da conta.
 function faltaM2Texto(f){
-  return '+'+fmtInt(f.faltam)+' no numerador e +'+fmtInt(f.faltam)+' no denominador ('
+  return 'Cada ação compartilhada também entra no total de ações: +'+fmtInt(f.faltam)+' no numerador e +'+fmtInt(f.faltam)+' no denominador ('
     +fmtInt(f.numAtual)+' → '+fmtInt(f.numNovo)+' ÷ '+fmtInt(f.denAtual)+' → '+fmtInt(f.denNovo)+')';
 }
 
@@ -2747,13 +2748,12 @@ export function evoTrackHTML(atual, anterior, domainMax, decimals, suffix, bands
     if(f2 && f2.faltam>0) faltaAbs = null; else f2 = null;
     metaMarkHTML = '<div class="ov-evo-mark ov-evo-mark-meta" style="position:absolute;top:0;bottom:0;left:'
       +(fracMeta*100).toFixed(1)+'%;width:2px;background:#2563EB;z-index:2;" title="Próxima meta ('+escapeHtml(next.label)+'): '
-      +fmtDec(next.threshold,decimals)+suffix+(faltaAbs?' — faltam '+fmtInt(faltaAbs.faltam)+' '+faltaAbs.unidade:'')+(f2?' — faltam '+fmtInt(f2.faltam)+' ações compartilhadas ('+faltaM2Texto(f2)+')':'')+'"></div>';
+      +fmtDec(next.threshold,decimals)+suffix+(faltaAbs?' — faltam '+fmtInt(faltaAbs.faltam)+' '+faltaAbs.unidade:'')+(f2?' — faltam '+fmtInt(f2.faltam)+' compartilhadas. '+faltaM2Texto(f2):'')+'"></div>';
     metaLineHTML = '<div class="ov-evo-meta-line" style="text-align:center;font-size:11px;color:var(--ink-soft,#6b7a72);margin-top:6px;">'
       + '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#2563EB;margin-right:5px;vertical-align:middle;"></span>'
       + 'Próxima meta ('+escapeHtml(next.label)+'): <b>'+fmtDec(next.threshold,decimals)+suffix+'</b>'
       + (faltaAbs ? ' <span class="ov-evo-falta" style="margin-left:4px;padding-left:8px;border-left:1px solid var(--line,#d5ddd8);">faltam <b>'+fmtInt(faltaAbs.faltam)+'</b> '+escapeHtml(faltaAbs.unidade)+'</span>' : '')
-      + (f2 ? ' <span class="ov-evo-falta" style="margin-left:4px;padding-left:8px;border-left:1px solid var(--line,#d5ddd8);">faltam <b>'+fmtInt(f2.faltam)+'</b> ações compartilhadas</span>'
-            + '<div class="ov-evo-falta-det" style="margin-top:3px;">'+escapeHtml(faltaM2Texto(f2))+'</div>' : '')
+      + (f2 ? ' <span class="ov-evo-falta" title="'+escapeHtml(faltaM2Texto(f2))+'" style="margin-left:4px;padding-left:8px;border-left:1px solid var(--line,#d5ddd8);cursor:help;">faltam <b>'+fmtInt(f2.faltam)+'</b> compartilhadas</span>' : '')
       + '</div>';
   } else if(classLabel==='Ótimo'){
     metaLineHTML = '<div class="ov-evo-meta-line" style="text-align:center;font-size:11px;color:var(--ink-soft,#6b7a72);margin-top:6px;">Já na faixa máxima (Ótimo) — sem próxima meta.</div>';
