@@ -2829,17 +2829,19 @@ export function ovMesesHTML(kind, pontos, larga){
   if(!pontos || !pontos.length) return '';
   var CAL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M8 3v4M16 3v4M3.5 10h17"/></svg>';
   var cards = pontos.map(function(p){
-    var classe, valor, sub, oficial;
+    var classe, valor, sub, oficial, subTitle = '';
     if(kind === 'm1'){
       classe = classificarM1(p.m1);
       valor = p.m1!=null ? fmtDec(p.m1,2) : '—';
       sub = fmtInt(p.numeradorM1)+' ÷ '+fmtInt(p.denominadorM1);
       oficial = p.m1Oficial;
+      subTitle = p.denominadorProjetado ? 'Denominador projetado: média dos últimos 4 meses completos ('+p.denominadorProjecaoLabel+')' : '';
     } else if(kind === 'm2'){
       classe = classificarM2(p.m2);
       valor = p.m2!=null ? fmtDec(p.m2,1)+'%' : '—';
       sub = fmtInt(p.numeradorM2)+' ÷ '+fmtInt(p.denominadorM2);
       oficial = p.m2Oficial;
+      subTitle = p.denominadorProjetado ? 'Denominador projetado: média dos últimos 4 meses completos ('+p.denominadorProjecaoLabel+')' : '';
     } else {
       classe = classificarDesempenho(p.notaFinal);
       valor = p.notaFinal!=null ? fmtDec(p.notaFinal,1) : '—';
@@ -2853,7 +2855,7 @@ export function ovMesesHTML(kind, pontos, larga){
     return '<div class="ov-mes" style="--mes-accent:'+st.accent+';--mes-bg:'+st.badgeBg+';--mes-txt:'+st.badgeText+';">'
       + '<div class="ov-mes-data">'+CAL+'<span>'+escapeHtml(rotulo)+'</span></div>'
       + '<div class="ov-mes-valor">'+valor+'</div>'
-      + '<div class="ov-mes-sub">'+sub+'</div>'
+      + '<div class="ov-mes-sub"'+(subTitle?' title="'+escapeHtml(subTitle)+'" style="cursor:help;"':'')+'>'+sub+(subTitle?'*':'')+'</div>'
       + '<span class="ov-mes-classe">'+escapeHtml(classe||'—')+'</span>'
       + '<span class="ov-mes-fonte'+(oficial?' ov-mes-fonte-ofi':'')+'"><i></i>'+(oficial?'Oficial':'Preliminar')+'</span>'
       + '</div>';

@@ -2369,7 +2369,48 @@ export function calcularSerieTendencia(wb, refMonth, n){
       janela:janela
     });
   }
+  projetarDenominadoresFuturos(wb, pontos);
   return pontos;
+}
+
+// Meses FUTUROS (depois do mês atual) ainda não têm atendimentos: a janela móvel deles só
+// enxerga os meses que já aconteceram, então o denominador (pessoas no M1, ações no M2)
+// encolhia mês a mês e o indicador ficava sem sentido. Aqui o denominador de cada mês futuro
+// passa a ser a MÉDIA dos denominadores dos 4 últimos meses completos, isto é, os 4 meses
+// anteriores ao mês atual (ex.: em outubro, novembro e dezembro usam a média de jun–set).
+// O numerador não muda; m1/m2, classificação e nota são recalculados com o novo denominador.
+function projetarDenominadoresFuturos(wb, pontos){
+  var hoje = new Date();
+  var mesAtual = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  var futuros = pontos.filter(function(p){ return p.mes > mesAtual; });
+  if(!futuros.length) return;
+  var somaM1 = 0, nM1 = 0, somaM2 = 0, nM2 = 0, meses = [];
+  for(var k=4; k>=1; k--){
+    var m = addMonths(mesAtual, -k);
+    var ref = pontos.filter(function(p){ return p.mes.getFullYear()===m.getFullYear() && p.mes.getMonth()===m.getMonth(); })[0];
+    var d = ref ? {m1: ref.denominadorM1, m2: ref.denominadorM2} : null;
+    if(!d){ var r = calcularJanelaComOverride(wb, m); d = {m1: r.data.denominadorM1, m2: r.data.denominadorM2}; }
+    meses.push(m);
+    if(d.m1>0){ somaM1 += d.m1; nM1++; }
+    if(d.m2>0){ somaM2 += d.m2; nM2++; }
+  }
+  var denM1 = nM1 ? Math.round(somaM1/nM1) : null;
+  var denM2 = nM2 ? Math.round(somaM2/nM2) : null;
+  var label = monthShortLabel(meses[0]) + ' a ' + monthShortLabel(meses[meses.length-1]);
+  futuros.forEach(function(p){
+    if(denM1 && p.numeradorM1!=null){
+      p.denominadorM1 = denM1;
+      p.m1 = p.numeradorM1/denM1;
+    }
+    if(denM2 && p.numeradorM2!=null){
+      p.denominadorM2 = denM2;
+      p.m2 = p.numeradorM2/denM2*100;
+    }
+    var pM1 = PONTOS_POR_CLASSE[classificarM1(p.m1)], pM2 = PONTOS_POR_CLASSE[classificarM2(p.m2)];
+    p.notaFinal = (pM1!==undefined && pM2!==undefined) ? (pM1*6 + pM2*4) : null;
+    p.denominadorProjetado = true;
+    p.denominadorProjecaoLabel = label;
+  });
 }
 
 // Aba Tendência, visão "Semana": cada ponto é uma semana (segunda a domingo) e o valor é o
