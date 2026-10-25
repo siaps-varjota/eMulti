@@ -31,7 +31,7 @@ function hojeF() {
 }
 function turnoF(t) {
   var n = normF(t);
-  return n === 'manha' ? 'Manhã' : (n === 'tarde' ? 'Tarde' : 'Sem turno');
+  return n === 'manha' ? 'Manhã' : (n === 'tarde' ? 'Tarde' : (n === 'noite' ? 'Noite' : 'Sem turno'));
 }
 function pctF(falt, tot) { return tot ? (falt * 100 / tot) : 0; }
 function fmtPctF(p) { return p.toFixed(1).replace('.', ',') + '%'; }

@@ -5,7 +5,7 @@ var MESES_AGENDA=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho',
 var DIAS_AGENDA=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 var DIAS_AGENDA_LONGO=['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
 var TIPO_ROTULO_AGENDA={agendado:'Agendado',sugerido:'Sugerido',realizado:'Realizado',faltou:'Faltou'};
-var TURNO_ORD_AGENDA={'Manhã':1,'Tarde':2,'':3};
+var TURNO_ORD_AGENDA={'Manhã':1,'Tarde':2,'Noite':3,'':4};
 
 var mesAgenda=(function(){var h=new Date();return new Date(h.getFullYear(),h.getMonth(),1);})();
 var semanaAgenda='';   // '' = todo o mês; senão "1".."6" (índice da semana do mês)
@@ -26,14 +26,14 @@ function escAgenda(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c)
 function pad2Agenda(n){return ('0'+n).slice(-2);}
 function isoParaDataAgenda(iso){var m=String(iso||'').match(/^(\d{4})-(\d\d)-(\d\d)$/);return m?new Date(+m[1],+m[2]-1,+m[3]):null;}
 function brAgenda(d){return pad2Agenda(d.getDate())+'/'+pad2Agenda(d.getMonth()+1)+'/'+d.getFullYear();}
-// Agrupa os atendimentos de um dia por período e unidade: manhã primeiro, depois tarde, excedente e sem turno;
-// dentro do mesmo período, ordem alfabética da unidade. Cada grupo vira "Unidade - Manhã" / "Unidade - Tarde".
-var ORDEM_TURNO_AGENDA={'Manhã':0,'Tarde':1,'Excedente':2};
-function letraTurnoAgenda(t){return t==='Manhã'||t==='Tarde'||t==='Excedente'?t:'';}
+// Agrupa os atendimentos de um dia por período e unidade: manhã primeiro, depois tarde, noite, excedente e sem turno;
+// dentro do mesmo período, ordem alfabética da unidade. Cada grupo vira "Unidade - Manhã" / "Unidade - Tarde" / "Unidade - Noite".
+var ORDEM_TURNO_AGENDA={'Manhã':0,'Tarde':1,'Noite':2,'Excedente':3};
+function letraTurnoAgenda(t){return t==='Manhã'||t==='Tarde'||t==='Noite'||t==='Excedente'?t:'';}
 function gruposDiaAgenda(evs){
   var g={},ch=[];
   evs.forEach(function(e){var t=e.turno||'',u=e.unid||'',k=t+'|'+u;if(!g[k]){g[k]={turno:t,unid:u,evs:[]};ch.push(k);}g[k].evs.push(e);});
-  function pos(t){return ORDEM_TURNO_AGENDA[t]!=null?ORDEM_TURNO_AGENDA[t]:3;}
+  function pos(t){return ORDEM_TURNO_AGENDA[t]!=null?ORDEM_TURNO_AGENDA[t]:4;}
   ch.sort(function(a,b){var A=g[a],B=g[b];if(pos(A.turno)!==pos(B.turno))return pos(A.turno)-pos(B.turno);return A.unid.localeCompare(B.unid,'pt-BR');});
   return ch.map(function(k){return g[k];});
 }
@@ -56,7 +56,7 @@ function eventosAgenda(){
   var ev=(r.eventos||[]).map(function(e){return Object.assign({},e,{dt:isoParaDataAgenda(e.data)});}).filter(function(e){return e.dt;});
   ev.sort(function(a,b){
     if(a.dt-b.dt)return a.dt-b.dt;
-    var ta=TURNO_ORD_AGENDA[a.turno]||3,tb=TURNO_ORD_AGENDA[b.turno]||3;
+    var ta=TURNO_ORD_AGENDA[a.turno]||4,tb=TURNO_ORD_AGENDA[b.turno]||4;
     if(ta!==tb)return ta-tb;
     return a.nome.localeCompare(b.nome,'pt-BR');
   });
@@ -706,9 +706,9 @@ function abrirDialogoImagemAgenda(){
   function campo(id,rot,val){return '<label style="display:block;font-size:13px;font-weight:600;color:#44524c;margin:10px 0 3px" for="'+id+'">'+rot+'</label><input id="'+id+'" type="text" value="'+escAgenda(val)+'" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cfd8d3;border-radius:8px;font:inherit">';}
   ov.innerHTML='<div role="dialog" aria-modal="true" aria-label="Gerar imagens da agenda" style="background:#fff;border-radius:14px;max-width:480px;width:100%;padding:20px 22px;max-height:92vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.3)">'
     +'<h3 style="margin:0 0 4px;color:#153F35;font-size:18px">Gerar imagens da agenda</h3>'
-    +'<p style="margin:0 0 6px;font-size:13px;color:#5b6b64">Gera as imagens por dia e profissional, só com agendamentos confirmados. Escolha o turno para incluir só os pacientes da manhã ou da tarde (ajuste o horário abaixo). Os textos ficam lembrados neste navegador.</p>'
+    +'<p style="margin:0 0 6px;font-size:13px;color:#5b6b64">Gera as imagens por dia e profissional, só com agendamentos confirmados. Escolha o turno para incluir só os pacientes da manhã, da tarde ou da noite (ajuste o horário abaixo). Os textos ficam lembrados neste navegador.</p>'
     +campo('agImgTipo','Tipo de atendimento (em branco = automático pela categoria do profissional)',cfg.tipo)+campo('agImgLocal','Local',cfg.local)+campoHorarioAgenda(cfg.horario)+campo('agImgObs','Observação',cfg.obs)
-    +'<div style="margin:14px 0 0;font-size:13px;font-weight:600;color:#44524c">Pacientes de qual turno?</div><div style="display:flex;gap:16px;flex-wrap:wrap;margin:4px 0 0;font-size:14px"><label><input type="radio" name="agImgTurno" value="" checked> Todos</label><label><input type="radio" name="agImgTurno" value="Manhã"> Manhã</label><label><input type="radio" name="agImgTurno" value="Tarde"> Tarde</label></div>'
+    +'<div style="margin:14px 0 0;font-size:13px;font-weight:600;color:#44524c">Pacientes de qual turno?</div><div style="display:flex;gap:16px;flex-wrap:wrap;margin:4px 0 0;font-size:14px"><label><input type="radio" name="agImgTurno" value="" checked> Todos</label><label><input type="radio" name="agImgTurno" value="Manhã"> Manhã</label><label><input type="radio" name="agImgTurno" value="Tarde"> Tarde</label><label><input type="radio" name="agImgTurno" value="Noite"> Noite</label></div>'
     +'<div style="margin:14px 0 4px;font-size:14px"><label style="display:block;margin-bottom:6px"><input type="checkbox" id="agImgAviso" checked> <b>Aviso de chamada</b> — com todos os pacientes</label><label style="display:block"><input type="checkbox" id="agImgLembrete" checked> <b>Lembrete de atendimento</b> — mensagem para os pacientes</label></div>'
     +'<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:16px"><button type="button" id="agImgAntigo" class="agendamentos-secundario" style="padding:8px 12px;border:1px solid #153F35;background:#fff;color:#153F35;border-radius:8px;font:inherit;font-weight:600;cursor:pointer">Card da agenda (modelo anterior)</button><button type="button" id="agImgCancelar" class="agendamentos-secundario" style="padding:8px 12px;border:1px solid #153F35;background:#fff;color:#153F35;border-radius:8px;font:inherit;font-weight:600;cursor:pointer">Cancelar</button><button type="button" id="agImgGerar" style="padding:8px 14px;border:1px solid #153F35;background:#153F35;color:#fff;border-radius:8px;font:inherit;font-weight:600;cursor:pointer">Gerar imagens</button></div></div>';
   document.body.appendChild(ov);

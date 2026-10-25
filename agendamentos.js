@@ -20,14 +20,14 @@ function valAg(id){var el=document.getElementById(id);return el?String(el.value=
 var DIAS_UTEIS_AG=[0,1,1,1,1,1,0];            // índice = Date.getDay() (0 = domingo)
 var DIAS_SEM_AG=['dom','seg','ter','qua','qui','sex','sáb'];
 var redistProfAg='';   // chave da agenda (profissional/unidade) a redistribuir uma única vez (botão "Atualizar" da tabela de configuração)
-var cfgAg={m:6,t:6,dias:DIAS_UTEIS_AG.slice(),janela:0,prof:{},soManha:[0,0,0,0,0,1,0],feriados:[],faltas:[],folgas:[],redistribuir:false};   // feriados: [{ini,fim,nome}] fecham todas as agendas; faltas: [{prof,ini,fim,motivo}] só do profissional.
+var cfgAg={m:6,t:6,n:0,dias:DIAS_UTEIS_AG.slice(),janela:0,prof:{},soManha:[0,0,0,0,0,1,0],feriados:[],faltas:[],folgas:[],redistribuir:false};   // feriados: [{ini,fim,nome}] fecham todas as agendas; faltas: [{prof,ini,fim,motivo}] só do profissional.
 // soManha: dias em que só há atendimento de manhã (padrão: sexta)
 function numAg(v,def,min){var n=parseInt(v,10);return isNaN(n)||n<min?def:n;}
 function carregarConfigAg(){var c=lsGetAg(LS_CONFIG_AG);if(!c||typeof c!=='object')return;aplicarConfigAg(c,true);}
 // Aplica uma configuração (do navegador ou da planilha) sobre cfgAg. comBloqueios=false mantém feriados/imprevistos/folgas como estão
 // (eles vêm da aba de bloqueios, não da configuração).
 function aplicarConfigAg(c,comBloqueios){
-  cfgAg.m=numAg(c.m,6,0);cfgAg.t=numAg(c.t,6,0);cfgAg.janela=numAg(c.janela,0,0);
+  cfgAg.m=numAg(c.m,6,0);cfgAg.t=numAg(c.t,6,0);cfgAg.n=numAg(c.n,0,0);cfgAg.janela=numAg(c.janela,0,0);   // n = vagas à noite (padrão 0: sem noite)
   if(Array.isArray(c.dias)&&c.dias.length===7)cfgAg.dias=c.dias.map(function(x){return x?1:0;});
   cfgAg.prof=c.prof&&typeof c.prof==='object'?c.prof:{};
   // Regras antigas guardadas na agenda "prof@unidade" passam para o profissional, com a unidade na regra.
@@ -141,9 +141,9 @@ window.__emultiPotencialAg=function(){
 // Capacidade efetiva de um profissional (chave = nome normalizado).
 function capAg(k){
   var o=(k&&cfgAg.prof[k])||{};
-  var m=o.m==null?cfgAg.m:numAg(o.m,cfgAg.m,0), t=o.t==null?cfgAg.t:numAg(o.t,cfgAg.t,0);
+  var m=o.m==null?cfgAg.m:numAg(o.m,cfgAg.m,0), t=o.t==null?cfgAg.t:numAg(o.t,cfgAg.t,0), n=o.n==null?cfgAg.n:numAg(o.n,cfgAg.n,0);
   var dias=Array.isArray(o.dias)&&o.dias.length===7?o.dias:cfgAg.dias;
-  if(m+t<1){m=6;t=6;}
+  if(m+t+n<1){m=6;t=6;}
   if(!dias.some(function(x){return x;}))dias=DIAS_UTEIS_AG;
   // Regras de atendimento (opcionais): quando existem, só elas definem em que dias a agenda atende.
   // As regras ficam no profissional (chave sem unidade) e cada uma diz a unidade; a agenda "prof@unidade" usa só as da sua unidade.
@@ -151,13 +151,13 @@ function capAg(k){
   var regras=Array.isArray(ob.regras)?ob.regras.filter(regraOkAg).filter(function(r){return !un||!r.unid||unidCasaAg(r.unid,un);}):[];
   if(regras.length){
     dias=[0,0,0,0,0,0,0];regras.forEach(function(r){dias[r.dia]=1;});   // dias da semana que aparecem em alguma regra
-    return {m:m,t:t,dia:m+t,dias:dias,soManha:[0,0,0,0,0,0,0],k:k||'',regras:regras,atende:function(iso){return regras.some(function(r){return regraValeAg(r,iso);});}};
+    return {m:m,t:t,n:n,dia:m+t+n,dias:dias,soManha:[0,0,0,0,0,0,0],k:k||'',regras:regras,atende:function(iso){return regras.some(function(r){return regraValeAg(r,iso);});}};
   }
-  return {m:m,t:t,dia:m+t,dias:dias,soManha:cfgAg.soManha,k:k||'',atende:function(iso){var d=isoParaDataAg(iso);return !!d&&!!dias[d.getDay()];}};
+  return {m:m,t:t,n:n,dia:m+t+n,dias:dias,soManha:cfgAg.soManha,k:k||'',atende:function(iso){var d=isoParaDataAg(iso);return !!d&&!!dias[d.getDay()];}};
 }
 // ---------- Regras de atendimento por agenda (profissional/unidade) ----------
 // Regra = {dia:0-6, freq:'1'|'2'|'3'|'4'|'mes', desde:AAAA-MM-DD (freq 2-4), sem:[1..5] (freq 'mes'),
-//          turno:'ambos'|'manha'|'tarde', m:vagas manhã (opcional), t:vagas tarde (opcional)}
+//          turno:'ambos'|'manha'|'tarde'|'noite'|'tardenoite'|'todos', m:vagas manhã (opcional), t:vagas tarde (opcional), n:vagas noite (opcional)}
 //  '1' = toda semana · '2'/'3'/'4' = a cada N semanas, contando a partir da semana de "desde" ·
 //  'mes' = só nas semanas escolhidas do mês (1ª, 2ª… ocorrência desse dia da semana no mês).
 var UNIDADES_AG=['Ararinha','Centro','Pedreira','Vila Naiara','Croatá','Empréstimos'];
@@ -172,6 +172,9 @@ function unidCasaAg(a,b){var x=normAg(a),y=normAg(b);return !!x&&!!y&&(x===y||x.
 // Unidade para mostrar na Agenda: nome padronizado (Ararinha, Centro...) sem o prefixo "EMULTI ".
 function unidExibirAg(u){var s=String(u==null?'':u).trim();if(!s)return '';return String(nomeUnidAg(s)).replace(/^emulti\s+/i,'').trim();}
 function nomeUnidAg(n){for(var i=0;i<UNIDADES_AG.length;i++)if(unidCasaAg(UNIDADES_AG[i],n))return UNIDADES_AG[i];return String(n||'');}
+// Quais turnos cada valor de "turno" da regra libera (manhã, tarde, noite). Valor desconhecido = manhã e tarde.
+var TURNOS_REGRA_AG={ambos:{m:1,t:1,n:0},manha:{m:1,t:0,n:0},tarde:{m:0,t:1,n:0},noite:{m:0,t:0,n:1},tardenoite:{m:0,t:1,n:1},todos:{m:1,t:1,n:1}};
+function turnoRegraAg(t){return TURNOS_REGRA_AG[t]||TURNOS_REGRA_AG.ambos;}
 function regraOkAg(r){
   if(!r||typeof r!=='object'||!(r.dia>=0&&r.dia<=6))return false;
   if(r.freq==='mes')return Array.isArray(r.sem)&&r.sem.length>0;
@@ -190,7 +193,7 @@ function regraValeAg(r,iso){
 function resumoRegrasAg(regras){
   return regras.map(function(r){
     var f=r.freq==='mes'?(r.sem||[]).map(function(n){return n+'ª';}).join('/')+' semana do mês':((parseInt(r.freq,10)||1)>1?'a cada '+parseInt(r.freq,10)+' semanas (desde '+brAg(r.desde)+')':'toda semana');
-    var t=r.turno==='manha'?' · só manhã':(r.turno==='tarde'?' · só tarde':'');
+    var t={manha:' · só manhã',tarde:' · só tarde',noite:' · só noite',tardenoite:' · tarde e noite',todos:' · manhã, tarde e noite'}[r.turno]||'';
     return (r.unid?r.unid+' · ':'')+DIAS_SEM_AG[r.dia]+' · '+f+t;
   }).join('; ');
 }
@@ -219,18 +222,20 @@ function diaAposFechamentoAg(k,iso){
 }
 // Capacidade do profissional em um dia específico: nos dias "só manhã" (padrão: sexta) só valem as vagas da manhã.
 function capNoDiaAg(cap,iso){
-  if(folgaDiaAg(cap.k,iso))return {m:0,t:0,dia:0,dias:cap.dias,soManha:cap.soManha,k:cap.k,fechado:true};
+  if(folgaDiaAg(cap.k,iso))return {m:0,t:0,n:0,dia:0,dias:cap.dias,soManha:cap.soManha,k:cap.k,fechado:true};
   var d=isoParaDataAg(iso);
   if(cap.regras&&cap.regras.length){
-    var m=0,t=0;
+    var m=0,t=0,n=0;
     cap.regras.forEach(function(r){
       if(!regraValeAg(r,iso))return;
-      if(r.turno!=='tarde')m=Math.max(m,r.m==null?cap.m:r.m);
-      if(r.turno!=='manha')t=Math.max(t,r.t==null?cap.t:r.t);
+      var tr=turnoRegraAg(r.turno);
+      if(tr.m)m=Math.max(m,r.m==null?cap.m:r.m);
+      if(tr.t)t=Math.max(t,r.t==null?cap.t:r.t);
+      if(tr.n)n=Math.max(n,r.n==null?cap.n:r.n);
     });
-    return {m:m,t:t,dia:m+t,dias:cap.dias,soManha:cap.soManha,k:cap.k,regras:cap.regras,atende:cap.atende};
+    return {m:m,t:t,n:n,dia:m+t+n,dias:cap.dias,soManha:cap.soManha,k:cap.k,regras:cap.regras,atende:cap.atende};
   }
-  if(d&&cap.soManha&&cap.soManha[d.getDay()])return {m:cap.m,t:0,dia:cap.m,dias:cap.dias,soManha:cap.soManha,atende:cap.atende};
+  if(d&&cap.soManha&&cap.soManha[d.getDay()])return {m:cap.m,t:0,n:0,dia:cap.m,dias:cap.dias,soManha:cap.soManha,atende:cap.atende};
   return cap;
 }
 
@@ -368,7 +373,7 @@ function escAg(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){ret
 // Padrão: Data agendada, da mais recente para a mais antiga (quem não tem data fica no fim).
 var sortAg={col:'data',dir:'desc'};
 function tsAg(v){var s=String(v==null?'':v).trim();if(!s)return 0;var m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ ,T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);if(m)return new Date(+m[3],+m[2]-1,+m[1],+(m[4]||0),+(m[5]||0),+(m[6]||0)).getTime();var t=Date.parse(s);return isNaN(t)?0:t;}
-var TURNO_ORD_AG={manha:1,tarde:2,excedente:3};
+var TURNO_ORD_AG={manha:1,tarde:2,noite:3,excedente:4};
 // Valor de ordenação da coluna: texto (string), número ou data (AAAA-MM-DD). Vazio = null (sempre no fim).
 function chaveSortAg(col,r,ix,uc,turnos){
   switch(col){
@@ -599,7 +604,7 @@ function motivoSemTurnoAg(r,ix,uc){
   return 'Sem turno';
 }
 // Turno gravado na planilha (coluna "Turno"), válido só enquanto a data da linha não foi mexida aqui.
-function turnoGuardadoAg(r,ix){if(propostaAg[ix])return '';var t=normAg(r.Turno);return t==='manha'||t==='tarde'?t:'';}
+function turnoGuardadoAg(r,ix){if(propostaAg[ix])return '';var t=normAg(r.Turno);return t==='manha'||t==='tarde'||t==='noite'?t:'';}
 // Turno de cada pessoa com data (salva ou gerada, exceto Cancelado/Faltou). Por profissional+dia:
 // quem já tem turno gravado mantém; as demais enchem primeiro a manhã (última consulta mais antiga primeiro)
 // e só vão para a tarde quando as vagas da manhã acabam, respeitando as vagas de cada turno; passou do
@@ -618,21 +623,23 @@ function turnosAg(uc){
       return a.nome.localeCompare(b.nome,'pt-BR');
     });
     // turno gravado na tarde não vale em dia/agenda sem vaga à tarde (ex.: sexta só manhã)
-    ord.forEach(function(x){if(x.fixo==='tarde'&&cap.t<1)x.fixo='';});
+    ord.forEach(function(x){if(x.fixo==='tarde'&&cap.t<1)x.fixo='';if(x.fixo==='noite'&&!(cap.n>0))x.fixo='';});   // idem para a noite
     var nEff=Math.min(ord.length,cap.dia),alvoM=Math.min(cap.m,nEff);   // manhã primeiro: a tarde só recebe quem passa das vagas da manhã
-    var nM=0,nT=0;
-    ord.forEach(function(x){if(x.fixo==='manha'){nM++;x.cls='manha';}else if(x.fixo==='tarde'){nT++;x.cls='tarde';}});
+    var nM=0,nT=0,nN=0;
+    ord.forEach(function(x){if(x.fixo==='manha'){nM++;x.cls='manha';}else if(x.fixo==='tarde'){nT++;x.cls='tarde';}else if(x.fixo==='noite'){nN++;x.cls='noite';}});
     var vagaM=Math.max(0,alvoM-nM);
     ord.forEach(function(x){
       if(x.cls)return;
       if(vagaM>0&&nM<cap.m){x.cls='manha';nM++;vagaM--;}
       else if(nT<cap.t){x.cls='tarde';nT++;}
       else if(nM<cap.m){x.cls='manha';nM++;}
+      else if(nN<(cap.n||0)){x.cls='noite';nN++;}   // a noite só recebe quem passa das vagas da manhã e da tarde
       else x.cls='excedente';
     });
     ord.forEach(function(x){
       if(x.cls==='manha')res[x.ix]={rotulo:'Manhã',classe:'manha',dica:'Manhã — '+nM+' de '+cap.m+' vagas no dia'+(x.fixo?' (turno gravado)':'')};
       else if(x.cls==='tarde')res[x.ix]={rotulo:'Tarde',classe:'tarde',dica:'Tarde — '+nT+' de '+cap.t+' vagas no dia'+(x.fixo?' (turno gravado)':'')};
+      else if(x.cls==='noite')res[x.ix]={rotulo:'Noite',classe:'noite',dica:'Noite — '+nN+' de '+cap.n+' vagas no dia'+(x.fixo?' (turno gravado)':'')};
       else res[x.ix]={rotulo:'Excedente',classe:'excedente',dica:cap.fechado?(folgaDiaAg(cap.k,g.slice(g.lastIndexOf('|')+1))||'Dia sem atendimento'):'Acima do limite de '+cap.dia+' pessoas por dia para este profissional'};
     });
   });
@@ -1189,7 +1196,7 @@ function intervalosRetAg(){return retAg&&retAg.modo==='reagendar'?INTERVALOS_REA
 var retAg=null;   // {ix, base (AAAA-MM-DD do atendimento), dias, sel (data escolhida), selTurno, busy, modo ('retorno'|'reagendar')}
 function diasRetornoSalvoAg(){var o=lsGetAg(LS_RETORNO_AG),n=o?parseInt(o.dias,10):0;return n>0&&n<=365?n:30;}
 function rotuloDataAg(iso){return diaSemAg(iso)+' '+brAg(iso);}
-function classeTurnoAg(rot){return rot==='Manhã'?'manha':(rot==='Tarde'?'tarde':'excedente');}
+function classeTurnoAg(rot){return rot==='Manhã'?'manha':(rot==='Tarde'?'tarde':(rot==='Noite'?'noite':'excedente'));}
 // Primeira data a considerar: base + intervalo, nunca antes de amanhã.
 function alvoRetornoAg(base,dias){
   var d=isoParaDataAg(base)||new Date(),alvo=isoAg(somaDiaAg(d,dias)),min=isoAg(amanhaAg());
@@ -1410,7 +1417,7 @@ function renderVagasAg(uc){
       var cap=caps[k];if(!cap.atende(iso))return '<td class="vaga-off" title="Não atende neste dia">—</td>';
       var fo=folgaDiaAg(k,iso);if(fo)return '<td class="vaga-off" title="'+escAg(fo)+'">'+(fo.indexOf('Feriado')===0?'feriado':(fo.indexOf('Folga')===0?'folga':'imprevisto'))+'</td>';
       var cd=capNoDiaAg(cap,iso),n=(oc[k]&&oc[k][iso])||0,cls=n>=cd.dia?'vaga-lotado':(n>=cd.dia*0.75?'vaga-quase':'vaga-livre');
-      return '<td class="'+cls+'" title="'+(cd.dia-n>0?(cd.dia-n)+' vaga(s) livre(s)':'Sem vagas')+(cd.t<1&&cap.t>0?' (só manhã)':'')+'">'+n+'/'+cd.dia+'</td>';
+      return '<td class="'+cls+'" title="'+(cd.dia-n>0?(cd.dia-n)+' vaga(s) livre(s)':'Sem vagas')+(cd.t<1&&cap.t>0&&!(cd.n>0)?' (só manhã)':'')+'">'+n+'/'+cd.dia+'</td>';
     }).join('')+'</tr>';
   });
   box.innerHTML=html+'</tbody></table></div><p class="agendamentos-filtro-info">Ocupação = pessoas agendadas (salvas ou sugeridas) / vagas do dia. Cancelados e faltosos não contam.</p>';
@@ -1420,7 +1427,7 @@ function renderVagasAg(uc){
 function renderConfigAg(){
   var det=document.getElementById('agendamentosConfig');if(!det)return;
   function set(id,v){var el=document.getElementById(id);if(el)el.value=v;}
-  set('agCfgM',cfgAg.m);set('agCfgT',cfgAg.t);set('agCfgJanela',cfgAg.janela);
+  set('agCfgM',cfgAg.m);set('agCfgT',cfgAg.t);set('agCfgN',cfgAg.n);set('agCfgJanela',cfgAg.janela);
   det.querySelectorAll('.agendamentos-cfg-dias input').forEach(function(cb){cb.checked=!!cfgAg.dias[Number(cb.dataset.dia)];});
   det.querySelectorAll('.agendamentos-cfg-manha input').forEach(function(cb){cb.checked=!!cfgAg.soManha[Number(cb.dataset.dia)];});
   var rd=document.getElementById('agCfgRedist');if(rd)rd.checked=!!cfgAg.redistribuir;
@@ -1430,14 +1437,15 @@ function renderConfigAg(){
   var nomes=agendasAg(uc);
   var ks=Object.keys(nomes).sort(function(a,b){return nomes[a].localeCompare(nomes[b],'pt-BR');});
   var editorFeitoAg={};
-  box.innerHTML='<div class="table-wrap"><table class="data-table"><thead><tr><th>Profissional</th><th>Vagas manhã</th><th>Vagas tarde</th>'+DIAS_SEM_AG.map(function(n){return '<th>'+n+'</th>';}).join('')+'<th>Regras</th></tr></thead><tbody>'+ks.map(function(k){
+  box.innerHTML='<div class="table-wrap"><table class="data-table"><thead><tr><th>Profissional</th><th>Vagas manhã</th><th>Vagas tarde</th><th>Vagas noite</th>'+DIAS_SEM_AG.map(function(n){return '<th>'+n+'</th>';}).join('')+'<th>Regras</th></tr></thead><tbody>'+ks.map(function(k){
     var o=cfgAg.prof[k]||{},cap=capAg(k),temRegras=!!(cap.regras&&cap.regras.length),base=k.split('@')[0],unRow=k.indexOf('@')<0?'':nomeUnidAg(k.slice(k.indexOf('@')+1)),aberto=!!regrasAbertasAg[base]&&!editorFeitoAg[base]&&unRow===(regrasUnidPadraoAg[base]||'');if(aberto)editorFeitoAg[base]=true;
     return '<tr data-k="'+escAg(k)+'"><td class="agendamentos-nome">'+escAg(nomes[k])+' <button type="button" class="agendamentos-btn agendamentos-secundario" data-redist="'+escAg(k)+'" title="Refaz as datas já agendadas desta agenda (a partir da data de Início) com as vagas e dias atuais. Nada é salvo até clicar em Salvar datas geradas." style="padding:2px 8px;font-size:12px;margin-left:6px">Atualizar</button> <button type=\"button\" class=\"agendamentos-btn agendamentos-secundario\" data-regras-toggle=\"'+escAg(base)+'\" data-un=\"'+escAg(k.indexOf('@')<0?'':nomeUnidAg(k.slice(k.indexOf('@')+1)))+'\" style=\"padding:2px 8px;font-size:12px;margin-left:4px\">'+(aberto?'Fechar regras':'Regras')+'</button></td>'
       +'<td><input type="number" min="0" data-campo="m" placeholder="'+cfgAg.m+'" value="'+(o.m==null?'':o.m)+'"></td>'
       +'<td><input type="number" min="0" data-campo="t" placeholder="'+cfgAg.t+'" value="'+(o.t==null?'':o.t)+'"></td>'
+      +'<td><input type="number" min="0" data-campo="n" placeholder="'+cfgAg.n+'" value="'+(o.n==null?'':o.n)+'"></td>'
       +[0,1,2,3,4,5,6].map(function(i){return '<td><input type="checkbox" data-dia="'+i+'"'+(cap.dias[i]?' checked':'')+(temRegras?' disabled title="Definido pelas regras de atendimento"':'')+'></td>';}).join('')
       +'<td class="ag-regras-cel">'+(temRegras?'<span class="ag-regras-resumo" title="'+escAg(resumoRegrasAg(cap.regras))+'">'+cap.regras.length+(cap.regras.length===1?' regra':' regras')+'</span> ':'')+'<button type="button" class="agendamentos-btn agendamentos-secundario" data-regras-toggle="'+escAg(base)+'" data-un="'+escAg(k.indexOf('@')<0?'':nomeUnidAg(k.slice(k.indexOf('@')+1)))+'" style="padding:2px 8px;font-size:12px">'+(aberto?'Fechar':(temRegras?'Editar':'Definir regras'))+'</button></td></tr>'
-      +(aberto?'<tr data-kr="'+escAg(base)+'" class="ag-regras-linha"><td colspan="11">'+htmlRegrasAg(base,nomes[k].split(' — ')[0],unRow)+'</td></tr>':'');
+      +(aberto?'<tr data-kr="'+escAg(base)+'" class="ag-regras-linha"><td colspan="12">'+htmlRegrasAg(base,nomes[k].split(' — ')[0],unRow)+'</td></tr>':'');
   }).join('')+'</tbody></table></div>';
 }
 var regrasAbertasAg={};   // profissionais com o editor de regras aberto
@@ -1462,9 +1470,10 @@ function htmlRegrasAg(base,nomeProf,unFiltro){
       +'<select data-rf="freq" aria-label="Frequência">'+[['1','Toda semana'],['2','A cada 2 semanas (quinzenal)'],['3','A cada 3 semanas'],['4','A cada 4 semanas'],['mes','Semanas do mês…']].map(function(f){return '<option value="'+f[0]+'"'+(String(r.freq||'1')===f[0]?' selected':'')+'>'+f[1]+'</option>';}).join('')+'</select>'
       +(cada>1?'<label>a partir de <input type="date" data-rf="desde" value="'+escAg(r.desde||'')+'"></label>':'')
       +(r.freq==='mes'?'<span class="ag-regra-sem">'+[1,2,3,4,5].map(function(n){return '<label><input type="checkbox" data-rf="sem" data-n="'+n+'"'+((r.sem||[]).indexOf(n)>=0?' checked':'')+'> '+n+'ª</label>';}).join('')+'</span>':'')
-      +'<select data-rf="turno" aria-label="Turno">'+[['ambos','Manhã e tarde'],['manha','Só manhã'],['tarde','Só tarde']].map(function(f){return '<option value="'+f[0]+'"'+((r.turno||'ambos')===f[0]?' selected':'')+'>'+f[1]+'</option>';}).join('')+'</select>'
+      +'<select data-rf="turno" aria-label="Turno">'+[['ambos','Manhã e tarde'],['manha','Só manhã'],['tarde','Só tarde'],['noite','Só noite'],['tardenoite','Tarde e noite'],['todos','Manhã, tarde e noite']].map(function(f){return '<option value="'+f[0]+'"'+((r.turno||'ambos')===f[0]?' selected':'')+'>'+f[1]+'</option>';}).join('')+'</select>'
       +'<label>vagas manhã <input type="number" min="0" data-rf="m" placeholder="padrão" value="'+(r.m==null?'':r.m)+'"></label>'
       +'<label>vagas tarde <input type="number" min="0" data-rf="t" placeholder="padrão" value="'+(r.t==null?'':r.t)+'"></label>'
+      +'<label>vagas noite <input type="number" min="0" data-rf="n" placeholder="padrão" value="'+(r.n==null?'':r.n)+'"></label>'
       +'<button type="button" class="agendamentos-btn agendamentos-secundario" data-rf-del="'+i+'" style="padding:2px 8px;font-size:12px">Remover</button>'
       +(ok?'':'<small class="ag-aviso"> Incompleta: '+(r.freq==='mes'?'marque pelo menos uma semana do mês':'informe a data inicial')+' (regra ignorada até lá).</small>')
       +'</div>';
@@ -1512,9 +1521,9 @@ function motivoDiaAg(k,iso){
   if(!cap.atende(iso))return 'NÃO aceita — '+nome+' não atende neste dia ('+(cap.regras&&cap.regras.length?'regras: '+resumoRegrasAg(cap.regras):'dias configurados: '+atende)+').';
   var fo=folgaDiaAg(k,iso);if(fo)return 'NÃO aceita — '+sem+' está fechado: '+fo+'.';
   var cd=capNoDiaAg(cap,iso);
-  if(cd.dia<1)return 'NÃO aceita — '+nome+' está com 0 vagas neste dia (confira as vagas da manhã/tarde).';
+  if(cd.dia<1)return 'NÃO aceita — '+nome+' está com 0 vagas neste dia (confira as vagas da manhã/tarde/noite).';
   var n=0;if(uc)rowsAg.forEach(function(r,ix){if(chaveProfAg(r,uc)!==k||!ocupaAg(r,ix))return;if((propostaAg[ix]||dateAg(r['Data agendada']))===iso)n++;});
-  var tur=cd.t<1&&cap.t>0?' (dia só de manhã)':'';
+  var tur=cd.t<1&&cap.t>0&&!(cd.n>0)?' (dia só de manhã)':'';
   var ini=valAg('agendamentosInicio'),extra='';
   if(iso<isoAg(amanhaAg()))extra=' Atenção: a data já passou; a geração automática só usa datas a partir de amanhã.';
   else if(ini&&iso<ini)extra=' Atenção: a geração automática começa em '+brDataAg(ini)+' (campo Início), então este dia não é usado.';
@@ -1609,7 +1618,7 @@ function addFolgaAg(){
 // Ao cadastrar feriado, imprevisto ou folga, lista quem tinha consulta marcada no período e a nova data
 // (sugerida pela geração automática, ainda não salva, ou já salva) para avisar os pacientes.
 var afetadosAg=null;   // {titulo, itens:[{ix,nome,dataOrig,turno,prof}]}
-function turnoRotuloAg(v){var n=normAg(v);return n==='manha'?'Manhã':(n==='tarde'?'Tarde':'');}
+function turnoRotuloAg(v){var n=normAg(v);return n==='manha'?'Manhã':(n==='tarde'?'Tarde':(n==='noite'?'Noite':''));}
 function mostrarAfetadosAg(tipo,x){
   var uc=profMapAg(),hoje=isoAg(new Date()),base=tipo===TIPO_FER_AG?'':normAg(x.prof),itens=[];
   rowsAg.forEach(function(r,ix){
@@ -1782,9 +1791,10 @@ document.addEventListener('DOMContentLoaded',function(){
   var dc=document.getElementById('agendamentosConfig');
   if(dc){
     dc.addEventListener('toggle',function(){if(dc.open)renderConfigAg();});
-    var gm=document.getElementById('agCfgM'),gt=document.getElementById('agCfgT'),gj=document.getElementById('agCfgJanela');
+    var gm=document.getElementById('agCfgM'),gt=document.getElementById('agCfgT'),gn=document.getElementById('agCfgN'),gj=document.getElementById('agCfgJanela');
     if(gm)gm.addEventListener('change',function(){cfgAg.m=numAg(gm.value,6,0);configMudouAg();});
     if(gt)gt.addEventListener('change',function(){cfgAg.t=numAg(gt.value,6,0);configMudouAg();});
+    if(gn)gn.addEventListener('change',function(){cfgAg.n=numAg(gn.value,0,0);configMudouAg();});
     if(gj)gj.addEventListener('change',function(){cfgAg.janela=numAg(gj.value,0,0);configMudouAg();});
     dc.querySelectorAll('.agendamentos-cfg-dias input').forEach(function(cb){cb.addEventListener('change',function(){cfgAg.dias[Number(cb.dataset.dia)]=cb.checked?1:0;configMudouAg();});});
     dc.querySelectorAll('.agendamentos-cfg-manha input').forEach(function(cb){cb.addEventListener('change',function(){cfgAg.soManha[Number(cb.dataset.dia)]=cb.checked?1:0;configMudouAg();});});
@@ -1821,8 +1831,12 @@ document.addEventListener('DOMContentLoaded',function(){
       else if(f==='freq'){r.freq=v;if(v==='mes'){if(!Array.isArray(r.sem)||!r.sem.length)r.sem=[1,3];delete r.desde;}else{delete r.sem;if((parseInt(v,10)||1)>1&&!r.desde)r.desde=proximaDataDiaAg(r.dia);else if((parseInt(v,10)||1)<2)delete r.desde;}estrutura=true;}
       else if(f==='desde'){r.desde=v;estrutura=true;}
       else if(f==='sem'){var n=Number(e.target.dataset.n),a=(r.sem||[]).filter(function(x){return x!==n;});if(e.target.checked)a.push(n);r.sem=a.sort();estrutura=true;}
-      else if(f==='turno'){r.turno=v;}
-      else if(f==='m'||f==='t'){if(v==='')delete r[f];else r[f]=numAg(v,0,0);}
+      else if(f==='turno'){
+        r.turno=v;
+        // Turno com noite e nenhuma vaga à noite definida (nem a padrão): sugere 6, como manhã/tarde — editável.
+        if(turnoRegraAg(v).n&&r.n==null&&!(capAg(k).n>0)){r.n=6;estrutura=true;}
+      }
+      else if(f==='m'||f==='t'||f==='n'){if(v==='')delete r[f];else r[f]=numAg(v,0,0);}
       cfgAg.prof[k]=o;profCacheAg=null;
       if(estrutura)renderConfigAg();
       configMudouAg();
@@ -1853,7 +1867,7 @@ document.addEventListener('DOMContentLoaded',function(){
       });
     }
     var rs=document.getElementById('agCfgReset');
-    if(rs)rs.addEventListener('click',function(){cfgAg={m:6,t:6,dias:DIAS_UTEIS_AG.slice(),janela:0,prof:{},soManha:[0,0,0,0,0,1,0],feriados:cfgAg.feriados,faltas:cfgAg.faltas,folgas:cfgAg.folgas,redistribuir:false};renderConfigAg();configMudouAg();});
+    if(rs)rs.addEventListener('click',function(){cfgAg={m:6,t:6,n:0,dias:DIAS_UTEIS_AG.slice(),janela:0,prof:{},soManha:[0,0,0,0,0,1,0],feriados:cfgAg.feriados,faltas:cfgAg.faltas,folgas:cfgAg.folgas,redistribuir:false};renderConfigAg();configMudouAg();});
   }
   document.getElementById('agendamentosAtualizar').addEventListener('click',loadAg);
   var btnTestarHist=document.getElementById('agendamentosTestarHist');if(btnTestarHist)btnTestarHist.addEventListener('click',testarHistoricoAg);var btnImpHist=document.getElementById('agendamentosImportarHist');if(btnImpHist)btnImpHist.addEventListener('click',importarHistoricoAg);document.getElementById('agendamentosSincronizar').addEventListener('click',syncAg);
