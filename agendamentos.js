@@ -1,3 +1,4 @@
+import { createMultiSelect } from './nucleo.js';
 // Aba de agendamentos: lê/grava a aba Agendamentos pelo backend existente.
 var rowsAg=[]; var busyAg=false; var profCacheAg=null;
 // Histórico de desfechos (aba "Histórico Agendamentos"): uma linha por Realizado/Faltou, nunca sobrescrita.
@@ -1425,6 +1426,16 @@ function renderVagasAg(uc){
 }
 
 // ---------- Configuração (painel) ----------
+// Filtro por profissional (multisseleção) no topo da configuração: restringe a tabela "por profissional".
+// Guarda a chave-base do profissional (nome normalizado, sem a unidade): uma seleção vale para todas as unidades dele.
+var filtroCfgProfAg=[],cfgProfMsAg=null,cfgProfOpcJsonAg='';
+function atualizarFiltroCfgProfAg(opts){
+  var el=document.getElementById('agCfgProfMs');if(!el)return;
+  if(!cfgProfMsAg)cfgProfMsAg=createMultiSelect(el,{placeholder:'Todos os profissionais',multi:true,search:true,onChange:function(keys){filtroCfgProfAg=keys;renderConfigAg();}});
+  var j=JSON.stringify(opts);
+  if(j!==cfgProfOpcJsonAg){cfgProfOpcJsonAg=j;cfgProfMsAg.setOptions(opts);}
+  cfgProfMsAg.setSelected(filtroCfgProfAg);
+}
 function renderConfigAg(){
   var det=document.getElementById('agendamentosConfig');if(!det)return;
   function set(id,v){var el=document.getElementById(id);if(el)el.value=v;}
@@ -1434,11 +1445,18 @@ function renderConfigAg(){
   var rd=document.getElementById('agCfgRedist');if(rd)rd.checked=!!cfgAg.redistribuir;
   var box=document.getElementById('agCfgProf');if(!box)return;
   var uc=profMapAg();
-  if(!uc){box.innerHTML='<p class="agendamentos-filtro-info">Carregue Pessoas atendidas para configurar por profissional.</p>';return;}
+  if(!uc){atualizarFiltroCfgProfAg([]);box.innerHTML='<p class="agendamentos-filtro-info">Carregue Pessoas atendidas para configurar por profissional.</p>';return;}
   var nomes=agendasAg(uc);
   var ks=Object.keys(nomes).sort(function(a,b){return nomes[a].localeCompare(nomes[b],'pt-BR');});
   var editorFeitoAg={};
-  box.innerHTML='<div class="table-wrap"><table class="data-table"><thead><tr><th>Profissional</th><th>Vagas manhã</th><th>Vagas tarde</th><th>Vagas noite</th>'+DIAS_SEM_AG.map(function(n){return '<th>'+n+'</th>';}).join('')+'<th>Regras</th></tr></thead><tbody>'+ks.map(function(k){
+  // Opções do filtro = profissionais existentes (uma por profissional, mesmo com várias unidades).
+  var opcProf={};ks.forEach(function(k){var b=k.split('@')[0];if(!opcProf[b])opcProf[b]=nomes[k].split(' — ')[0];});
+  filtroCfgProfAg=filtroCfgProfAg.filter(function(b){return opcProf[b]!==undefined;});   // some da seleção quem deixou de existir
+  atualizarFiltroCfgProfAg(Object.keys(opcProf).sort(function(a,b){return opcProf[a].localeCompare(opcProf[b],'pt-BR');}).map(function(b){return {value:b,label:opcProf[b]};}));
+  var totalAg=ks.length;
+  if(filtroCfgProfAg.length)ks=ks.filter(function(k){return filtroCfgProfAg.indexOf(k.split('@')[0])>=0;});
+  var notaFiltroAg=filtroCfgProfAg.length?'<p class="agendamentos-filtro-info">Mostrando '+ks.length+' de '+totalAg+' agendas (filtro por profissional).</p>':'';
+  box.innerHTML=notaFiltroAg+'<div class="table-wrap"><table class="data-table"><thead><tr><th>Profissional</th><th>Vagas manhã</th><th>Vagas tarde</th><th>Vagas noite</th>'+DIAS_SEM_AG.map(function(n){return '<th>'+n+'</th>';}).join('')+'<th>Regras</th></tr></thead><tbody>'+ks.map(function(k){
     var o=cfgAg.prof[k]||{},cap=capAg(k),temRegras=!!(cap.regras&&cap.regras.length),base=k.split('@')[0],unRow=k.indexOf('@')<0?'':nomeUnidAg(k.slice(k.indexOf('@')+1)),aberto=!!regrasAbertasAg[base]&&!editorFeitoAg[base]&&unRow===(regrasUnidPadraoAg[base]||'');if(aberto)editorFeitoAg[base]=true;
     return '<tr data-k="'+escAg(k)+'"><td class="agendamentos-nome">'+escAg(nomes[k])+' <button type="button" class="agendamentos-btn agendamentos-secundario" data-redist="'+escAg(k)+'" title="Refaz as datas já agendadas desta agenda (a partir da data de Início) com as vagas e dias atuais. Nada é salvo até clicar em Salvar datas geradas." style="padding:2px 8px;font-size:12px;margin-left:6px">Atualizar</button> <button type=\"button\" class=\"agendamentos-btn agendamentos-secundario\" data-regras-toggle=\"'+escAg(base)+'\" data-un=\"'+escAg(k.indexOf('@')<0?'':nomeUnidAg(k.slice(k.indexOf('@')+1)))+'\" style=\"padding:2px 8px;font-size:12px;margin-left:4px\">'+(aberto?'Fechar regras':'Regras')+'</button></td>'
       +'<td><input type="number" min="0" data-campo="m" placeholder="'+cfgAg.m+'" value="'+(o.m==null?'':o.m)+'"></td>'
