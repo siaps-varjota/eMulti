@@ -870,7 +870,7 @@ export function monthOptionsParaPessoasAtendidas(){
 // Unidade para a aba Agendamentos/Agenda. A equipe da eMulti vem como "EMULTI CENTRO - ARARINHA" ou
 // "EMULTI CENTRO - VILA NAIARA": contém "CENTRO", mas o atendimento foi na unidade citada depois.
 // Por isso a unidade específica tem prioridade; sem ela, vale a equipe (Centro/Croatá).
-var UNIDADES_ESPECIFICAS_AGENDA = [['ARARINHA','Ararinha'],['VILA NAIARA','Vila Naiara'],['EMPRESTIMOS','Empréstimos']];
+var UNIDADES_ESPECIFICAS_AGENDA = [['ARARINHA','Ararinha'],['VILA NAIARA','Vila Naiara'],['EMPRESTIMO','Empréstimos']];
 export function unidadeAgendaFromRaw(raw){
   var valor = normalizeText(raw);
   for(var i=0;i<UNIDADES_ESPECIFICAS_AGENDA.length;i++){

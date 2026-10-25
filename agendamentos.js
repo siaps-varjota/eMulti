@@ -165,7 +165,8 @@ var UNIDADES_AG=['Ararinha','Centro','Pedreira','Vila Naiara','Croatá','Emprés
 // (vagas, dias e lotação separados) mesmo que ainda não haja atendimento ou regra cadastrada em todas elas.
 // Para incluir outro profissional que atende em 2+ unidades, basta acrescentar uma linha.
 var PROF_UNIDADES_AG={
-  'aline de sousa rosa':['Centro','Ararinha','Vila Naiara']
+  'aline de sousa rosa':['Centro','Ararinha','Vila Naiara'],
+  'maria eveline pontes monte':['Centro','Ararinha','Vila Naiara','Croatá','Empréstimos']
 };
 // Unidade da regra x unidade vinda do PEC (coluna equipe): igual ou uma contém a outra ("EMULTI Vila Naiara" casa com "Vila Naiara").
 function unidCasaAg(a,b){var x=normAg(a),y=normAg(b);return !!x&&!!y&&(x===y||x.indexOf(y)>=0||y.indexOf(x)>=0);}
