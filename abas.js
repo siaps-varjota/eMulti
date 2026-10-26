@@ -4,7 +4,7 @@
 // Cada seção "=== módulo: ... ===" corresponde a um arquivo original.
 // ======================================================================
 
-import { JANELA_MESES, anchorMonthDate, classificarDesempenho, monthShortLabel, CLASS_BANDS_M1, EQUIPES, OV_ICONS, PONTOS_POR_CLASSE, QUAD_LABELS, TOTAL_PROF_EMULTI_HEADER, profissionaisPorAtividade, avisarNomesProfissionaisSemMatch, addMonths, buildGauge, calcularJanelaPeriodo, calcularSerieTendencia, classificarM1, classificarM2, colIndex, colTotalProfEmulti, createMultiSelect, criarCalculadoraTotalProfEmulti, criarLigacaoAtividades, displayListName, ehProfissionalComparativoEmulti, equipeColIndex, escapeHtml, estadoApp, filtrarLinhasPorEquipe, fmtBRDate, fmtDec, fmtInt, gaugeInterpretationHTML, gaugeLegendHTML, kpiPanelHTML, kpiPanelIcon, mesesDosQuadsSelecionadosUniao, nomeEhDaEmulti, normalizeText, ovIconHTML, ovLegendHTML, ovStatus, parseBRDate, pillHex, profissionaisRoster, quadShortLabel, sheetToRows, suffixedName, ultimoMesDosQuadsSelecionados, withinPeriod } from './nucleo.js';
+import { classificarDesempenho, monthShortLabel, CLASS_BANDS_M1, EQUIPES, OV_ICONS, PONTOS_POR_CLASSE, QUAD_LABELS, TOTAL_PROF_EMULTI_HEADER, profissionaisPorAtividade, avisarNomesProfissionaisSemMatch, addMonths, buildGauge, calcularJanelaPeriodo, calcularSerieTendencia, classificarM1, classificarM2, colIndex, colTotalProfEmulti, createMultiSelect, criarCalculadoraTotalProfEmulti, criarLigacaoAtividades, displayListName, ehProfissionalComparativoEmulti, equipeColIndex, escapeHtml, estadoApp, filtrarLinhasPorEquipe, fmtBRDate, fmtDec, fmtInt, gaugeInterpretationHTML, gaugeLegendHTML, kpiPanelHTML, kpiPanelIcon, mesesDosQuadsSelecionadosUniao, nomeEhDaEmulti, normalizeText, ovIconHTML, ovLegendHTML, ovStatus, parseBRDate, pillHex, profissionaisRoster, quadShortLabel, sheetToRows, suffixedName, ultimoMesDosQuadsSelecionados, withinPeriod } from './nucleo.js';
 import { equipeLabelFromRaw, pdfComNumeracao, pdfLinhaProfissional, profissionalColIndex, slugifyFileName } from './listas.js';
 import { latestRawSheets, latestWb } from './app.js';
 
@@ -2606,17 +2606,9 @@ function m1DiagnosticoHTML(base, metaM1){
 }
 
 export function calcularMetasQuadrimestre(numerador, denominador, thresholds, unidade, unidadeFaltam, opcoes){
-  // O período da meta segue os MESMOS filtros que geram o valor do card
-  // (Ano / Quadrimestre / Mês): o valor exibido de M1/M2 é sempre a janela
-  // móvel de JANELA_MESES meses terminando no mês-âncora (último mês marcado
-  // no filtro de Mês; sem mês marcado, o último mês do(s) quadrimestre(s)
-  // selecionado(s) — ver anchorMonthDate). Então o alvo, o ritmo por mês/semana,
-  // o tempo restante e o selo "Preliminar" usam essa mesma janela, em vez de
-  // sempre os 4 meses do quadrimestre inteiro (que ignorava o filtro de Mês e
-  // inflava o período quando mais de um quadrimestre/ano estava marcado).
-  var janelaMeta = calcularJanelaPeriodo(anchorMonthDate());
-  var inicioQuad = janelaMeta.inicio;
-  var fimQuad = janelaMeta.fim;
+  var meses = mesesDosQuadsSelecionadosUniao();
+  var inicioQuad = new Date(meses[0].getFullYear(), meses[0].getMonth(), 1, 0,0,0,0);
+  var fimQuad = new Date(meses[meses.length-1].getFullYear(), meses[meses.length-1].getMonth()+1, 0, 23,59,59,999);
   var hoje = new Date();
   var diasQuad = Math.round((fimQuad-inicioQuad)/86400000)+1;
   var semanasQuad = diasQuad/7;
@@ -2641,7 +2633,7 @@ export function calcularMetasQuadrimestre(numerador, denominador, thresholds, un
       label: t.label, color: t.color, unidade: unidade, unidadeFaltam: unidadeFaltam || unidade,
       alvo: alvo,
       atual: numerador||0,
-      mediaMes: alvo/JANELA_MESES,
+      mediaMes: alvo/meses.length,
       mediaSemana: alvo/semanasQuad,
       faltam: faltam,
       semanasRestantes: semanasRestantes,
@@ -2730,7 +2722,7 @@ export function faltaM2ParaMeta(num, den, thresholdPct, janelas){
   if(janelas && janelas.length>1){
     var rJ = faltaMediaJanelas(janelas, Number(thresholdPct), true, true);
     if(!rJ) return null;
-    return {faltam:rJ.faltam, numAtual:num, denAtual:den, numNovo:num+rJ.faltam, denNovo:den+rJ.faltam, janelas:rJ.janelas};
+    return {faltam:rJ.faltam, porJanela:rJ.porJanela, numAtual:num, denAtual:den, numNovo:num+rJ.faltam, denNovo:den+rJ.faltam, janelas:rJ.janelas};
   }
   var t = Number(thresholdPct)/100;
   if(!(t>0) || t>=1 || den<=0) return null;
@@ -2753,35 +2745,44 @@ function mediaRazaoJanelas(janelas, x, somaNoDen, pct){
   return n ? (soma/n)*(pct ? 100 : 1) : null;
 }
 
-// Menor número inteiro x de atendimentos/ações a somar em CADA janela pra que a MÉDIA das
-// razões das janelas chegue em `alvo` (mesma conta do m1/m2 exibido quando há vários
-// meses no modo "média"). Devolve {faltam, janelas} ou null se não houver como calcular /
-// o alvo for inatingível (M2 nunca passa de 100%).
+// Menor TOTAL de atendimentos/ações a somar, distribuídos entre os meses (janelas) selecionados,
+// pra que a MÉDIA das razões mensais chegue em `alvo` (mesma conta do m1/m2 exibido quando há
+// vários meses no modo "média"). Cada ação nova entra no mês onde mais sobe a razão (guloso —
+// ótimo, porque a razão de cada mês é côncava). No M2 (somaNoDen) a ação soma também no
+// denominador do mês. Devolve {faltam (total), porJanela:[acréscimo de cada mês], janelas} ou
+// null se não houver como calcular / o alvo for inatingível (M2 nunca passa de 100%).
 export function faltaMediaJanelas(janelas, alvo, somaNoDen, pct){
   var js = (janelas||[]).filter(function(j){ return j && j.den>0 && j.num!=null; });
   alvo = Number(alvo);
   if(!js.length || !isFinite(alvo)) return null;
-  var EPS = 1e-9;
-  function ok(x){ var v = mediaRazaoJanelas(js, x, somaNoDen, pct); return v!=null && v >= alvo - EPS; }
-  if(ok(0)) return {faltam:0, janelas:js.length};
-  if(somaNoDen && alvo >= (pct ? 100 : 1)) return null;
-  var hi = 1, guard = 0;
-  while(!ok(hi) && guard++ < 60) hi *= 2;
-  if(!ok(hi)) return null;
-  var lo = hi===1 ? 0 : hi/2; // lo sempre NÃO atinge; hi sempre atinge
-  while(hi-lo > 1){
-    var mid = Math.floor((lo+hi)/2);
-    if(ok(mid)) hi = mid; else lo = mid;
+  var EPS = 1e-9, esc = pct ? 100 : 1;
+  var add = js.map(function(){ return 0; });
+  function razao(i, x){ var j = js[i]; var den = j.den + (somaNoDen ? x : 0); return den>0 ? (j.num + x)/den : 0; }
+  function media(){ var s = 0; for(var i=0;i<js.length;i++) s += razao(i, add[i]); return s/js.length*esc; }
+  if(media() >= alvo - EPS) return {faltam:0, porJanela:add.slice(), janelas:js.length};
+  if(somaNoDen && alvo >= esc) return null;
+  var total = 0, guard = 0;
+  while(media() < alvo - EPS){
+    if(guard++ > 200000) return null;
+    var melhor = -1, ganho = 0;
+    for(var i=0;i<js.length;i++){
+      var g = razao(i, add[i]+1) - razao(i, add[i]);
+      if(g > ganho + 1e-15){ ganho = g; melhor = i; }
+    }
+    if(melhor < 0) return null;
+    add[melhor]++; total++;
   }
-  return {faltam:hi, janelas:js.length};
+  return {faltam:total, porJanela:add.slice(), janelas:js.length};
 }
 
 // Explicação (só em tooltip): cada ação compartilhada nova soma nos dois lados da conta.
 function faltaM2Texto(f){
-  var base = 'Cada ação compartilhada também entra no total de ações: +'+fmtInt(f.faltam)+' no numerador e +'+fmtInt(f.faltam)+' no denominador ('
+  if(f.janelas>1 && f.porJanela){
+    return 'Com '+f.janelas+' meses selecionados, o M2 é a média dos M2 de cada mês. Total de ações compartilhadas a somar nos meses (cada uma entra também no total de ações do mês) pra essa média chegar na meta: '
+      +fmtInt(f.faltam)+' ('+f.porJanela.map(function(x, i){ return 'mês '+(i+1)+': +'+fmtInt(x); }).join(', ')+')';
+  }
+  return 'Cada ação compartilhada também entra no total de ações: +'+fmtInt(f.faltam)+' no numerador e +'+fmtInt(f.faltam)+' no denominador ('
     +fmtInt(f.numAtual)+' → '+fmtInt(f.numNovo)+' ÷ '+fmtInt(f.denAtual)+' → '+fmtInt(f.denNovo)+')';
-  if(f.janelas>1) base += '. Com '+f.janelas+' meses selecionados, o M2 é a média dos M2 de cada mês: o valor é o acréscimo necessário em cada mês pra essa média chegar na meta';
-  return base;
 }
 
 export function evoTrackHTML(atual, anterior, domainMax, decimals, suffix, bands, classLabel, metaCards){
