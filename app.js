@@ -616,31 +616,6 @@ export var latestRawSheets = {};
 // no histórico se os dados mudaram desde a última do mesmo período/equipe.
 // saveHistory=false (usado ao trocar o seletor de mês): só recalcula e
 // renderiza na hora, sem criar entrada nova no histórico de leituras.
-// Janelas (um par num/den por mês do período) usadas SÓ no cálculo de "quanto falta pra meta":
-// cobre TODOS os meses do período (inclusive os futuros, que não entram na média exibida),
-// marcando os meses já encerrados como `fechado` (resultado fixo — não dá mais pra mudar) e
-// os demais como abertos (é neles que as ações que faltam precisam acontecer). Só mexe nas
-// janelas quando elas existem (modo "média"); no modo "soma" continua a razão dos totais.
-function anexarJanelasMeta(extracted, mesesEscopo, mesesUsados, resultadosJanela){
-  var d = extracted && extracted.data;
-  if(!d || (d.janelasM1==null && d.janelasM2==null)) return;
-  var agora = new Date();
-  var jm1 = [], jm2 = [];
-  mesesEscopo.forEach(function(m){
-    var idx = -1;
-    mesesUsados.forEach(function(u, i){ if(idx<0 && u.getTime()===m.getTime()) idx = i; });
-    var r = idx>=0 ? resultadosJanela[idx] : calcularJanelaComOverride(latestWb, m);
-    if(!r || !r.data) return;
-    var fim = new Date(m.getFullYear(), m.getMonth()+1, 0, 23,59,59,999);
-    var fechado = fim < agora;
-    var label = monthShortLabel(m);
-    if(r.data.numeradorM1!=null && r.data.denominadorM1!=null) jm1.push({num:r.data.numeradorM1, den:r.data.denominadorM1, fechado:fechado, label:label});
-    if(r.data.numeradorM2!=null && r.data.denominadorM2!=null) jm2.push({num:r.data.numeradorM2, den:r.data.denominadorM2, fechado:fechado, label:label});
-  });
-  if(d.janelasM1!=null) d.janelasM1 = jm1;
-  if(d.janelasM2!=null) d.janelasM2 = jm2;
-}
-
 export function aplicarMesReferencia(saveHistory){
   if(!latestWb) return;
 
@@ -668,8 +643,8 @@ export function aplicarMesReferencia(saveHistory){
     var resultadosJanelaSel = estadoApp.refMonthDates.map(function(m){
       return calcularJanelaComOverride(latestWb, m);
     });
-    extracted = mediaDeMeses(resultadosMensaisSel, resultadosJanelaSel);
-    anexarJanelasMeta(extracted, estadoApp.refMonthDates, estadoApp.refMonthDates, resultadosJanelaSel);
+    extracted = mediaDeMeses(resultadosMensaisSel, resultadosJanelaSel, undefined,
+      janelasInfoDeMeses(estadoApp.refMonthDates, estadoApp.refMonthDates, resultadosJanelaSel));
     periodo = {
       inicio: fmtBRDate(periodoMesUnico(estadoApp.refMonthDates[0]).inicio),
       fim: fmtBRDate(periodoMesUnico(estadoApp.refMonthDates[estadoApp.refMonthDates.length-1]).fim)
@@ -705,8 +680,10 @@ export function aplicarMesReferencia(saveHistory){
     var resultadosJanela = mesesUsados.map(function(m){
       return calcularJanelaComOverride(latestWb, m);
     });
-    extracted = mediaDeMeses(resultadosMensais, resultadosJanela, mesesProjecaoLabel);
-    anexarJanelasMeta(extracted, meses, mesesUsados, resultadosJanela);
+    // Pro "o que falta" entram os 4 meses do quadrimestre (os fechados ficam fixos; os
+    // abertos, inclusive os que ainda não começaram, recebem as ações a somar).
+    extracted = mediaDeMeses(resultadosMensais, resultadosJanela, mesesProjecaoLabel,
+      janelasInfoDeMeses(meses, mesesUsados, resultadosJanela));
     periodo = {
       inicio: fmtBRDate(periodoMesUnico(meses[0]).inicio),
       fim: fmtBRDate(periodoMesUnico(meses[meses.length-1]).fim)
@@ -804,6 +781,18 @@ function periodoEfetivoAtual(){
   }
   var meses = mesesDosQuadsSelecionadosUniao();
   return {inicio: periodoMesUnico(meses[0]).inicio, fim: periodoMesUnico(meses[meses.length-1]).fim};
+}
+
+// Janela oficial de cada mês de `meses` + rótulo curto ("Out") + se o mês já fechou.
+// Reaproveita as janelas já calculadas (`jaMeses`/`jaJanelas`) e calcula só as que faltam.
+function janelasInfoDeMeses(meses, jaMeses, jaJanelas){
+  var cache = {};
+  jaMeses.forEach(function(m, i){ cache[monthOptionValue(m)] = jaJanelas[i]; });
+  return meses.map(function(m){
+    var k = monthOptionValue(m);
+    var r = cache[k] || (cache[k] = calcularJanelaComOverride(latestWb, m));
+    return {data: r.data, label: monthShortLabel(m).split('/')[0], fechado: !isMesFuturo(m)};
+  });
 }
 
 export function fetchAndLoad(){
