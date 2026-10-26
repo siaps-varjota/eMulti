@@ -2745,41 +2745,67 @@ function mediaRazaoJanelas(janelas, x, somaNoDen, pct){
   return n ? (soma/n)*(pct ? 100 : 1) : null;
 }
 
-// Menor TOTAL de atendimentos/ações a somar, distribuídos entre os meses (janelas) selecionados,
-// pra que a MÉDIA das razões mensais chegue em `alvo` (mesma conta do m1/m2 exibido quando há
-// vários meses no modo "média"). Cada ação nova entra no mês onde mais sobe a razão (guloso —
-// ótimo, porque a razão de cada mês é côncava). No M2 (somaNoDen) a ação soma também no
-// denominador do mês. Devolve {faltam (total), porJanela:[acréscimo de cada mês], janelas} ou
-// null se não houver como calcular / o alvo for inatingível (M2 nunca passa de 100%).
+// Quanto falta (TOTAL) pra MÉDIA das razões mensais chegar em `alvo`. Meses já encerrados
+// (`fechado`) têm resultado fixo; o que falta é dividido igualmente entre os meses abertos: cada
+// um precisa chegar à mesma razão r = (alvo×N − soma dos fechados)/abertos (ex.: set = 2 e meta
+// 5 → out precisa de 8; 4 meses: set = 2 → out, nov e dez precisam de 6 cada). Um mês aberto que
+// já está acima de r fica como está e o que sobra é redistribuído entre os demais. No M2
+// (somaNoDen) cada ação nova soma também no denominador do mês: x = (r×den − num)/(1 − r).
+// Devolve {faltam (total), porJanela:[{label, fechado, atual, alvo, add}], janelas} ou null se
+// não houver como calcular / não houver mês aberto / o alvo for inatingível (M2 nunca passa de 100%).
 export function faltaMediaJanelas(janelas, alvo, somaNoDen, pct){
   var js = (janelas||[]).filter(function(j){ return j && j.den>0 && j.num!=null; });
   alvo = Number(alvo);
   if(!js.length || !isFinite(alvo)) return null;
-  var EPS = 1e-9, esc = pct ? 100 : 1;
-  var add = js.map(function(){ return 0; });
-  function razao(i, x){ var j = js[i]; var den = j.den + (somaNoDen ? x : 0); return den>0 ? (j.num + x)/den : 0; }
-  function media(){ var s = 0; for(var i=0;i<js.length;i++) s += razao(i, add[i]); return s/js.length*esc; }
-  if(media() >= alvo - EPS) return {faltam:0, porJanela:add.slice(), janelas:js.length};
-  if(somaNoDen && alvo >= esc) return null;
-  var total = 0, guard = 0;
-  while(media() < alvo - EPS){
-    if(guard++ > 200000) return null;
-    var melhor = -1, ganho = 0;
-    for(var i=0;i<js.length;i++){
-      var g = razao(i, add[i]+1) - razao(i, add[i]);
-      if(g > ganho + 1e-15){ ganho = g; melhor = i; }
-    }
-    if(melhor < 0) return null;
-    add[melhor]++; total++;
+  var esc = pct ? 100 : 1, EPS = 1e-9, N = js.length;
+  var alvoRazao = alvo/esc;
+  var atual = js.map(function(j){ return j.num/j.den; });
+  var porJanela = js.map(function(j, i){
+    return {label:j.label||('mês '+(i+1)), fechado:!!j.fechado, atual:atual[i]*esc, alvo:atual[i]*esc, add:0};
+  });
+  var somaAtual = atual.reduce(function(a,b){ return a+b; }, 0);
+  if(somaAtual/N >= alvoRazao - EPS) return {faltam:0, porJanela:porJanela, janelas:N};
+  var abertos = [];
+  js.forEach(function(j, i){ if(!j.fechado) abertos.push(i); });
+  if(!abertos.length) return null;
+  // razão-alvo igual para os meses abertos que precisam subir (redistribui o excesso dos que já passam dela)
+  var sobem = abertos.slice(), r = 0;
+  for(var it=0; it<=abertos.length; it++){
+    var fixos = 0;
+    for(var i=0;i<N;i++){ if(sobem.indexOf(i)<0) fixos += atual[i]; }
+    r = (alvoRazao*N - fixos)/sobem.length;
+    var ficam = sobem.filter(function(i){ return atual[i] >= r - EPS; });
+    if(!ficam.length) break;
+    sobem = sobem.filter(function(i){ return ficam.indexOf(i)<0; });
+    if(!sobem.length) break;
   }
-  return {faltam:total, porJanela:add.slice(), janelas:js.length};
+  if(!sobem.length) return {faltam:0, porJanela:porJanela, janelas:N};
+  if(somaNoDen && r >= 1 - EPS) return null;
+  var total = 0;
+  sobem.forEach(function(i){
+    var j = js[i];
+    var x = somaNoDen ? Math.ceil((r*j.den - j.num)/(1 - r) - EPS) : Math.ceil(r*j.den - j.num - EPS);
+    x = Math.max(0, x);
+    // confere (e corrige arredondamento de ponto flutuante)
+    function razaoCom(k){ return (j.num+k)/(j.den + (somaNoDen ? k : 0)); }
+    while(razaoCom(x) < r - EPS) x++;
+    while(x>0 && razaoCom(x-1) >= r - EPS) x--;
+    total += x;
+    porJanela[i].add = x;
+    porJanela[i].alvo = razaoCom(x)*esc;
+  });
+  return {faltam:total, porJanela:porJanela, janelas:N};
 }
 
 // Explicação (só em tooltip): cada ação compartilhada nova soma nos dois lados da conta.
 function faltaM2Texto(f){
   if(f.janelas>1 && f.porJanela){
-    return 'Com '+f.janelas+' meses selecionados, o M2 é a média dos M2 de cada mês. Total de ações compartilhadas a somar nos meses (cada uma entra também no total de ações do mês) pra essa média chegar na meta: '
-      +fmtInt(f.faltam)+' ('+f.porJanela.map(function(x, i){ return 'mês '+(i+1)+': +'+fmtInt(x); }).join(', ')+')';
+    var fmtP = function(v){ return fmtDec(v,1)+'%'; };
+    return 'O M2 do período é a média do M2 de cada mês. Meses já encerrados não mudam; o que falta é dividido entre os meses abertos (cada ação compartilhada nova entra também no total de ações do mês). Total a somar: '
+      +fmtInt(f.faltam)+' — '+f.porJanela.map(function(p){
+        return p.fechado ? (p.label+' (fechado): '+fmtP(p.atual))
+          : (p.label+': '+fmtP(p.atual)+' → '+fmtP(p.alvo)+' (+'+fmtInt(p.add)+')');
+      }).join(' · ');
   }
   return 'Cada ação compartilhada também entra no total de ações: +'+fmtInt(f.faltam)+' no numerador e +'+fmtInt(f.faltam)+' no denominador ('
     +fmtInt(f.numAtual)+' → '+fmtInt(f.numNovo)+' ÷ '+fmtInt(f.denAtual)+' → '+fmtInt(f.denNovo)+')';
