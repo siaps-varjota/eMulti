@@ -4,7 +4,7 @@
 // Cada seção "=== módulo: ... ===" corresponde a um arquivo original.
 // ======================================================================
 
-import { classificarDesempenho, monthShortLabel, CLASS_BANDS_M1, EQUIPES, OV_ICONS, PONTOS_POR_CLASSE, QUAD_LABELS, TOTAL_PROF_EMULTI_HEADER, profissionaisPorAtividade, avisarNomesProfissionaisSemMatch, addMonths, buildGauge, calcularJanelaPeriodo, calcularSerieTendencia, classificarM1, classificarM2, colIndex, colTotalProfEmulti, createMultiSelect, criarCalculadoraTotalProfEmulti, criarLigacaoAtividades, displayListName, ehProfissionalComparativoEmulti, equipeColIndex, escapeHtml, estadoApp, filtrarLinhasPorEquipe, fmtBRDate, fmtDec, fmtInt, gaugeInterpretationHTML, gaugeLegendHTML, kpiPanelHTML, kpiPanelIcon, mesesDosQuadsSelecionadosUniao, nomeEhDaEmulti, normalizeText, ovIconHTML, ovLegendHTML, ovStatus, parseBRDate, pillHex, profissionaisRoster, quadShortLabel, sheetToRows, suffixedName, ultimoMesDosQuadsSelecionados, withinPeriod } from './nucleo.js';
+import { JANELA_MESES, anchorMonthDate, classificarDesempenho, monthShortLabel, CLASS_BANDS_M1, EQUIPES, OV_ICONS, PONTOS_POR_CLASSE, QUAD_LABELS, TOTAL_PROF_EMULTI_HEADER, profissionaisPorAtividade, avisarNomesProfissionaisSemMatch, addMonths, buildGauge, calcularJanelaPeriodo, calcularSerieTendencia, classificarM1, classificarM2, colIndex, colTotalProfEmulti, createMultiSelect, criarCalculadoraTotalProfEmulti, criarLigacaoAtividades, displayListName, ehProfissionalComparativoEmulti, equipeColIndex, escapeHtml, estadoApp, filtrarLinhasPorEquipe, fmtBRDate, fmtDec, fmtInt, gaugeInterpretationHTML, gaugeLegendHTML, kpiPanelHTML, kpiPanelIcon, mesesDosQuadsSelecionadosUniao, nomeEhDaEmulti, normalizeText, ovIconHTML, ovLegendHTML, ovStatus, parseBRDate, pillHex, profissionaisRoster, quadShortLabel, sheetToRows, suffixedName, ultimoMesDosQuadsSelecionados, withinPeriod } from './nucleo.js';
 import { equipeLabelFromRaw, pdfComNumeracao, pdfLinhaProfissional, profissionalColIndex, slugifyFileName } from './listas.js';
 import { latestRawSheets, latestWb } from './app.js';
 
@@ -2606,9 +2606,17 @@ function m1DiagnosticoHTML(base, metaM1){
 }
 
 export function calcularMetasQuadrimestre(numerador, denominador, thresholds, unidade, unidadeFaltam, opcoes){
-  var meses = mesesDosQuadsSelecionadosUniao();
-  var inicioQuad = new Date(meses[0].getFullYear(), meses[0].getMonth(), 1, 0,0,0,0);
-  var fimQuad = new Date(meses[meses.length-1].getFullYear(), meses[meses.length-1].getMonth()+1, 0, 23,59,59,999);
+  // O período da meta segue os MESMOS filtros que geram o valor do card
+  // (Ano / Quadrimestre / Mês): o valor exibido de M1/M2 é sempre a janela
+  // móvel de JANELA_MESES meses terminando no mês-âncora (último mês marcado
+  // no filtro de Mês; sem mês marcado, o último mês do(s) quadrimestre(s)
+  // selecionado(s) — ver anchorMonthDate). Então o alvo, o ritmo por mês/semana,
+  // o tempo restante e o selo "Preliminar" usam essa mesma janela, em vez de
+  // sempre os 4 meses do quadrimestre inteiro (que ignorava o filtro de Mês e
+  // inflava o período quando mais de um quadrimestre/ano estava marcado).
+  var janelaMeta = calcularJanelaPeriodo(anchorMonthDate());
+  var inicioQuad = janelaMeta.inicio;
+  var fimQuad = janelaMeta.fim;
   var hoje = new Date();
   var diasQuad = Math.round((fimQuad-inicioQuad)/86400000)+1;
   var semanasQuad = diasQuad/7;
@@ -2633,7 +2641,7 @@ export function calcularMetasQuadrimestre(numerador, denominador, thresholds, un
       label: t.label, color: t.color, unidade: unidade, unidadeFaltam: unidadeFaltam || unidade,
       alvo: alvo,
       atual: numerador||0,
-      mediaMes: alvo/meses.length,
+      mediaMes: alvo/JANELA_MESES,
       mediaSemana: alvo/semanasQuad,
       faltam: faltam,
       semanasRestantes: semanasRestantes,
