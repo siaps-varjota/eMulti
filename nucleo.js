@@ -2563,7 +2563,7 @@ function populateMonthSelectForQuad(){
 // daquele mês isolado, sem janela, usados apenas pra somar contagens de
 // contexto — atendimentos, participações etc. — e montar a lista de
 // "Pessoas atendidas" sem contar o mesmo atendimento mais de uma vez).
-export function mediaDeMeses(resultadosMensais, resultadosJanela, mesesProjecaoLabel){
+export function mediaDeMeses(resultadosMensais, resultadosJanela, mesesProjecaoLabel, janelasInfo){
   function media(campo){
     var vals = resultadosJanela.map(function(r){ return r.data[campo]; }).filter(function(v){ return v!=null; });
     if(!vals.length) return null;
@@ -2682,11 +2682,15 @@ export function mediaDeMeses(resultadosMensais, resultadosJanela, mesesProjecaoL
       // das médias de numerador e denominador). A Meta/"próxima meta" usa isso pra
       // calcular o que falta sobre a mesma conta do valor exibido. No modo "soma"
       // fica null: lá m1/m2 já é a razão dos totais e o cálculo simples é exato.
-      janelasM1: tipoCalculo === 'soma' ? null : resultadosJanela.map(function(r){
-        return {num: r.data.numeradorM1, den: r.data.denominadorM1};
+      // `janelasInfo` (opcional) lista TODOS os meses do período — {data, label, fechado} —
+      // inclusive os que ainda não começaram: mês fechado entra fixo na conta do que falta,
+      // mês aberto recebe as ações a somar (ver faltaMediaJanelas). Sem ele, usa só
+      // resultadosJanela e trata todos os meses como abertos.
+      janelasM1: tipoCalculo === 'soma' ? null : (janelasInfo || resultadosJanela.map(function(r){ return {data:r.data}; })).map(function(r){
+        return {num: r.data.numeradorM1, den: r.data.denominadorM1, mes: r.label, fechado: !!r.fechado};
       }).filter(function(j){ return j.num!=null && j.den!=null; }),
-      janelasM2: tipoCalculo === 'soma' ? null : resultadosJanela.map(function(r){
-        return {num: r.data.numeradorM2, den: r.data.denominadorM2};
+      janelasM2: tipoCalculo === 'soma' ? null : (janelasInfo || resultadosJanela.map(function(r){ return {data:r.data}; })).map(function(r){
+        return {num: r.data.numeradorM2, den: r.data.denominadorM2, mes: r.label, fechado: !!r.fechado};
       }).filter(function(j){ return j.num!=null && j.den!=null; }),
       m1: m1,
       classificacaoM1: classificacaoM1,
