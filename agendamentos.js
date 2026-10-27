@@ -675,6 +675,25 @@ function resumoGeradoAg(uc,nomes){
   }).join('');
   el.innerHTML=itens?'<ul>'+itens+'</ul>':'';
 }
+// Cascata por dia fechado: `carry` = pessoas que saíram do dia fechado (ordenadas por data original, último atendimento e nome);
+// `proprios` = {dia: pessoas já agendadas naquele dia}. A partir de `piso`, em cada dia de atendimento: quem vem da cascata
+// entra primeiro, depois os que já estavam no dia (último atendimento mais antigo primeiro); o que passar do limite do dia
+// segue para o próximo dia de atendimento. Para quando não sobra ninguém (um dia com vaga absorve o resto; os dias seguintes
+// ficam como estão). Devolve {colocados:[{ix,orig,nova,disp}], sobra:[...]} — colocados inclui quem não mudou de dia.
+function cascataFechamentoAg(cap,piso,carry,proprios){
+  function cmp(a,b){return a.ult<b.ult?-1:a.ult>b.ult?1:a.nome.localeCompare(b.nome,'pt-BR');}
+  carry=carry.slice().sort(function(a,b){return a.orig<b.orig?-1:a.orig>b.orig?1:cmp(a,b);});
+  var colocados=[],dia=isoParaDataAg(piso),g=0;
+  while(carry.length&&dia&&g++<3000){
+    dia=proxDiaCapAg(dia,cap);
+    var iso=isoAg(dia),lim=capNoDiaAg(cap,iso).dia;
+    var lista=carry.concat((proprios[iso]||[]).slice().sort(cmp));
+    lista.slice(0,lim).forEach(function(p){colocados.push({ix:p.ix,orig:p.orig,nova:iso,disp:!!p.disp});});
+    carry=lista.slice(lim);
+    dia=somaDiaAg(dia,1);
+  }
+  return {colocados:colocados,sobra:carry};
+}
 // auto=true: geração automática (ao abrir a aba / mudar filtros). Não depende do filtro de
 // profissional da tela e fica em silêncio quando não há o que gerar. prefixo: texto a manter no aviso.
 function gerarAg(auto,prefixo,tentativa){
@@ -703,7 +722,9 @@ function gerarAg(auto,prefixo,tentativa){
   var hojeIso=isoAg(new Date()),foraDia={},nForaDia=0,origForaDia={};
   rowsAg.forEach(function(r,ix){
     var k=chaveProfAg(r,uc),d=dateAg(r['Data agendada']),sit=r.Situação||'Pendente';
-    if(!k||!d||d<hojeIso||sit==='Realizado'||!ehAtivoAg(r))return;
+    if(!k||!d||sit==='Realizado'||!ehAtivoAg(r))return;
+    // Dia que já passou só entra se a agenda estava FECHADA nele (feriado, folga ou imprevisto): ninguém foi atendido, então precisa de nova data.
+    if(d<hojeIso&&!folgaDiaAg(k,d))return;
     var dt=isoParaDataAg(d);if(!dt)return;
     // Redistribuir: todo mundo com data a partir do início volta para a fila (a data só muda se a nova distribuição for diferente).
     var invalido=!capAg(k).atende(d)||!!folgaDiaAg(k,d);
@@ -745,13 +766,34 @@ function gerarAg(auto,prefixo,tentativa){
   if(!cands.length&&!excedentes.length&&!faltList.length&&!bloqList.length){propostaAg={};atualizarBotoesGeracaoAg();renderAg();if(auto){if(prefixo)msgAg(prefixo,false);else{var fb=document.getElementById('agendamentosFeedback');if(fb&&/Salvar datas geradas/.test(fb.textContent||''))msgAg('Nenhuma pessoa pendente para agendar no momento.',false);}return;}msgAg('Nenhuma pessoa pendente para agendar'+(pq?' deste profissional':'')+'.'+(jaTem?' '+jaTem+' já têm data.':''),false);return;}
   // Faltosos primeiro (têm prioridade nas vagas da semana seguinte); depois o restante da fila.
   var pf={};propostaAg={};
-  // Quem tinha consulta marcada em dia fechado vem primeiro: primeira vaga a partir do dia seguinte ao fechamento.
-  bloqList.sort(function(a,b){return a.orig<b.orig?-1:a.orig>b.orig?1:(a.ult<b.ult?-1:a.ult>b.ult?1:a.nome.localeCompare(b.nome,'pt-BR'));}).forEach(function(b){
-    var piso=isoAg(inicio),alvo=b.apos;
-    if(alvo<piso)alvo=piso;
-    var d=proximaVagaAg(b.ix,alvo,uc);
-    pf[b.ix]=d;propostaAg[b.ix]=d;
-    (ocupados[b.k]=ocupados[b.k]||{})[d]=((ocupados[b.k]||{})[d]||0)+1;
+  // Quem tinha consulta marcada em dia fechado (feriado, folga ou imprevisto) vem primeiro e a agenda inteira
+  // daquele profissional/unidade corre em CASCATA: eles ocupam o próximo dia de atendimento e, se passar do
+  // limite do dia, as últimas pessoas do dia vão para o seguinte, e assim por diante, até um dia com vaga sobrando.
+  var nCascata=0,porAgBloq={},setExced={};
+  excedentes.forEach(function(x){setExced[x.ix]=true;});   // excedentes têm tratamento próprio logo abaixo
+  bloqList.forEach(function(b){(porAgBloq[b.k]=porAgBloq[b.k]||[]).push(b);});
+  Object.keys(porAgBloq).forEach(function(k){
+    var cap=capAg(k),piso=isoAg(inicio);
+    var carry=porAgBloq[k].map(function(b){return {ix:b.ix,ult:b.ult,nome:b.nome,orig:b.orig,disp:true};});
+    var proprios={};   // quem já está agendado nos dias de atendimento a partir do início (sem os que estão saindo de dia fechado)
+    rowsAg.forEach(function(r,ix){
+      if(foraDia[ix]||setExced[ix]||!ehAtivoAg(r)||chaveProfAg(r,uc)!==k)return;
+      var d=dateAg(r['Data agendada']);
+      if(!d||d<piso||(r.Situação||'Pendente')==='Realizado')return;
+      (proprios[d]=proprios[d]||[]).push({ix:ix,ult:ultimoDeAg(r,uc),nome:String(r.Nome||''),orig:d,disp:false});
+    });
+    var res=cascataFechamentoAg(cap,piso,carry,proprios);
+    res.colocados.forEach(function(p){
+      var oc=(ocupados[k]=ocupados[k]||{});
+      if(p.disp){oc[p.nova]=(oc[p.nova]||0)+1;}
+      else if(p.nova!==p.orig){if(oc[p.orig])oc[p.orig]--;oc[p.nova]=(oc[p.nova]||0)+1;nCascata++;}
+      else return;
+      pf[p.ix]=p.nova;propostaAg[p.ix]=p.nova;
+    });
+    res.sobra.forEach(function(p){   // não coube em nenhum dia (não deveria acontecer): primeira vaga a partir do início
+      var d=proximaVagaAg(p.ix,piso,uc);pf[p.ix]=d;propostaAg[p.ix]=d;
+      (ocupados[k]=ocupados[k]||{})[d]=((ocupados[k]||{})[d]||0)+1;
+    });
   });
   faltList.sort(function(a,b){return (a.falta||'')<(b.falta||'')?-1:(a.falta||'')>(b.falta||'')?1:(a.ult<b.ult?-1:a.ult>b.ult?1:a.nome.localeCompare(b.nome,'pt-BR'));}).forEach(function(f){
     var piso=isoAg(inicio),alvo=f.falta?isoAg(somaDiaAg(isoParaDataAg(f.falta),7)):piso;
@@ -773,8 +815,8 @@ function gerarAg(auto,prefixo,tentativa){
   var datas=Object.keys(propostaAg).map(function(i){return propostaAg[i];}).sort();
   if(!datas.length){renderAg();atualizarBotoesGeracaoAg();msgAg((prefixo?prefixo+' ':'')+'Nada a mudar: a distribuição atual já está de acordo com a configuração.',false);return;}
   renderAg();atualizarBotoesGeracaoAg();resumoGeradoAg(uc,nomes);
-  var totalDist=cands.length+faltList.length+bloqList.length-semMudar;
-  msgAg((prefixo?prefixo+' ':'')+totalDist+(totalDist===1?' pessoa distribuída':' pessoas distribuídas')+(faltosos?' ('+faltosos+(faltosos===1?' faltoso reagendado':' faltosos reagendados')+')':'')+(nForaDia?' ('+nForaDia+(nForaDia===1?' já agendada mudou':' já agendadas mudaram')+' de data: dia sem atendimento ou redistribuição)':'')+' de '+brAg(datas[0])+' a '+brAg(datas[datas.length-1])+' (dias de atendimento e vagas por profissional conforme a configuração). Revise e clique em "Salvar datas geradas".'+(semProf?' '+semProf+' sem profissional identificado ficaram de fora.':''),false);
+  var totalDist=cands.length+faltList.length+bloqList.length+nCascata-semMudar;
+  msgAg((prefixo?prefixo+' ':'')+totalDist+(totalDist===1?' pessoa distribuída':' pessoas distribuídas')+(nCascata?' ('+nCascata+(nCascata===1?' empurrada':' empurradas')+' em cascata para o dia seguinte com vaga, por dia sem atendimento)':'')+(faltosos?' ('+faltosos+(faltosos===1?' faltoso reagendado':' faltosos reagendados')+')':'')+(nForaDia?' ('+nForaDia+(nForaDia===1?' já agendada mudou':' já agendadas mudaram')+' de data: dia sem atendimento ou redistribuição)':'')+' de '+brAg(datas[0])+' a '+brAg(datas[datas.length-1])+' (dias de atendimento e vagas por profissional conforme a configuração). Revise e clique em "Salvar datas geradas".'+(semProf?' '+semProf+' sem profissional identificado ficaram de fora.':''),false);
 }
 function descartarAg(){propostaAg={};atualizarBotoesGeracaoAg();renderAg();msgAg('Datas geradas descartadas.',false);}
 
@@ -801,6 +843,7 @@ function reagendarFaltososAg(){
     if(r._virtual||(r.Situação||'Pendente')!=='Agendado')return;
     var d=dateAg(r['Data agendada']);if(!d||d>=hoje)return;                 // só datas já passadas (hoje ainda não está no PEC)
     var k=normAg(r.Nome);if(!uc.elegiveis[k])return;
+    if(folgaDiaAg(chaveProfAg(r,uc),d))return;                                  // dia fechado (feriado/folga/imprevisto): ninguém foi atendido, não é falta; vai para a cascata
     if(pq&&!casaProfAg(nomeProfAg(r,uc),pq))return;
     var ult=uc.ult[k]||'';
     if(ult>=d){vieram++;mudar.push({ix:ix,nome:r.Nome,situacao:'Realizado',dataAgendada:d,turno:r.Turno||''});}
