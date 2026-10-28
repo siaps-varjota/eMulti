@@ -2452,6 +2452,25 @@ export function calcularSerieTendencia(wb, refMonth, n){
   return pontos;
 }
 
+// Valor de CADA mês sozinho (sem a janela móvel de 4 meses) — vai entre parênteses nos cards
+// mensais (Visão geral, M1 e M2). Calculado da planilha, pelo próprio mês (periodoMesUnico).
+// Mês futuro fica sem valor. Preenche p.mensal = {numM1, denM1, m1, numM2, denM2, m2}.
+export function anexarMensalNaSerie(wb, pontos){
+  var hoje = new Date();
+  var mesAtual = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  (pontos || []).forEach(function(p){
+    if(p.mensal !== undefined) return;
+    p.mensal = null;
+    if(p.mes > mesAtual) return;
+    try{
+      var d = calcularIndicadoresDoPeriodo(wb, periodoMesUnico(p.mes)).data;
+      p.mensal = {numM1: d.numeradorM1, denM1: d.denominadorM1, m1: d.m1,
+                  numM2: d.numeradorM2, denM2: d.denominadorM2, m2: d.m2};
+    }catch(e){ p.mensal = null; }
+  });
+  return pontos;
+}
+
 // Meses FUTUROS (depois do mês atual) ainda não têm atendimentos: a janela móvel deles só
 // enxerga os meses que já aconteceram, então o denominador (pessoas no M1, ações no M2)
 // encolhia mês a mês e o indicador ficava sem sentido. Aqui o denominador de cada mês futuro
