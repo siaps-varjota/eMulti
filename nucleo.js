@@ -1313,54 +1313,59 @@ export function fetchProfissionaisSafe(){
     .catch(function(){ /* mantém profissionaisRoster como estava */ });
 }
 
-// ---- Numerador do M2 em mês PRELIMINAR (sem dado oficial) ----
+// ---- Numerador de M1 e M2 em mês PRELIMINAR (sem dado oficial) ----
 // O resultado oficial de um mês é o de uma janela móvel de 4 meses (ex.: o de jun = mar–jun
-// somados), então o de set (jun–set) não é calculável só a partir dos dados brutos sem
-// subestimar: a extração não traz tudo o que o oficial conta (ex.: atendimentos compartilhados
-// e compartilhamento de cuidado do PEC). Por isso, quando já existe um mês oficial L dentro da
-// janela do mês preliminar M (L entre M-3 e M-1), o numerador é:
+// somados), então o de set (jun–set) não deveria ser recalculado só a partir dos dados brutos:
+// a extração não traz tudo o que o oficial conta (no M2: atendimentos compartilhados e
+// compartilhamento de cuidado do PEC; no M1: a base oficial é por CPF/CNS). Por isso, quando já
+// existe um mês oficial L dentro da janela do mês preliminar M (L entre M-3 e M-1), o numerador é:
 //   oficial(L)  −  meses que saem da janela (L-3 … M-4), já isolados a partir do oficial
 //               +  meses que entram (L+1 … M), isolados a partir dos dados brutos (preliminar).
 // Ex.: set = oficial(ago) − mai + set.   out = oficial(ago) − mai − jun + set + out.
 // O oficial de um mês isolado sai da diferença entre janelas consecutivas:
 //   x(d) = oficial(d) − oficial(d−1) + x(d−4)    (recursivo; sem base oficial, usa o calculado).
-// Só o NUMERADOR muda; o denominador continua calculado pelo painel.
-function somaMesesM2(d, n){ return new Date(d.getFullYear(), d.getMonth()+n, 1); }
-function numeradorOficialJanelaM2(mes){
+// Só vale pra NUMERADORES, que somam entre meses (M1: atendimentos + participações coletivas;
+// M2: ações compartilhadas). O denominador do M1 (pessoas DISTINTAS) não soma entre meses e o do
+// M2 continua calculado pelo painel — ficam como estavam.
+function somaMesesJan(d, n){ return new Date(d.getFullYear(), d.getMonth()+n, 1); }
+function numeradorOficialJanela(ind, mes){
   var ents = estadoApp.currentEquipes.map(function(eq){
-    return estadoApp.officialOverrides[officialOverrideKey(eq.key, mes.getFullYear(), mes.getMonth(), 'M2')];
+    return estadoApp.officialOverrides[officialOverrideKey(eq.key, mes.getFullYear(), mes.getMonth(), ind)];
   });
   if(!ents.length || ents.some(function(e){ return !e; })) return null;
   return ents.reduce(function(a,e){ return a + e.numerador; }, 0);
 }
-var cacheIsoM2 = {wb: null, chave: '', mapa: {}};
-// Numerador do M2 de UM mês isolado, calculado pelo painel (só contagens detalhadas das abas).
-function numeradorMesIsoCalcM2(wb, mes){
+var cacheIsoNum = {wb: null, chave: '', mapa: {}};
+// Numerador de UM mês isolado, calculado pelo painel (só contagens detalhadas das abas).
+function numeradorMesIsoCalc(wb, mes, ind){
   var chave = estadoApp.currentEquipes.map(function(e){ return e.key; }).join('|');
-  if(cacheIsoM2.wb !== wb || cacheIsoM2.chave !== chave) cacheIsoM2 = {wb: wb, chave: chave, mapa: {}};
+  if(cacheIsoNum.wb !== wb || cacheIsoNum.chave !== chave) cacheIsoNum = {wb: wb, chave: chave, mapa: {}};
   var k = mes.getFullYear() + '-' + mes.getMonth();
-  if(cacheIsoM2.mapa[k] === undefined){
+  if(cacheIsoNum.mapa[k] === undefined){
     var r = calcularIndicadoresDoPeriodo(wb, periodoMesUnico(mes)).data;
-    cacheIsoM2.mapa[k] = (r.atividadesCompartilhadasListas||0) + (r.reunioesCompartilhadas||0) + (r.atendimentosCompartilhados||0);
+    cacheIsoNum.mapa[k] = {
+      M1: r.numeradorM1 || 0,
+      M2: (r.atividadesCompartilhadasListas||0) + (r.reunioesCompartilhadas||0) + (r.atendimentosCompartilhados||0)
+    };
   }
-  return cacheIsoM2.mapa[k];
+  return cacheIsoNum.mapa[k][ind];
 }
-// Numerador do M2 de UM mês isolado, derivado do histórico oficial (diferença de janelas).
-function numeradorMesIsoOficialM2(wb, mes, prof){
+// Numerador de UM mês isolado, derivado do histórico oficial (diferença de janelas).
+function numeradorMesIsoOficial(wb, mes, ind, prof){
   prof = prof || 0;
-  var w = numeradorOficialJanelaM2(mes), wAnt = numeradorOficialJanelaM2(somaMesesM2(mes, -1));
-  if(w == null || wAnt == null || prof >= 4) return numeradorMesIsoCalcM2(wb, mes);
-  return Math.max(0, w - wAnt + numeradorMesIsoOficialM2(wb, somaMesesM2(mes, -4), prof + 1));
+  var w = numeradorOficialJanela(ind, mes), wAnt = numeradorOficialJanela(ind, somaMesesJan(mes, -1));
+  if(w == null || wAnt == null || prof >= 4) return numeradorMesIsoCalc(wb, mes, ind);
+  return Math.max(0, w - wAnt + numeradorMesIsoOficial(wb, somaMesesJan(mes, -4), ind, prof + 1));
 }
-function numeradorM2Hibrido(wb, refMonth){
+function numeradorHibrido(wb, refMonth, ind){
   var m = new Date(refMonth.getFullYear(), refMonth.getMonth(), 1), L = null;
-  for(var i = 1; i <= 3 && !L; i++){ var c = somaMesesM2(m, -i); if(numeradorOficialJanelaM2(c) != null) L = c; }
+  for(var i = 1; i <= 3 && !L; i++){ var c = somaMesesJan(m, -i); if(numeradorOficialJanela(ind, c) != null) L = c; }
   if(!L) return null;
-  var total = numeradorOficialJanelaM2(L);
+  var total = numeradorOficialJanela(ind, L);
   var iL = L.getFullYear()*12 + L.getMonth(), iM = m.getFullYear()*12 + m.getMonth();
   function mesDe(idx){ return new Date(Math.floor(idx/12), idx % 12, 1); }
-  for(var j = iL - 3; j <= iM - 4; j++) total -= numeradorMesIsoOficialM2(wb, mesDe(j));
-  for(var k = iL + 1; k <= iM; k++) total += numeradorMesIsoCalcM2(wb, mesDe(k));
+  for(var j = iL - 3; j <= iM - 4; j++) total -= numeradorMesIsoOficial(wb, mesDe(j), ind);
+  for(var k = iL + 1; k <= iM; k++) total += numeradorMesIsoCalc(wb, mesDe(k), ind);
   return Math.max(0, total);
 }
 
@@ -1406,15 +1411,27 @@ function aplicarOverrideOficial(data, ano, mesIdx, wb){
       data.m2Oficial = true;
     }
   });
-  // M2 de mês SEM dado oficial (preliminar): o numerador passa a ser montado em cima do
-  // histórico oficial dos meses anteriores da mesma janela (ver numeradorM2Hibrido).
-  if(!data.m2Oficial && wb){
-    var numHib = numeradorM2Hibrido(wb, new Date(ano, mesIdx, 1));
-    if(numHib != null){
-      data.numeradorM2 = numHib;
-      data.m2 = data.denominadorM2 ? (numHib/data.denominadorM2*100) : null;
-      data.classificacaoM2 = classificarM2(data.m2);
-      data.m2Hibrido = true;
+  // M1/M2 de mês SEM dado oficial (preliminar): o numerador passa a ser montado em cima do
+  // histórico oficial dos meses anteriores da mesma janela (ver numeradorHibrido).
+  if(wb){
+    var mesRef = new Date(ano, mesIdx, 1);
+    if(!data.m1Oficial){
+      var numHib1 = numeradorHibrido(wb, mesRef, 'M1');
+      if(numHib1 != null){
+        data.numeradorM1 = numHib1;
+        data.m1 = data.denominadorM1 ? (numHib1/data.denominadorM1) : null;
+        data.classificacaoM1 = classificarM1(data.m1);
+        data.m1Hibrido = true;
+      }
+    }
+    if(!data.m2Oficial){
+      var numHib2 = numeradorHibrido(wb, mesRef, 'M2');
+      if(numHib2 != null){
+        data.numeradorM2 = numHib2;
+        data.m2 = data.denominadorM2 ? (numHib2/data.denominadorM2*100) : null;
+        data.classificacaoM2 = classificarM2(data.m2);
+        data.m2Hibrido = true;
+      }
     }
   }
   // Recalcula a síntese (pontos/nota/desempenho) com as classificações

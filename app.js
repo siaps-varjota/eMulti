@@ -104,10 +104,17 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
   var DEF_COMPART_CUIDADO = 'Solicitações respondidas de compartilhamento de cuidado no PEC — conta como ação compartilhada no Numerador do M2 (NT 44/2026). Não existe aba equivalente nesta extração, então o valor aparece zerado.';
 
   // ---- Composição (4 cartões: Numerador/Denominador de M1 e M2) ----
-  var numM1Bar = stackbar([
+  var numM1Parts = [
       {label:'Atendimentos individuais', value:atendIndGauge, color:'#153F35', title:DEF_ATEND_IND},
       {label:'Participações coletivas', value:participColGauge, color:'#C68A3D', title:DEF_PARTIC_COLETIVA}
-    ], numM1Gauge);
+    ];
+  // Parte do numerador que vem do resultado OFICIAL dos meses já publicados (o oficial traz só o total).
+  var restoNumM1 = (numM1Gauge||0) - numM1Parts.reduce(function(s,x){ return s + (x.value||0); }, 0);
+  if(restoNumM1 > 0.5){
+    numM1Parts.push({label:'Resultado oficial (sem detalhamento)', value:restoNumM1, color:'#9AA7A0',
+      title:'Parte do numerador que vem do resultado oficial do SIAPS dos meses já publicados (e da diferença entre janelas oficiais). O oficial traz só o total, sem separar atendimentos individuais e participações em atividades coletivas.'});
+  }
+  var numM1Bar = stackbar(numM1Parts, numM1Gauge);
   var denM1Bar = stackbar([
       {label:'Pessoas atendidas', value:denM1CalcGauge, color:'#153F35'}
     ], denM1Gauge);
