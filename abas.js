@@ -2931,6 +2931,11 @@ function ovEvoHTML(atual, anterior, domainMax, decimals, suffix, bands, classLab
 // "Oficial" aparece quando o mês veio da aba Q2-26; senão "Preliminar"
 // (calculado pelo painel) — mesmo critério da tabela da aba Tendência.
 // "(123)" em tom mais claro ao lado do valor da janela; vazio quando o mês ainda não tem valor.
+// "(3,1%)" ao lado do valor grande (razão do mês sozinho). Vazio se o mês não tem base (den = 0).
+function mensalValorHTML(v, den, decimals, suffix){
+  if(v == null || isNaN(v) || !(den > 0)) return '';
+  return ' <span class="ov-mes-valor-mensal" style="font-size:.62em;font-weight:600;opacity:.7;white-space:nowrap;">('+fmtDec(v,decimals)+suffix+')</span>';
+}
 function mensalParenHTML(v){
   if(v == null || isNaN(v)) return '';
   return ' <span style="font-weight:600;opacity:.7;">('+fmtInt(v)+')</span>';
@@ -2943,12 +2948,14 @@ export function ovMesesHTML(kind, pontos, larga){
     if(kind === 'm1'){
       classe = classificarM1(p.m1);
       valor = p.m1!=null ? fmtDec(p.m1,2) : '—';
+      valor += mensalValorHTML(p.mensal && p.mensal.m1, p.mensal && p.mensal.denM1, 2, '');
       sub = '<span style="white-space:nowrap">'+fmtInt(p.numeradorM1)+mensalParenHTML(p.mensal && p.mensal.numM1)+'</span> ÷ <span style="white-space:nowrap">'+fmtInt(p.denominadorM1)+mensalParenHTML(p.mensal && p.mensal.denM1)+'</span>';
       oficial = p.m1Oficial;
       subTitle = p.denominadorProjetado ? 'Denominador projetado: média dos últimos 4 meses completos ('+p.denominadorProjecaoLabel+')' : '';
     } else if(kind === 'm2'){
       classe = classificarM2(p.m2);
       valor = p.m2!=null ? fmtDec(p.m2,1)+'%' : '—';
+      valor += mensalValorHTML(p.mensal && p.mensal.m2, p.mensal && p.mensal.denM2, 1, '%');
       sub = '<span style="white-space:nowrap">'+fmtInt(p.numeradorM2)+mensalParenHTML(p.mensal && p.mensal.numM2)+'</span> ÷ <span style="white-space:nowrap">'+fmtInt(p.denominadorM2)+mensalParenHTML(p.mensal && p.mensal.denM2)+'</span>';
       oficial = p.m2Oficial;
       subTitle = p.denominadorProjetado ? 'Denominador projetado: média dos últimos 4 meses completos ('+p.denominadorProjecaoLabel+')' : '';
@@ -2962,7 +2969,7 @@ export function ovMesesHTML(kind, pontos, larga){
     var st = ovStatus(classe);
     // Entre parênteses: valor do mês sozinho (a fração principal é a janela móvel de 4 meses).
     var infoMensal = ((kind === 'm1' || kind === 'm2') && p.mensal && p.mensal.numM1 != null)
-      ? 'Fora dos parênteses: janela de 4 meses que termina neste mês. Entre parênteses: valor só deste mês' + (oficial ? ' (em meses oficiais, derivado da diferença entre as janelas oficiais)' : '') + '.'
+      ? 'Fora dos parênteses: janela de 4 meses que termina neste mês. Entre parênteses: valor só deste mês' + (oficial ? ' (mesmo nos meses oficiais, é o cálculo do mês sozinho a partir da planilha, não o número oficial)' : '') + '.'
       : '';
     var tipSub = [subTitle, infoMensal].filter(Boolean).join(' — ');
     var d = p.mes;
