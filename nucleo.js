@@ -1313,6 +1313,57 @@ export function fetchProfissionaisSafe(){
     .catch(function(){ /* mantém profissionaisRoster como estava */ });
 }
 
+// ---- Numerador do M2 em mês PRELIMINAR (sem dado oficial) ----
+// O resultado oficial de um mês é o de uma janela móvel de 4 meses (ex.: o de jun = mar–jun
+// somados), então o de set (jun–set) não é calculável só a partir dos dados brutos sem
+// subestimar: a extração não traz tudo o que o oficial conta (ex.: atendimentos compartilhados
+// e compartilhamento de cuidado do PEC). Por isso, quando já existe um mês oficial L dentro da
+// janela do mês preliminar M (L entre M-3 e M-1), o numerador é:
+//   oficial(L)  −  meses que saem da janela (L-3 … M-4), já isolados a partir do oficial
+//               +  meses que entram (L+1 … M), isolados a partir dos dados brutos (preliminar).
+// Ex.: set = oficial(ago) − mai + set.   out = oficial(ago) − mai − jun + set + out.
+// O oficial de um mês isolado sai da diferença entre janelas consecutivas:
+//   x(d) = oficial(d) − oficial(d−1) + x(d−4)    (recursivo; sem base oficial, usa o calculado).
+// Só o NUMERADOR muda; o denominador continua calculado pelo painel.
+function somaMesesM2(d, n){ return new Date(d.getFullYear(), d.getMonth()+n, 1); }
+function numeradorOficialJanelaM2(mes){
+  var ents = estadoApp.currentEquipes.map(function(eq){
+    return estadoApp.officialOverrides[officialOverrideKey(eq.key, mes.getFullYear(), mes.getMonth(), 'M2')];
+  });
+  if(!ents.length || ents.some(function(e){ return !e; })) return null;
+  return ents.reduce(function(a,e){ return a + e.numerador; }, 0);
+}
+var cacheIsoM2 = {wb: null, chave: '', mapa: {}};
+// Numerador do M2 de UM mês isolado, calculado pelo painel (só contagens detalhadas das abas).
+function numeradorMesIsoCalcM2(wb, mes){
+  var chave = estadoApp.currentEquipes.map(function(e){ return e.key; }).join('|');
+  if(cacheIsoM2.wb !== wb || cacheIsoM2.chave !== chave) cacheIsoM2 = {wb: wb, chave: chave, mapa: {}};
+  var k = mes.getFullYear() + '-' + mes.getMonth();
+  if(cacheIsoM2.mapa[k] === undefined){
+    var r = calcularIndicadoresDoPeriodo(wb, periodoMesUnico(mes)).data;
+    cacheIsoM2.mapa[k] = (r.atividadesCompartilhadasListas||0) + (r.reunioesCompartilhadas||0) + (r.atendimentosCompartilhados||0);
+  }
+  return cacheIsoM2.mapa[k];
+}
+// Numerador do M2 de UM mês isolado, derivado do histórico oficial (diferença de janelas).
+function numeradorMesIsoOficialM2(wb, mes, prof){
+  prof = prof || 0;
+  var w = numeradorOficialJanelaM2(mes), wAnt = numeradorOficialJanelaM2(somaMesesM2(mes, -1));
+  if(w == null || wAnt == null || prof >= 4) return numeradorMesIsoCalcM2(wb, mes);
+  return Math.max(0, w - wAnt + numeradorMesIsoOficialM2(wb, somaMesesM2(mes, -4), prof + 1));
+}
+function numeradorM2Hibrido(wb, refMonth){
+  var m = new Date(refMonth.getFullYear(), refMonth.getMonth(), 1), L = null;
+  for(var i = 1; i <= 3 && !L; i++){ var c = somaMesesM2(m, -i); if(numeradorOficialJanelaM2(c) != null) L = c; }
+  if(!L) return null;
+  var total = numeradorOficialJanelaM2(L);
+  var iL = L.getFullYear()*12 + L.getMonth(), iM = m.getFullYear()*12 + m.getMonth();
+  function mesDe(idx){ return new Date(Math.floor(idx/12), idx % 12, 1); }
+  for(var j = iL - 3; j <= iM - 4; j++) total -= numeradorMesIsoOficialM2(wb, mesDe(j));
+  for(var k = iL + 1; k <= iM; k++) total += numeradorMesIsoCalcM2(wb, mesDe(k));
+  return Math.max(0, total);
+}
+
 // Aplica (in-place) o override oficial em `data` (o objeto retornado por
 // calcularIndicadoresDoPeriodo) pro mês/ano informados, considerando as
 // equipes atualmente selecionadas (currentEquipes). Só substitui M1 (ou
@@ -1321,7 +1372,7 @@ export function fetchProfissionaisSafe(){
 // de ambas e recalcula a pontuação (mesma fórmula do painel: M1 =
 // numerador/denominador; M2 = numerador/denominador×100). Sem dado
 // oficial completo, o valor calculado pelo painel é mantido como está.
-function aplicarOverrideOficial(data, ano, mesIdx){
+function aplicarOverrideOficial(data, ano, mesIdx, wb){
   // Guarda o valor CALCULADO pelo painel antes de qualquer substituição
   // — usado só pelo relatório de divergência (ver gerarPdfDivergenciaOficial),
   // pra poder comparar lado a lado com o valor oficial mesmo depois que
@@ -1355,6 +1406,17 @@ function aplicarOverrideOficial(data, ano, mesIdx){
       data.m2Oficial = true;
     }
   });
+  // M2 de mês SEM dado oficial (preliminar): o numerador passa a ser montado em cima do
+  // histórico oficial dos meses anteriores da mesma janela (ver numeradorM2Hibrido).
+  if(!data.m2Oficial && wb){
+    var numHib = numeradorM2Hibrido(wb, new Date(ano, mesIdx, 1));
+    if(numHib != null){
+      data.numeradorM2 = numHib;
+      data.m2 = data.denominadorM2 ? (numHib/data.denominadorM2*100) : null;
+      data.classificacaoM2 = classificarM2(data.m2);
+      data.m2Hibrido = true;
+    }
+  }
   // Recalcula a síntese (pontos/nota/desempenho) com as classificações
   // já atualizadas acima — idêntico ao cálculo original quando não há
   // override (não altera nada nesse caso, só reexecuta a mesma fórmula).
@@ -1377,7 +1439,7 @@ function aplicarOverrideOficial(data, ano, mesIdx){
 // da aba oficial.
 export function calcularJanelaComOverride(wb, refMonth){
   var res = calcularIndicadoresDoPeriodo(wb, calcularJanelaPeriodo(refMonth));
-  aplicarOverrideOficial(res.data, refMonth.getFullYear(), refMonth.getMonth());
+  aplicarOverrideOficial(res.data, refMonth.getFullYear(), refMonth.getMonth(), wb);
   return res;
 }
 
