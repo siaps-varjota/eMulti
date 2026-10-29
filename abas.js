@@ -4,7 +4,7 @@
 // Cada seção "=== módulo: ... ===" corresponde a um arquivo original.
 // ======================================================================
 
-import { classificarDesempenho, monthShortLabel, CLASS_BANDS_M1, EQUIPES, OV_ICONS, PONTOS_POR_CLASSE, QUAD_LABELS, TOTAL_PROF_EMULTI_HEADER, profissionaisPorAtividade, avisarNomesProfissionaisSemMatch, addMonths, buildGauge, calcularJanelaPeriodo, calcularSerieTendencia, classificarM1, classificarM2, colIndex, colTotalProfEmulti, createMultiSelect, criarCalculadoraTotalProfEmulti, criarLigacaoAtividades, displayListName, ehProfissionalComparativoEmulti, equipeColIndex, escapeHtml, estadoApp, filtrarLinhasPorEquipe, fmtBRDate, fmtDec, fmtInt, gaugeInterpretationHTML, gaugeLegendHTML, kpiPanelHTML, kpiPanelIcon, mesesDosQuadsSelecionadosUniao, nomeEhDaEmulti, normalizeText, ovIconHTML, ovLegendHTML, ovStatus, parseBRDate, pillHex, profissionaisRoster, quadShortLabel, sheetToRows, suffixedName, ultimoMesDosQuadsSelecionados, withinPeriod } from './nucleo.js';
+import { classificarDesempenho, monthShortLabel, CLASS_BANDS_M1, EQUIPES, OV_ICONS, PONTOS_POR_CLASSE, QUAD_LABELS, TOTAL_PROF_EMULTI_HEADER, profissionaisPorAtividade, avisarNomesProfissionaisSemMatch, addMonths, buildGauge, calcularJanelaPeriodo, calcularSerieTendencia, classificarM1, classificarM2, colIndex, colTotalProfEmulti, createMultiSelect, criarCalculadoraTotalProfEmulti, criarLigacaoAtividades, displayListName, ehProfissionalComparativoEmulti, equipeColIndex, linhaEntraNaEmulti, escapeHtml, estadoApp, filtrarLinhasPorEquipe, fmtBRDate, fmtDec, fmtInt, gaugeInterpretationHTML, gaugeLegendHTML, kpiPanelHTML, kpiPanelIcon, mesesDosQuadsSelecionadosUniao, nomeEhDaEmulti, normalizeText, ovIconHTML, ovLegendHTML, ovStatus, parseBRDate, pillHex, profissionaisRoster, quadShortLabel, sheetToRows, suffixedName, ultimoMesDosQuadsSelecionados, withinPeriod } from './nucleo.js';
 import { equipeLabelFromRaw, pdfComNumeracao, pdfLinhaProfissional, profissionalColIndex, slugifyFileName } from './listas.js';
 import { latestRawSheets, latestWb } from './app.js';
 
@@ -1513,6 +1513,7 @@ export function populateSheetsCache(wb){
     //   SUBSTITUÍDA pelo valor de Participantes (ligação pelo ID da
     //   atividade); se não existir, é acrescentada no fim.
     var nomeExib = displayListName(name);
+    var resumoLigado = false;
     if(nomeExib === "Participantes Ativ. Coletiva" && totalEmultiCalc && totalEmultiCalc.disponivel
        && colTotalProfEmulti(headers) < 0){
       var calcLinha = totalEmultiCalc.calcular;
@@ -1537,15 +1538,22 @@ export function populateSheetsCache(wb){
           // Atividade sem NENHUM profissional da eMulti (responsável fora da
           // eMulti e nenhum envolvido da eMulti) não entra na eMulti — nem
           // como específica nem como compartilhada — então sai da tabela.
-          // Total vazio/indefinido (sem ligação) mantém a linha.
-          var x = r[iTot];
-          if(x === undefined || x === null || String(x).trim() === "") return true;
-          var n = parseInt(String(x), 10);
-          return isNaN(n) ? true : n >= 1;
+          // Total vazio/indefinido (sem ligação): mantém só se a linha é da própria
+          // eMulti; linha de outra equipe sem profissional da eMulti confirmado sai.
+          var iEqL = equipeColIndex(headers);
+          return linhaEntraNaEmulti(r[iTot], iEqL >= 0 ? r[iEqL] : null);
         });
+        resumoLigado = true;
       } else {
         console.warn('[Resumo Atividade Coletiva] não foi possível ligar às linhas de Participantes Ativ. Coletiva (sem ID em comum e sem data/equipe/responsável nas duas abas). cabeçalho Resumo:', headers, '| cabeçalho Participantes:', partRowsBrutas[0]);
       }
+    }
+    // Resumo Atividade Coletiva sem como ligar a Participantes (aba ausente ou sem chave em comum):
+    // ficam só as atividades da própria eMulti; linha de outra equipe não tem como confirmar
+    // profissional da eMulti.
+    if(nomeExib === "Resumo Atividade Coletiva" && !resumoLigado){
+      var iEqSL = equipeColIndex(headers);
+      if(iEqSL >= 0) dataRows = dataRows.filter(function(r){ return linhaEntraNaEmulti(undefined, r[iEqSL]); });
     }
     estadoApp.latestSheets[name] = {headers: headers, rows: dataRows};
   });
@@ -2719,26 +2727,23 @@ function evoTrackGradient(bands, domainMax){
   return 'linear-gradient(90deg,' + stops.join(',') + ')';
 }
 
-// M2 = compartilhadas ÷ total de ações, e toda ação compartilhada TAMBÉM entra no
-// total (denominador). Então, para chegar em t (ex.: 1%), cada nova ação compartilhada
-// soma +1 nos dois lados: (num+x)/(den+x) >= t  =>  x >= (t*den - num)/(1 - t).
-// (No M1 o denominador — pessoas — não muda, por isso lá é só alvo - numerador.)
+// Quanto falta (ações compartilhadas) pra o M2 chegar em t%. MESMA conta do card "Meta do
+// quadrimestre" (calcularMetasQuadrimestre): o denominador (total de ações realizadas) fica fixo,
+// então só o numerador sobe: x >= t×den − num. Assim a Evolução, a "Leitura do M2" e o card da
+// Meta mostram o mesmo número. (No M1 o denominador — pessoas — também não muda.)
 export function faltaM2ParaMeta(num, den, thresholdPct, janelas){
   num = Number(num)||0; den = Number(den)||0;
-  // Vários meses no modo "média": M2 = média dos M2 de cada janela, e cada nova ação
-  // compartilhada entra no numerador E no denominador de cada janela.
+  // Vários meses no modo "média": M2 = média dos M2 de cada janela; a conta é feita mês a mês
+  // (ver faltaMediaJanelas) e devolve o total + a quebra por mês aberto.
   if(janelas && janelas.length>1){
-    var rJ = faltaMediaJanelas(janelas, Number(thresholdPct), true, true);
+    var rJ = faltaMediaJanelas(janelas, Number(thresholdPct), false, true);
     if(!rJ) return null;
-    return {faltam:rJ.faltam, numAtual:num, denAtual:den, numNovo:num+rJ.faltam, denNovo:den+rJ.faltam, janelas:rJ.janelas, porMes:rJ.porMes};
+    return {faltam:rJ.faltam, numAtual:num, denAtual:den, numNovo:num+rJ.faltam, denNovo:den, janelas:rJ.janelas, porMes:rJ.porMes};
   }
   var t = Number(thresholdPct)/100;
-  if(!(t>0) || t>=1 || den<=0) return null;
-  var x = Math.max(0, Math.ceil((t*den - num)/(1 - t) - 1e-9));
-  // confere (e corrige arredondamento de ponto flutuante)
-  while((num+x) < t*(den+x) - 1e-9) x++;
-  while(x>0 && (num+x-1) >= t*(den+x-1) - 1e-9) x--;
-  return {faltam:x, numAtual:num, denAtual:den, numNovo:num+x, denNovo:den+x};
+  if(!(t>0) || den<=0) return null;
+  var x = Math.max(0, Math.ceil(t*den - num - 1e-9));
+  return {faltam:x, numAtual:num, denAtual:den, numNovo:num+x, denNovo:den};
 }
 // Média das razões de várias janelas (um mês selecionado = uma janela), depois de somar
 // `x` ao numerador de cada uma (e ao denominador também, quando somaNoDen — M2).
@@ -2817,11 +2822,9 @@ export function faltaPorMesTexto(porMes, pct){
 function faltaM2Texto(f){
   if(f.janelas>1){
     var q = faltaPorMesTexto(f.porMes, true).replace(/&amp;/g,'&');
-    return 'Cada ação compartilhada também entra no total de ações. O M2 é a média dos M2 de cada mês: faltam '
-      +fmtInt(f.faltam)+' ações no total'+(q ? ' — '+q : '');
+    return 'O M2 é a média dos M2 de cada mês: faltam '+fmtInt(f.faltam)+' ações compartilhadas no total'+(q ? ' — '+q : '');
   }
-  return 'Cada ação compartilhada também entra no total de ações: +'+fmtInt(f.faltam)+' no numerador e +'+fmtInt(f.faltam)+' no denominador ('
-    +fmtInt(f.numAtual)+' → '+fmtInt(f.numNovo)+' ÷ '+fmtInt(f.denAtual)+' → '+fmtInt(f.denNovo)+')';
+  return 'Faltam '+fmtInt(f.faltam)+' ações compartilhadas: '+fmtInt(f.numAtual)+' → '+fmtInt(f.numNovo)+' sobre '+fmtInt(f.denAtual)+' ações realizadas';
 }
 
 export function evoTrackHTML(atual, anterior, domainMax, decimals, suffix, bands, classLabel, metaCards){
