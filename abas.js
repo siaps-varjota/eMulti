@@ -2968,8 +2968,8 @@ export function ovMesesHTML(kind, pontos, larga){
     }
     var st = ovStatus(classe);
     // Entre parênteses: valor do mês sozinho (a fração principal é a janela móvel de 4 meses).
-    var infoMensal = ((kind === 'm1' || kind === 'm2') && p.mensal && p.mensal.numM1 != null)
-      ? 'Fora dos parênteses: janela de 4 meses que termina neste mês. Entre parênteses: valor só deste mês' + (oficial ? ' (em meses oficiais, derivado da diferença entre as janelas oficiais, então os 4 meses somam a janela' + (kind === 'm1' ? '; o denominador, de pessoas distintas, não soma e é o calculado do mês' : '') + ')' : '') + '.'
+    var infoMensal = ((kind === 'm1' && p.mensal && p.mensal.numM1 != null) || (kind === 'm2' && p.mensal && p.mensal.numM2 != null))
+      ? 'Fora dos parênteses: janela de 4 meses que termina neste mês. Entre parênteses: valor só deste mês' + (oficial ? ' (em meses oficiais, obtido só por subtração das janelas oficiais, tendo jan/2025 como início; a soma dos 4 meses dá a janela, exceto quando algum mês sai negativo e é mostrado como 0' + (kind === 'm1' ? '. O denominador, de pessoas distintas, não soma e é o calculado do mês' : '') + ')' : '') + '.'
       : '';
     var tipSub = [subTitle, infoMensal].filter(Boolean).join(' — ');
     var d = p.mes;
