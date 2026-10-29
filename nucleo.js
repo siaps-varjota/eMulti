@@ -2456,86 +2456,115 @@ export function calcularSerieTendencia(wb, refMonth, n){
 // mensais (Visão geral, M1 e M2). Preenche p.mensal = {numM1, denM1, m1, numM2, denM2, m2}.
 //
 // Mês SEM dado oficial (preliminar): é o cálculo do próprio mês na planilha.
-// Mês OFICIAL: a janela oficial vem da aba SIAPS-OFICIAL, que não é a soma dos meses
-// calculados da planilha (as fontes diferem). Pra que os 4 meses de cada janela somem EXATAMENTE
-// o valor oficial exibido, o mês é derivado da diferença entre janelas oficiais:
-//   mês(k) = janela(k) − janela(k−1) + mês(k−4)   (o mesmo que janela(k) − mês(k−1) − mês(k−2) − mês(k−3))
-// partindo dos 4 meses da primeira janela oficial da sequência, que saem do cálculo da planilha
-// ajustados proporcionalmente pra somar a janela oficial. Vale pro numerador do M1 e pro numerador
-// e denominador do M2 (somam entre meses). O denominador do M1 conta PESSOAS DISTINTAS (não soma
-// entre meses): fica sempre o calculado do mês.
-// Função pura (testável): meses = índices inteiros (ano*12 + mês); getJanela(k) = valor da janela
-// oficial de k; ehOficial(k); getCalc(k) = valor calculado do mês k sozinho.
-export function derivarMensalOficial(alvos, getJanela, ehOficial, getCalc){
-  var memo = {};
-  function cresce(k){ return ehOficial(k); }
-  function construirAte(m){
-    // início da sequência oficial contígua que termina em m
-    var B = m, guard = 0;
-    while(guard++ < 60 && cresce(B-1)) B--;
-    if(memo[B] !== undefined && memo[B-1] !== undefined) { /* base já montada */ }
-    else {
-      var calc = [0,1,2,3].map(function(i){ return Math.max(0, Number(getCalc(B-3+i)) || 0); });
-      var somaCalc = calc.reduce(function(a,x){ return a+x; }, 0);
-      var W = Number(getJanela(B)) || 0;
-      for(var i=0;i<4;i++) memo[B-3+i] = somaCalc > 0 ? calc[i]*W/somaCalc : W/4;
-    }
-    for(var k=B+1; k<=m; k++){
-      if(memo[k] !== undefined) continue;
-      var v = (Number(getJanela(k)) || 0) - (memo[k-1]||0) - (memo[k-2]||0) - (memo[k-3]||0);
-      memo[k] = Math.max(0, v);
-    }
+// Mês OFICIAL: a janela oficial (4 meses) vem da SIAPS-OFICIAL, que não é a soma dos meses
+// calculados da planilha. O mês é obtido SÓ POR SUBTRAÇÃO das janelas oficiais, equipe por equipe:
+//   mês(k) = janela(k) − mês(k−1) − mês(k−2) − mês(k−3)      (= janela(k) − janela(k−1) + mês(k−4))
+// Ponto de partida (decisão do usuário): os dados oficiais só existem a partir de jan/2025
+// (Pedreira, a partir de ago/2025); os meses anteriores a isso valem 0. Sem arredondamento: tudo
+// inteiro e a soma dos 4 meses é exatamente a janela. Como jan/2025 das equipes Centro e Croatá
+// na verdade já traz meses de 2024, alguns denominadores mensais saem negativos — a cadeia
+// segue SEM correção (pra o resto continuar exato) e o card mostra 0 nesses casos.
+// Vale pro numerador e denominador do M2 e pro numerador do M1 (somam entre meses). O denominador
+// do M1 conta PESSOAS DISTINTAS (não soma entre meses): fica o calculado do mês.
+var INICIO_OFICIAL_EQUIPE = {centro: 2025*12+0, croata: 2025*12+0, pedreira: 2025*12+7};
+// Janelas oficiais de 2025 (M2), por equipe, índice 0 = jan ... 11 = dez (null = sem dado).
+// Usadas quando a aba SIAPS-OFICIAL não traz 2025.
+var HISTORICO_OFICIAL_2025 = {
+  centro: {M2:{
+    num:[1,1,1,2,2,2,12,27,28,37,31,16],
+    den:[1241,1276,1353,1526,1660,1820,2039,2290,2136,2012,1686,1166]}},
+  croata: {M2:{
+    num:[0,0,1,1,1,1,0,0,6,14,15,15],
+    den:[233,222,220,318,365,410,407,271,302,386,535,697]}},
+  pedreira: {M2:{
+    num:[null,null,null,null,null,null,null,1,1,11,17,22],
+    den:[null,null,null,null,null,null,null,1,91,197,287,362]}}
+};
+
+// Função pura (testável). k = ano*12 + mês. getJanela(k) → número ou null (sem janela oficial).
+// Devolve o valor do mês `alvo` (pode ser negativo), ou null se a cadeia não chega até ele:
+// a sequência de janelas precisa ser contínua de `inicio` até `alvo`. Antes de `inicio` vale 0.
+export function derivarMesPorSubtracao(alvo, inicio, getJanela){
+  if(alvo < inicio) return 0;
+  var m = {};
+  function v(k){ return k < inicio ? 0 : m[k]; }
+  for(var k = inicio; k <= alvo; k++){
+    var w = getJanela(k);
+    if(w == null || isNaN(w)) return null;
+    m[k] = w - v(k-1) - v(k-2) - v(k-3);
   }
-  var out = {};
-  alvos.forEach(function(m){
-    if(ehOficial(m)){ construirAte(m); out[m] = memo[m]; }
-    else out[m] = getCalc(m);
-  });
-  return out;
+  return m[alvo];
+}
+
+function janelaOficialEquipe(eqKey, k, indicador){
+  var ano = Math.floor(k/12), mesIdx = k % 12;
+  var o = estadoApp.officialOverrides[officialOverrideKey(eqKey, ano, mesIdx, indicador)];
+  if(o) return o;
+  if(ano === 2025 && HISTORICO_OFICIAL_2025[eqKey] && HISTORICO_OFICIAL_2025[eqKey][indicador]){
+    var h = HISTORICO_OFICIAL_2025[eqKey][indicador];
+    if(h.num[mesIdx] != null && h.den[mesIdx] != null) return {numerador:h.num[mesIdx], denominador:h.den[mesIdx]};
+  }
+  return null;
+}
+
+// Soma, nas equipes selecionadas, do mês k derivado por subtração. Retorna null se alguma
+// equipe não tem o mês (ou a cadeia até ele) oficial.
+function mensalOficialSelecionadas(k, indicador, campo){
+  var total = 0;
+  var eqs = estadoApp.currentEquipes;
+  if(!eqs.length) return null;
+  for(var i=0;i<eqs.length;i++){
+    var key = eqs[i].key;
+    var ini = INICIO_OFICIAL_EQUIPE[key];
+    if(ini == null) return null;
+    var v = derivarMesPorSubtracao(k, ini, function(j){
+      var o = janelaOficialEquipe(key, j, indicador);
+      return o ? o[campo] : null;
+    });
+    if(v == null) return null;
+    total += v;
+  }
+  return total;
 }
 
 export function anexarMensalNaSerie(wb, pontos){
   pontos = pontos || [];
   var hoje = new Date();
   var mesAtual = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-  function idx(d){ return d.getFullYear()*12 + d.getMonth(); }
-  function dt(k){ return new Date(Math.floor(k/12), k%12, 1); }
-  var porIdx = {};
-  pontos.forEach(function(p){ porIdx[idx(p.mes)] = p; });
-  var memoJan = {}, memoCalc = {};
-  function jan(k){ // dados da janela (com override oficial) do mês k
-    if(!memoJan[k]){
-      var p = porIdx[k];
-      memoJan[k] = (p && p.numeradorM2 !== undefined)
-        ? {numM1:p.numeradorM1, numM2:p.numeradorM2, denM2:p.denominadorM2, of1:!!p.m1Oficial, of2:!!p.m2Oficial}
-        : (function(){ var d = calcularJanelaComOverride(wb, dt(k)).data;
-            return {numM1:d.numeradorM1, numM2:d.numeradorM2, denM2:d.denominadorM2, of1:!!d.m1Oficial, of2:!!d.m2Oficial}; })();
-    }
-    return memoJan[k];
-  }
-  function calc(k){ // mês k sozinho, calculado da planilha
+  var memoCalc = {};
+  function calc(d){
+    var k = d.getFullYear()*12 + d.getMonth();
     if(!memoCalc[k]){
-      var d = calcularIndicadoresDoPeriodo(wb, periodoMesUnico(dt(k))).data;
-      memoCalc[k] = {numM1:d.numeradorM1, denM1:d.denominadorM1, numM2:d.numeradorM2, denM2:d.denominadorM2};
+      var r = calcularIndicadoresDoPeriodo(wb, periodoMesUnico(d)).data;
+      memoCalc[k] = {numM1:r.numeradorM1, denM1:r.denominadorM1, numM2:r.numeradorM2, denM2:r.denominadorM2};
     }
     return memoCalc[k];
   }
-  var alvos = pontos.filter(function(p){ return p.mes <= mesAtual; }).map(function(p){ return idx(p.mes); }).sort(function(a,b){ return a-b; });
-  var dNumM1, dNumM2, dDenM2;
-  try{
-    dNumM1 = derivarMensalOficial(alvos, function(k){ return jan(k).numM1; }, function(k){ return jan(k).of1; }, function(k){ return calc(k).numM1; });
-    dNumM2 = derivarMensalOficial(alvos, function(k){ return jan(k).numM2; }, function(k){ return jan(k).of2; }, function(k){ return calc(k).numM2; });
-    dDenM2 = derivarMensalOficial(alvos, function(k){ return jan(k).denM2; }, function(k){ return jan(k).of2; }, function(k){ return calc(k).denM2; });
-  }catch(e){ dNumM1 = dNumM2 = dDenM2 = null; }
+  function naoNeg(v){ return v == null ? null : Math.max(0, v); }
   pontos.forEach(function(p){
     if(p.mensal !== undefined) return;
     p.mensal = null;
-    var k = idx(p.mes);
-    if(p.mes > mesAtual || !dNumM2) return;
-    var c = calc(k);
-    var nM1 = dNumM1[k], dM1 = c.denM1, nM2 = dNumM2[k], dM2 = dDenM2[k];
-    p.mensal = {numM1:nM1, denM1:dM1, m1:(dM1>0 ? nM1/dM1 : null),
-                numM2:nM2, denM2:dM2, m2:(dM2>0 ? nM2/dM2*100 : null)};
+    if(p.mes > mesAtual) return;
+    var k = p.mes.getFullYear()*12 + p.mes.getMonth();
+    try{
+      var c = {};
+      try{ c = calc(p.mes); }catch(e){ c = {}; }
+      // M2: oficial → subtração das janelas; senão (preliminar) → cálculo do mês na planilha
+      var nM2, dM2;
+      if(p.m2Oficial){
+        nM2 = mensalOficialSelecionadas(k, 'M2', 'numerador');
+        dM2 = mensalOficialSelecionadas(k, 'M2', 'denominador');
+      } else { nM2 = c.numM2; dM2 = c.denM2; }
+      // M1: o histórico de 2025 do M1 não está no painel; sem cadeia oficial até o mês, sem valor
+      var nM1, dM1 = c.denM1;
+      if(p.m1Oficial) nM1 = mensalOficialSelecionadas(k, 'M1', 'numerador');
+      else nM1 = c.numM1;
+      nM2 = naoNeg(nM2); dM2 = naoNeg(dM2); nM1 = naoNeg(nM1);
+      p.mensal = {
+        numM1: nM1, denM1: (nM1 == null ? null : dM1), m1: (nM1 != null && dM1 > 0 ? nM1/dM1 : null),
+        numM2: nM2, denM2: dM2, m2: (nM2 != null && dM2 > 0 ? nM2/dM2*100 : null)
+      };
+    }catch(e){ p.mensal = null; }
   });
   return pontos;
 }
