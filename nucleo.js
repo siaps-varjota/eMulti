@@ -464,6 +464,20 @@ export function avisarNomesProfissionaisSemMatch(partRows){
 // atividade, liga por ID; senão, pela combinação data + equipe +
 // responsável (+ tipo de atividade, quando as duas abas têm). Devolve
 // {total(linhaDoResumo) -> número | undefined, modo} ou null.
+// REGRA DE ENTRADA de uma atividade coletiva (linha do Resumo Atividade Coletiva) na eMulti.
+//  - total de profissionais da eMulti conhecido (ligação com Participantes): entra se >= 1;
+//  - total desconhecido (sem ligação / vazio): só entra se a PRÓPRIA equipe da linha é eMulti.
+//    Atividade de OUTRA equipe (ESB, ACS…) sem como confirmar participação de profissional da
+//    eMulti NÃO entra — nem na lista, nem na contagem/cálculo.
+// equipeCelula = texto da coluna "Equipe - Unidade" da linha (null = aba sem essa coluna: sem
+// como distinguir a equipe, mantém o comportamento antigo e deixa entrar).
+export function linhaEntraNaEmulti(total, equipeCelula){
+  var n = (total === undefined || total === null || String(total).trim() === '') ? undefined : Number(total);
+  if(n !== undefined && !isNaN(n)) return n >= 1;
+  if(equipeCelula === null || equipeCelula === undefined) return true;
+  return normalizeText(equipeCelula).indexOf("EMULTI") !== -1;
+}
+
 export function criarLigacaoAtividades(partRows, racHeader){
   if(!partRows || !partRows.length) return null;
   var partHeader = partRows[0];
@@ -705,13 +719,16 @@ export function calcularIndicadoresDoPeriodo(wb, periodo){
   //  - responsável FORA da eMulti, com 1+ profissional da eMulti -> COMPARTILHADA
   //  - responsável FORA da eMulti, sem nenhum da eMulti (com ou sem outros
   //    profissionais) -> NÃO ENTRA na eMulti.
+  //  - linha de OUTRA equipe (que não é eMulti) sem como confirmar profissional da eMulti
+  //    (sem ligação com Participantes) -> NÃO ENTRA (ver linhaEntraNaEmulti).
   // "Total de Profissionais da EMulti" já conta responsável + envolvidos
   // da eMulti, então 0 significa "ninguém da eMulti na atividade" = não entra.
-  // Sem ligação com Participantes (total indefinido) não dá pra checar:
-  // a atividade é mantida, como antes.
+  // Sem ligação com Participantes (total indefinido): atividade da própria eMulti é mantida;
+  // atividade de outra equipe não entra.
+  var iRacEquipe = equipeColIndex(racHeader);
   function atividadeEntraNaEmulti(r){
     var totalEmultiPart = ligacaoAtiv ? ligacaoAtiv.total(r) : undefined;
-    return (totalEmultiPart === undefined) ? true : totalEmultiPart >= 1;
+    return linhaEntraNaEmulti(totalEmultiPart, iRacEquipe >= 0 ? r[iRacEquipe] : null);
   }
   var racFiltradas = racRows.slice(1).filter(function(r){
     return withinPeriod(parseBRDate(r[iRacData]), periodo.inicio, periodo.fim)
