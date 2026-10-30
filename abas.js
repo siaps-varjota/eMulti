@@ -2974,7 +2974,11 @@ export function ovMesesHTML(kind, pontos, larga){
     var infoMensal = ((kind === 'm1' && p.mensal && p.mensal.numM1 != null) || (kind === 'm2' && p.mensal && p.mensal.numM2 != null))
       ? 'Fora dos parênteses: janela de 4 meses que termina neste mês. Entre parênteses: valor só deste mês' + (oficial ? ' (em meses oficiais, obtido só por subtração das janelas oficiais, tendo jan/2025 como início; a soma dos 4 meses dá a janela, exceto quando algum mês sai negativo e é mostrado como 0' + (kind === 'm1' ? '. O denominador, de pessoas distintas, não soma e é o calculado do mês' : '') + ')' : '') + '.'
       : '';
-    var tipSub = [subTitle, infoMensal].filter(Boolean).join(' — ');
+    // M1 sem dado oficial: mostra de onde vem o numerador da janela (bate com as listas Atendimentos + Participantes Ativ. Coletiva).
+    var infoCalc = (kind === 'm1' && !oficial && p.atendimentosIndividuais != null && p.participacoesColetivas != null)
+      ? 'Numerador calculado pela planilha (janela de 4 meses): '+fmtInt(p.atendimentosIndividuais)+' atendimentos individuais + '+fmtInt(p.participacoesColetivas)+' participações coletivas'
+      : '';
+    var tipSub = [subTitle, infoCalc, infoMensal].filter(Boolean).join(' — ');
     var d = p.mes;
     var rotulo = d.toLocaleDateString('pt-BR',{month:'short'}).replace('.','').toUpperCase()+'/'+d.getFullYear();
     return '<div class="ov-mes" style="--mes-accent:'+st.accent+';--mes-bg:'+st.badgeBg+';--mes-txt:'+st.badgeText+';">'
