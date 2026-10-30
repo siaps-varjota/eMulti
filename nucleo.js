@@ -395,16 +395,26 @@ export function criarCalculadoraTotalProfEmulti(partHeader){
   return {
     disponivel: iReal >= 0 || podeVirtual,
     calcular: function(r){
-      if(iReal >= 0 && String(r[iReal]===undefined||r[iReal]===null?"":r[iReal]).trim() !== "") return toInt(r[iReal]);
-      var vistos = {}, n = 0;
-      for(var i=0;i<profCols.length;i++){
-        var nomeP = r[profCols[i]];
-        if(!nomeP || !nomeEhDaEmulti(nomeP)) continue;
-        var k = normalizarNomeProf(nomeP);
-        if(vistos[k]) continue;
-        vistos[k] = true; n++;
+      // Os NOMES dos profissionais da atividade (Responsável + Profissional 1..5), conferidos na aba
+      // PROFISSIONAIS, mandam: se há nomes, o total é quantos deles são da eMulti — mesmo que a coluna
+      // "Total de Profissionais da EMulti" da planilha diga outra coisa (ex.: atividade só com
+      // profissionais de fora da eMulti que a planilha trouxe com total >= 1 não pode entrar na eMulti).
+      // A coluna da planilha só vale quando não há nome algum para conferir (ou a aba PROFISSIONAIS
+      // não está disponível).
+      if(podeVirtual){
+        var vistos = {}, n = 0, nomeados = 0;
+        for(var i=0;i<profCols.length;i++){
+          var nomeP = r[profCols[i]];
+          if(!nomeP || !String(nomeP).trim()) continue;
+          var k = normalizarNomeProf(nomeP);
+          if(vistos[k]) continue;
+          vistos[k] = true; nomeados++;
+          if(nomeEhDaEmulti(nomeP)) n++;
+        }
+        if(nomeados > 0) return n;
       }
-      return n;
+      if(iReal >= 0 && String(r[iReal]===undefined||r[iReal]===null?"":r[iReal]).trim() !== "") return toInt(r[iReal]);
+      return 0;
     }
   };
 }
@@ -1345,16 +1355,18 @@ export function fetchProfissionaisSafe(){
 // M2: ações compartilhadas). O denominador do M1 (pessoas DISTINTAS) não soma entre meses e o do
 // M2 continua calculado pelo painel — ficam como estavam.
 function somaMesesJan(d, n){ return new Date(d.getFullYear(), d.getMonth()+n, 1); }
-function numeradorOficialJanela(ind, mes){
+function numeradorOficialJanela(ind, mes, campo){
+  campo = campo || 'numerador';
   var ents = estadoApp.currentEquipes.map(function(eq){
     return estadoApp.officialOverrides[officialOverrideKey(eq.key, mes.getFullYear(), mes.getMonth(), ind)];
   });
   if(!ents.length || ents.some(function(e){ return !e; })) return null;
-  return ents.reduce(function(a,e){ return a + e.numerador; }, 0);
+  return ents.reduce(function(a,e){ return a + e[campo]; }, 0);
 }
 var cacheIsoNum = {wb: null, chave: '', mapa: {}};
-// Numerador de UM mês isolado, calculado pelo painel (só contagens detalhadas das abas).
-function numeradorMesIsoCalc(wb, mes, ind){
+// Valor de UM mês isolado, calculado pelo painel (só contagens detalhadas das abas).
+// campo: 'numerador' (padrão) ou 'denominador'.
+function numeradorMesIsoCalc(wb, mes, ind, campo){
   var chave = estadoApp.currentEquipes.map(function(e){ return e.key; }).join('|');
   if(cacheIsoNum.wb !== wb || cacheIsoNum.chave !== chave) cacheIsoNum = {wb: wb, chave: chave, mapa: {}};
   var k = mes.getFullYear() + '-' + mes.getMonth();
@@ -1362,17 +1374,39 @@ function numeradorMesIsoCalc(wb, mes, ind){
     var r = calcularIndicadoresDoPeriodo(wb, periodoMesUnico(mes)).data;
     cacheIsoNum.mapa[k] = {
       M1: r.numeradorM1 || 0,
-      M2: (r.atividadesCompartilhadasListas||0) + (r.reunioesCompartilhadas||0) + (r.atendimentosCompartilhados||0)
+      M2: (r.atividadesCompartilhadasListas||0) + (r.reunioesCompartilhadas||0) + (r.atendimentosCompartilhados||0),
+      D1: r.denominadorM1 || 0,
+      D2: r.denominadorM2 || 0
     };
   }
-  return cacheIsoNum.mapa[k][ind];
+  return cacheIsoNum.mapa[k][campo === 'denominador' ? 'D' + ind.slice(1) : ind];
 }
-// Numerador de UM mês isolado, derivado do histórico oficial (diferença de janelas).
-function numeradorMesIsoOficial(wb, mes, ind, prof){
+// Valor de UM mês isolado, derivado do histórico oficial (diferença de janelas).
+function numeradorMesIsoOficial(wb, mes, ind, prof, campo){
   prof = prof || 0;
-  var w = numeradorOficialJanela(ind, mes), wAnt = numeradorOficialJanela(ind, somaMesesJan(mes, -1));
-  if(w == null || wAnt == null || prof >= 4) return numeradorMesIsoCalc(wb, mes, ind);
-  return Math.max(0, w - wAnt + numeradorMesIsoOficial(wb, somaMesesJan(mes, -4), ind, prof + 1));
+  var w = numeradorOficialJanela(ind, mes, campo), wAnt = numeradorOficialJanela(ind, somaMesesJan(mes, -1), campo);
+  if(w == null || wAnt == null || prof >= 4) return numeradorMesIsoCalc(wb, mes, ind, campo);
+  return Math.max(0, w - wAnt + numeradorMesIsoOficial(wb, somaMesesJan(mes, -4), ind, prof + 1, campo));
+}
+// Valor do mês SOZINHO (sem os outros 3 meses da janela) — mostrado entre parênteses nos cards mensais.
+// Meses oficiais: derivado da diferença entre janelas oficiais; meses preliminares: calculado pelo painel.
+// Denominador do M1 (pessoas DISTINTAS) não soma entre meses, então é sempre o calculado do mês.
+function valorMensalIsolado(wb, mes, ind, campo){
+  if(ind === 'M1' && campo === 'denominador') return numeradorMesIsoCalc(wb, mes, ind, campo);
+  return numeradorMesIsoOficial(wb, mes, ind, 0, campo);
+}
+// Anexa ao ponto da série os valores mensais, de forma preguiçosa (só calcula quando o card é desenhado).
+function anexarValoresMensais(wb, p){
+  var cache = null;
+  Object.defineProperty(p, 'mensal', {enumerable: false, configurable: true, get: function(){
+    if(cache) return cache;
+    if(p.mes.getTime() > Date.now()){ cache = {}; return cache; }   // mês que ainda não começou
+    cache = {
+      numM1: valorMensalIsolado(wb, p.mes, 'M1', 'numerador'), denM1: valorMensalIsolado(wb, p.mes, 'M1', 'denominador'),
+      numM2: valorMensalIsolado(wb, p.mes, 'M2', 'numerador'), denM2: valorMensalIsolado(wb, p.mes, 'M2', 'denominador')
+    };
+    return cache;
+  }});
 }
 function numeradorHibrido(wb, refMonth, ind){
   var m = new Date(refMonth.getFullYear(), refMonth.getMonth(), 1), L = null;
@@ -2464,6 +2498,7 @@ export function calcularSerieTendencia(wb, refMonth, n){
       numeradorM2Calculado: res.data.numeradorM2Calculado, denominadorM2Calculado: res.data.denominadorM2Calculado, m2Calculado: res.data.m2Calculado,
       janela:janela
     });
+    anexarValoresMensais(wb, pontos[pontos.length-1]);
   }
   projetarDenominadoresFuturos(wb, pontos);
   return pontos;
