@@ -1393,6 +1393,16 @@ function numeradorMesIsoOficial(wb, mes, ind, prof){
   if(w == null || wAnt == null || prof >= 4) return numeradorMesIsoCalc(wb, mes, ind);
   return Math.max(0, w - wAnt + numeradorMesIsoOficial(wb, somaMesesJan(mes, -4), ind, prof + 1));
 }
+// Mês isolado que SAI da janela: usa a MESMA derivação dos números entre parênteses nos
+// cards mensais (subtração das janelas oficiais, incluindo o histórico de 2025 —
+// ver mensalOficialSelecionadas), pra o preliminar não subtrair um valor diferente do
+// que o card do mês oficial mostra. Sem cadeia oficial completa, cai na derivação antiga.
+function numeradorMesIsoConsistente(wb, mes, ind){
+  var k = mes.getFullYear()*12 + mes.getMonth();
+  var v = mensalOficialSelecionadas(k, ind, 'numerador');
+  if(v != null) return Math.max(0, v);
+  return numeradorMesIsoOficial(wb, mes, ind);
+}
 function numeradorHibrido(wb, refMonth, ind){
   var m = new Date(refMonth.getFullYear(), refMonth.getMonth(), 1), L = null;
   for(var i = 1; i <= 3 && !L; i++){ var c = somaMesesJan(m, -i); if(numeradorOficialJanela(ind, c) != null) L = c; }
@@ -1400,7 +1410,7 @@ function numeradorHibrido(wb, refMonth, ind){
   var total = numeradorOficialJanela(ind, L);
   var iL = L.getFullYear()*12 + L.getMonth(), iM = m.getFullYear()*12 + m.getMonth();
   function mesDe(idx){ return new Date(Math.floor(idx/12), idx % 12, 1); }
-  for(var j = iL - 3; j <= iM - 4; j++) total -= numeradorMesIsoOficial(wb, mesDe(j), ind);
+  for(var j = iL - 3; j <= iM - 4; j++) total -= numeradorMesIsoConsistente(wb, mesDe(j), ind);
   for(var k = iL + 1; k <= iM; k++) total += numeradorMesIsoCalc(wb, mesDe(k), ind);
   return Math.max(0, total);
 }
