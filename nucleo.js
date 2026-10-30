@@ -1403,6 +1403,8 @@ function numeradorMesIsoConsistente(wb, mes, ind){
   if(v != null) return Math.max(0, v);
   return numeradorMesIsoOficial(wb, mes, ind);
 }
+// false = mês de M1 sem dado oficial usa o valor calculado direto da planilha (bate com as listas); true = modelo híbrido sobre a última janela oficial.
+var NUMERADOR_M1_HIBRIDO = false;
 function numeradorHibrido(wb, refMonth, ind){
   var m = new Date(refMonth.getFullYear(), refMonth.getMonth(), 1), L = null;
   for(var i = 1; i <= 3 && !L; i++){ var c = somaMesesJan(m, -i); if(numeradorOficialJanela(ind, c) != null) L = c; }
@@ -1461,7 +1463,9 @@ function aplicarOverrideOficial(data, ano, mesIdx, wb){
   // histórico oficial dos meses anteriores da mesma janela (ver numeradorHibrido).
   if(wb){
     var mesRef = new Date(ano, mesIdx, 1);
-    if(!data.m1Oficial){
+    // M1 preliminar usa o numerador CALCULADO da planilha (atendimentos individuais + participações coletivas dos 4 meses da janela,
+    // o mesmo que as listas mostram). O modelo híbrido (janela oficial anterior − mês que sai + mês calculado) fica desligado aqui.
+    if(!data.m1Oficial && NUMERADOR_M1_HIBRIDO){
       var numHib1 = numeradorHibrido(wb, mesRef, 'M1');
       if(numHib1 != null){
         data.numeradorM1 = numHib1;
@@ -2466,6 +2470,7 @@ export function calcularSerieTendencia(wb, refMonth, n){
     pontos.push({
       mes:mes, m1:res.data.m1, m2:res.data.m2,
       numeradorM1: res.data.numeradorM1, denominadorM1: res.data.denominadorM1,
+      atendimentosIndividuais: res.data.atendimentosIndividuais, participacoesColetivas: res.data.participacoesColetivas,
       numeradorM2: res.data.numeradorM2, denominadorM2: res.data.denominadorM2,
       notaFinal: res.data.notaFinal,
       // Debug: de onde veio "atividades coletivas compartilhadas" NESTE
