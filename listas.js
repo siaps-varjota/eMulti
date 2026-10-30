@@ -288,10 +288,23 @@ function nomesEnvolvidosParticipacao(headers, row){
 }
 
 function classificarAcaoM2Participacao(headers, row){
-  var qtd = nomesEnvolvidosParticipacao(headers, row).length;
-  if(qtd >= 2) return {classe:"compartilhada", label:"Compartilhada", qtd:qtd};
-  if(qtd === 1) return {classe:"especifica", label:"Específica", qtd:qtd};
-  return {classe:"semregistro", label:"Sem registro", qtd:qtd};
+  var envolvidos = nomesEnvolvidosParticipacao(headers, row);
+  var qtd = envolvidos.length;
+  if(qtd === 0) return {classe:"semregistro", label:"Sem registro", qtd:qtd, qtdEmulti:0};
+  // Só é ação da eMulti (Específica ou Compartilhada) se pelo menos 1 dos envolvidos
+  // — responsável OU profissional envolvido — é da eMulti. O responsável não precisa ser.
+  var vistos = {}, qtdEmulti = 0;
+  envolvidos.forEach(function(e){
+    var k = normalizeText(e.nome);
+    if(vistos[k]) return;
+    vistos[k] = true;
+    if(nomeEhDaEmulti(e.nome)) qtdEmulti++;
+  });
+  // Sem a lista PROFISSIONAIS carregada não dá pra saber quem é da eMulti: mantém a regra antiga.
+  if(profissionaisRoster.length > 0 && qtdEmulti === 0)
+    return {classe:"sememulti", label:"Sem eMulti", qtd:qtd, qtdEmulti:0};
+  if(qtd >= 2) return {classe:"compartilhada", label:"Compartilhada", qtd:qtd, qtdEmulti:qtdEmulti};
+  return {classe:"especifica", label:"Específica", qtd:qtd, qtdEmulti:qtdEmulti};
 }
 
 // ---------- "Resumo Atividade Coletiva": AÇÃO M2 + Detalhes ----------
@@ -499,8 +512,10 @@ function montarDetalhesParticipacaoHTML(headers, row){
   var notaClassificacao = classificacao.classe === 'compartilhada'
     ? classificacao.qtd+' profissionais envolvidos — conta como Ação Compartilhada (M2).'
     : classificacao.classe === 'especifica'
-      ? 'Apenas 1 profissional envolvido — conta como Ação Específica (individual).'
-      : 'Nenhum profissional identificado nesta linha para classificar a ação.';
+      ? 'Apenas 1 profissional envolvido (da eMulti) — conta como Ação Específica (individual).'
+      : classificacao.classe === 'sememulti'
+        ? 'Nenhum dos '+classificacao.qtd+' profissionais envolvidos (responsável ou secundários) é da eMulti — não conta como Ação Compartilhada nem Específica da eMulti.'
+        : 'Nenhum profissional identificado nesta linha para classificar a ação.';
 
   return '<div class="part-modal-head"><span class="part-modal-eyebrow">Detalhes da Participação</span></div>'
     + '<h3 class="part-modal-title">'+escapeHtml(participante || 'Participação em atividade coletiva')+'</h3>'
@@ -561,7 +576,7 @@ function injectPartModalStyles(){
     + '.acao-m2-badge svg{width:14px;height:14px;flex:none}'
     + '.acao-m2-compartilhada{background:#E7EEFB;color:#2F5FCB}'
     + '.acao-m2-especifica{background:#E3F3E8;color:#1F7A45}'
-    + '.acao-m2-semregistro{background:#F1F1EF;color:#7A7A72}'
+    + '.acao-m2-semregistro,.acao-m2-sememulti{background:#F1F1EF;color:#7A7A72}'
     + '.detalhes-part-btn{display:inline-flex;align-items:center;gap:5px;border:none;background:none;color:#1F8A57;font-weight:700;font-size:12.5px;cursor:pointer;padding:4px 2px;white-space:nowrap}'
     + '.detalhes-part-btn svg{width:15px;height:15px;flex:none}'
     + '.detalhes-part-btn:hover{text-decoration:underline}'
