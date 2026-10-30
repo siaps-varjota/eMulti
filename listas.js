@@ -335,6 +335,16 @@ function classificarAcaoM2Atividade(headers, row){
   var totalGeral = (vTot !== '') ? toInt(vTot) : 1 + toInt(textoCelulaLista(row, iEnv));
   var vEm = textoCelulaLista(row, iEm);
   var totalEmulti = (vEm !== '') ? toInt(vEm) : null;
+  // Quando os NOMES da atividade estão disponíveis (ligação com Participantes Ativ.
+  // Coletiva), eles mandam: o responsável NÃO precisa ser da eMulti — basta 1 da
+  // eMulti entre responsável + profissionais envolvidos. Responsável de fora + 1
+  // envolvido da eMulti = 2 profissionais = Compartilhada, mesmo que o total da
+  // planilha esteja menor.
+  var profsNomes = (row && profissionaisPorAtividade) ? profissionaisPorAtividade.get(row) : undefined;
+  if(profsNomes && profsNomes.length){
+    totalEmulti = profsNomes.filter(function(p){ return p.emulti; }).length;
+    totalGeral = Math.max(totalGeral, profsNomes.length);
+  }
   var temEmulti = (totalEmulti === null) ? true : totalEmulti >= 1;
   if(totalGeral >= 2 && temEmulti) return {classe:"compartilhada", label:"Compartilhada", qtd:totalGeral, totalEmulti:totalEmulti, motivo:"ok"};
   return {classe:"especifica", label:"Específica", qtd:totalGeral, totalEmulti:totalEmulti,
