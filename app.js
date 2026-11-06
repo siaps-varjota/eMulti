@@ -698,10 +698,12 @@ export function aplicarMesReferencia(saveHistory){
     var resultadosJanela = mesesUsados.map(function(m){
       return calcularJanelaComOverride(latestWb, m);
     });
-    // Pro "o que falta" entram os 4 meses do quadrimestre (os fechados ficam fixos; os
-    // abertos, inclusive os que ainda não começaram, recebem as ações a somar).
+    // Pro "o que falta" entram só os meses que JÁ COMEÇARAM (os mesmos da média exibida no
+    // card): os fechados ficam fixos e o mês em andamento recebe o que falta. Mês que ainda não
+    // começou fica de fora, como no valor do card (senão entrava como um mês "vazio" e
+    // inflava o que falta — ex.: Dez +848).
     extracted = mediaDeMeses(resultadosMensais, resultadosJanela, mesesProjecaoLabel,
-      janelasInfoDeMeses(meses, mesesUsados, resultadosJanela));
+      janelasInfoDeMeses(mesesUsados, mesesUsados, resultadosJanela));
     periodo = {
       inicio: fmtBRDate(periodoMesUnico(meses[0]).inicio),
       fim: fmtBRDate(periodoMesUnico(meses[meses.length-1]).fim)
