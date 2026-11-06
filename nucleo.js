@@ -2626,26 +2626,29 @@ export function anexarMensalNaSerie(wb, pontos){
 // passa a ser a MÉDIA dos denominadores dos 4 últimos meses completos, isto é, os 4 meses
 // anteriores ao mês atual (ex.: em outubro, novembro e dezembro usam a média de jun–set).
 // O numerador não muda; m1/m2, classificação e nota são recalculados com o novo denominador.
-// Denominadores (M1 e M2) usados pra PROJETAR os meses futuros: média dos denominadores dos 4
-// meses fechados/em andamento anteriores ao mês atual. `pontos` (opcional) evita recalcular
-// janelas que a série de tendência já tem.
-export function denominadoresProjetados(wb, pontos){
+// Projeção dos meses futuros: numerador E denominador (M1 e M2) = média das janelas dos
+// 4 últimos meses, incluindo o mês atual (ex.: em nov → ago, set, out, nov). Assim o mês futuro
+// "continua o ritmo" recente, sem ficar artificialmente baixo/alto. `pontos` (opcional) evita
+// recalcular janelas que a série de tendência já tem.
+export function projecaoMesFuturo(wb, pontos){
   pontos = pontos || [];
   var hoje = new Date();
   var mesAtual = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-  var somaM1 = 0, nM1 = 0, somaM2 = 0, nM2 = 0, meses = [];
-  for(var k=4; k>=1; k--){
+  var acc = {numM1:[], denM1:[], numM2:[], denM2:[]}, meses = [];
+  for(var k=3; k>=0; k--){
     var m = addMonths(mesAtual, -k);
     var ref = pontos.filter(function(p){ return p.mes.getFullYear()===m.getFullYear() && p.mes.getMonth()===m.getMonth(); })[0];
-    var d = ref ? {m1: ref.denominadorM1, m2: ref.denominadorM2} : null;
-    if(!d){ var r = calcularJanelaComOverride(wb, m); d = {m1: r.data.denominadorM1, m2: r.data.denominadorM2}; }
+    var d = ref ? {numM1: ref.numeradorM1, denM1: ref.denominadorM1, numM2: ref.numeradorM2, denM2: ref.denominadorM2} : null;
+    if(!d){
+      var r = calcularJanelaComOverride(wb, m);
+      d = {numM1: r.data.numeradorM1, denM1: r.data.denominadorM1, numM2: r.data.numeradorM2, denM2: r.data.denominadorM2};
+    }
     meses.push(m);
-    if(d.m1>0){ somaM1 += d.m1; nM1++; }
-    if(d.m2>0){ somaM2 += d.m2; nM2++; }
+    Object.keys(acc).forEach(function(c){ if(d[c]!=null) acc[c].push(d[c]); });
   }
+  function med(a){ return a.length ? Math.round(a.reduce(function(x,y){ return x+y; }, 0)/a.length) : null; }
   return {
-    denM1: nM1 ? Math.round(somaM1/nM1) : null,
-    denM2: nM2 ? Math.round(somaM2/nM2) : null,
+    numM1: med(acc.numM1), denM1: med(acc.denM1), numM2: med(acc.numM2), denM2: med(acc.denM2),
     label: monthShortLabel(meses[0]) + ' a ' + monthShortLabel(meses[meses.length-1])
   };
 }
@@ -2655,21 +2658,22 @@ function projetarDenominadoresFuturos(wb, pontos){
   var mesAtual = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
   var futuros = pontos.filter(function(p){ return p.mes > mesAtual; });
   if(!futuros.length) return;
-  var proj = denominadoresProjetados(wb, pontos);
-  var denM1 = proj.denM1, denM2 = proj.denM2, label = proj.label;
+  var proj = projecaoMesFuturo(wb, pontos);
   futuros.forEach(function(p){
-    if(denM1 && p.numeradorM1!=null){
-      p.denominadorM1 = denM1;
-      p.m1 = p.numeradorM1/denM1;
+    if(proj.denM1 && proj.numM1!=null){
+      p.numeradorM1 = proj.numM1;
+      p.denominadorM1 = proj.denM1;
+      p.m1 = proj.numM1/proj.denM1;
     }
-    if(denM2 && p.numeradorM2!=null){
-      p.denominadorM2 = denM2;
-      p.m2 = p.numeradorM2/denM2*100;
+    if(proj.denM2 && proj.numM2!=null){
+      p.numeradorM2 = proj.numM2;
+      p.denominadorM2 = proj.denM2;
+      p.m2 = proj.numM2/proj.denM2*100;
     }
     var pM1 = PONTOS_POR_CLASSE[classificarM1(p.m1)], pM2 = PONTOS_POR_CLASSE[classificarM2(p.m2)];
     p.notaFinal = (pM1!==undefined && pM2!==undefined) ? (pM1*6 + pM2*4) : null;
     p.denominadorProjetado = true;
-    p.denominadorProjecaoLabel = label;
+    p.denominadorProjecaoLabel = proj.label;
   });
 }
 

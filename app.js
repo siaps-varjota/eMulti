@@ -4,7 +4,7 @@
 // Cada seção "=== módulo: ... ===" corresponde a um arquivo original.
 // ======================================================================
 
-import { equipeColIndex, linhaEntraNaEmulti, anexarMensalNaSerie, CLASS_BANDS_M1, CLASS_BANDS_M1_OV, CLASS_BANDS_M2, CLASS_BANDS_M2_OV, CLASS_BANDS_NOTA_OV, CLASS_PILL_HEX, EQUIPES, JANELA_MESES, LEGEND_M1, LEGEND_M2, OV_LEGEND_M1, OV_LEGEND_M2, OV_LEGEND_NOTA, STORAGE_AVAILABLE, STORAGE_KEY, TREND_MESES, TREND_SEMANAS, anchorMonthDate, animateGauges, anoMs, calcularIndicadoresDoPeriodo, calcularJanelaComOverride, calcularJanelaPeriodo, calcularSerieSemanal, calcularSerieTendencia, classificarDesempenho, classificarM1, classificarM2, colIndex, compCardHeaderHTML, createMultiSelect, criarLigacaoAtividades, denominadoresProjetados, escapeHtml, estadoApp, fetchAllSheets, fetchAtualizacaoSafe, fetchOfficialOverridesSafe, fetchProfissionaisSafe, filtrarLinhasPorEquipe, fmtBRDate, fmtDate, fmtDec, fmtInt, init_nucleo_config, init_nucleo_dados, init_nucleo_listas_estado, init_nucleo_periodos, init_nucleo_popovers, init_visual_gauge, init_visual_painel_kpi, isMesFuturo, labelQuadsSelecionados, m1ListNames, m2ListNames, mediaDeMeses, mesMs, mesesDosQuadsSelecionadosUniao, mesesElapsedDosQuadsSelecionadosUniao, monthOptionValue, monthShortLabel, normalizeText, parseBRDate, parseCsv, periodoMesUnico, pillHex, populateAnoQuadSelects, profissionaisRoster, quadCode, quadKeyOfDate, quadShortLabel, quadMs, refMonthLabel, sheetToRows, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, valoresUnicosOrdenados, withinPeriod } from './nucleo.js';
+import { equipeColIndex, linhaEntraNaEmulti, anexarMensalNaSerie, CLASS_BANDS_M1, CLASS_BANDS_M1_OV, CLASS_BANDS_M2, CLASS_BANDS_M2_OV, CLASS_BANDS_NOTA_OV, CLASS_PILL_HEX, EQUIPES, JANELA_MESES, LEGEND_M1, LEGEND_M2, OV_LEGEND_M1, OV_LEGEND_M2, OV_LEGEND_NOTA, STORAGE_AVAILABLE, STORAGE_KEY, TREND_MESES, TREND_SEMANAS, anchorMonthDate, animateGauges, anoMs, calcularIndicadoresDoPeriodo, calcularJanelaComOverride, calcularJanelaPeriodo, calcularSerieSemanal, calcularSerieTendencia, classificarDesempenho, classificarM1, classificarM2, colIndex, compCardHeaderHTML, createMultiSelect, criarLigacaoAtividades, projecaoMesFuturo, escapeHtml, estadoApp, fetchAllSheets, fetchAtualizacaoSafe, fetchOfficialOverridesSafe, fetchProfissionaisSafe, filtrarLinhasPorEquipe, fmtBRDate, fmtDate, fmtDec, fmtInt, init_nucleo_config, init_nucleo_dados, init_nucleo_listas_estado, init_nucleo_periodos, init_nucleo_popovers, init_visual_gauge, init_visual_painel_kpi, isMesFuturo, labelQuadsSelecionados, m1ListNames, m2ListNames, mediaDeMeses, mesMs, mesesDosQuadsSelecionadosUniao, mesesElapsedDosQuadsSelecionadosUniao, monthOptionValue, monthShortLabel, normalizeText, parseBRDate, parseCsv, periodoMesUnico, pillHex, populateAnoQuadSelects, profissionaisRoster, quadCode, quadKeyOfDate, quadShortLabel, quadMs, refMonthLabel, sheetToRows, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, valoresUnicosOrdenados, withinPeriod } from './nucleo.js';
 import { renderFluxoPacientes, ovMesesHTML, M1_META_THRESHOLDS, M2_META_THRESHOLDS, calcularAnalises, calcularMetasQuadrimestre, calcularPerformanceProfissionais, calcularQuadrimestreAnterior, init_abas_analises_calculo, init_abas_analises_render, init_abas_m1_m2, init_abas_profissionais, ipGaugeCardHTML, ipReadingHTML, metaQuadrimestreHTML, metaQuadrimestreMiniHTML, overviewCardHTML, populateSheetsCache, profListaAtual, renderAnalises, renderPerformanceProfissionais, setupPreliminarToggle, setupTrendInteractivity, sparkline, stackbar } from './abas.js';
 import { gerarPdfDivergenciaOficial, init_listas_atividade_coletiva, pessoasAtendidasParaMeses, renderListsSection } from './listas.js';
 
@@ -698,12 +698,11 @@ export function aplicarMesReferencia(saveHistory){
     var resultadosJanela = mesesUsados.map(function(m){
       return calcularJanelaComOverride(latestWb, m);
     });
-    // Pro "o que falta" entram só os meses que JÁ COMEÇARAM (os mesmos da média exibida no
-    // card): os fechados ficam fixos e o mês em andamento recebe o que falta. Mês que ainda não
-    // começou fica de fora, como no valor do card (senão entrava como um mês "vazio" e
-    // inflava o que falta — ex.: Dez +848).
+    // Pro "o que falta" entram os 4 meses do quadrimestre: os fechados ficam fixos; o mês em
+    // andamento e os futuros recebem as ações a somar. Os futuros partem da projeção
+    // (média das janelas dos 4 últimos meses), não de uma janela vazia.
     extracted = mediaDeMeses(resultadosMensais, resultadosJanela, mesesProjecaoLabel,
-      janelasInfoDeMeses(mesesUsados, mesesUsados, resultadosJanela));
+      janelasInfoDeMeses(meses, mesesUsados, resultadosJanela));
     periodo = {
       inicio: fmtBRDate(periodoMesUnico(meses[0]).inicio),
       fim: fmtBRDate(periodoMesUnico(meses[meses.length-1]).fim)
@@ -815,15 +814,13 @@ function janelasInfoDeMeses(meses, jaMeses, jaJanelas){
     var k = monthOptionValue(m);
     var r = cache[k] || (cache[k] = calcularJanelaComOverride(latestWb, m));
     var data = r.data;
-    // Mês que ainda nem começou: a janela crua tem quase nenhuma ação no denominador
-    // (o mês não aconteceu), o que infla a razão do mês (ex.: 47 ÷ 680 = 6,9%). Os cards e o
-    // gráfico de Tendência já usam o denominador PROJETADO desses meses (ver
-    // projetarDenominadoresFuturos); aqui usa o mesmo, pra a Meta do quadrimestre bater com eles.
+    // Mês que ainda não começou: usa a MESMA projeção dos cards/Tendência — numerador e
+    // denominador = média das janelas dos 4 últimos meses (ago–nov), ver projecaoMesFuturo.
     if(m > mesAtual){
-      proj = proj || denominadoresProjetados(latestWb);
+      proj = proj || projecaoMesFuturo(latestWb);
       data = Object.assign({}, data);
-      if(proj.denM1 && data.numeradorM1!=null) data.denominadorM1 = proj.denM1;
-      if(proj.denM2 && data.numeradorM2!=null) data.denominadorM2 = proj.denM2;
+      if(proj.denM1 && proj.numM1!=null){ data.numeradorM1 = proj.numM1; data.denominadorM1 = proj.denM1; }
+      if(proj.denM2 && proj.numM2!=null){ data.numeradorM2 = proj.numM2; data.denominadorM2 = proj.denM2; }
     }
     return {data: data, label: monthShortLabel(m).split('/')[0], fechado: !isMesFuturo(m)};
   });
