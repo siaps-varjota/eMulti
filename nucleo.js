@@ -2626,11 +2626,13 @@ export function anexarMensalNaSerie(wb, pontos){
 // passa a ser a MÉDIA dos denominadores dos 4 últimos meses completos, isto é, os 4 meses
 // anteriores ao mês atual (ex.: em outubro, novembro e dezembro usam a média de jun–set).
 // O numerador não muda; m1/m2, classificação e nota são recalculados com o novo denominador.
-function projetarDenominadoresFuturos(wb, pontos){
+// Denominadores (M1 e M2) usados pra PROJETAR os meses futuros: média dos denominadores dos 4
+// meses fechados/em andamento anteriores ao mês atual. `pontos` (opcional) evita recalcular
+// janelas que a série de tendência já tem.
+export function denominadoresProjetados(wb, pontos){
+  pontos = pontos || [];
   var hoje = new Date();
   var mesAtual = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-  var futuros = pontos.filter(function(p){ return p.mes > mesAtual; });
-  if(!futuros.length) return;
   var somaM1 = 0, nM1 = 0, somaM2 = 0, nM2 = 0, meses = [];
   for(var k=4; k>=1; k--){
     var m = addMonths(mesAtual, -k);
@@ -2641,9 +2643,20 @@ function projetarDenominadoresFuturos(wb, pontos){
     if(d.m1>0){ somaM1 += d.m1; nM1++; }
     if(d.m2>0){ somaM2 += d.m2; nM2++; }
   }
-  var denM1 = nM1 ? Math.round(somaM1/nM1) : null;
-  var denM2 = nM2 ? Math.round(somaM2/nM2) : null;
-  var label = monthShortLabel(meses[0]) + ' a ' + monthShortLabel(meses[meses.length-1]);
+  return {
+    denM1: nM1 ? Math.round(somaM1/nM1) : null,
+    denM2: nM2 ? Math.round(somaM2/nM2) : null,
+    label: monthShortLabel(meses[0]) + ' a ' + monthShortLabel(meses[meses.length-1])
+  };
+}
+
+function projetarDenominadoresFuturos(wb, pontos){
+  var hoje = new Date();
+  var mesAtual = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  var futuros = pontos.filter(function(p){ return p.mes > mesAtual; });
+  if(!futuros.length) return;
+  var proj = denominadoresProjetados(wb, pontos);
+  var denM1 = proj.denM1, denM2 = proj.denM2, label = proj.label;
   futuros.forEach(function(p){
     if(denM1 && p.numeradorM1!=null){
       p.denominadorM1 = denM1;
