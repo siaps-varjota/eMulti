@@ -475,13 +475,20 @@ function montarDetalhesAtividadeHTML(headers, row){
     + '</div>';
 }
 
-export function acaoM2BadgeHTML(classificacao){
+export function acaoM2BadgeHTML(classificacao, extraHtml){
   var icone = classificacao.classe === "compartilhada"
     ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="12" r="2.5"/><circle cx="17" cy="6" r="2.5"/><circle cx="17" cy="18" r="2.5"/><path d="M8.2 10.8l6.6-3.6M8.2 13.2l6.6 3.6"/></svg>'
     : classificacao.classe === "especifica"
       ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/></svg>'
       : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>';
-  return '<span class="acao-m2-badge acao-m2-'+classificacao.classe+'">'+icone+'<span>'+escapeHtml(classificacao.label)+'</span></span>';
+  return '<span class="acao-m2-badge acao-m2-'+classificacao.classe+(extraHtml ? ' acao-m2-badge-com-acao' : '')+'">'+icone+'<span>'+escapeHtml(classificacao.label)+'</span>'+(extraHtml||'')+'</span>';
+}
+
+// Olho de "Detalhes" só com ícone, para ficar DENTRO do selo AÇÃO M2 (Participantes
+// Ativ. Coletiva) e economizar a coluna "Ações".
+export function detalhesIconeBtnHTML(listName, rowIdx){
+  return '<button type="button" class="detalhes-part-btn-inline" title="Detalhes" aria-label="Detalhes" data-detalhes-part-list="'+escapeHtml(listName)+'" data-detalhes-part-idx="'+rowIdx+'">'
+    + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg></button>';
 }
 
 export function detalhesBtnHTML(listName, rowIdx){
@@ -590,6 +597,10 @@ function injectPartModalStyles(){
     + '.acao-m2-compartilhada{background:#E7EEFB;color:#2F5FCB}'
     + '.acao-m2-especifica{background:#E3F3E8;color:#1F7A45}'
     + '.acao-m2-semregistro,.acao-m2-sememulti{background:#F1F1EF;color:#7A7A72}'
+    + '.acao-m2-badge-com-acao{padding-right:4px}'
+    + '.detalhes-part-btn-inline{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin-left:2px;padding:0;border:none;border-left:1px solid currentColor;border-radius:0 999px 999px 0;background:none;color:inherit;cursor:pointer;opacity:.85}'
+    + '.detalhes-part-btn-inline svg{width:15px;height:15px;flex:none}'
+    + '.detalhes-part-btn-inline:hover{opacity:1;background:rgba(0,0,0,.07)}'
     + '.detalhes-part-btn{display:inline-flex;align-items:center;gap:5px;border:none;background:none;color:#1F8A57;font-weight:700;font-size:12.5px;cursor:pointer;padding:4px 2px;white-space:nowrap}'
     + '.detalhes-part-btn svg{width:15px;height:15px;flex:none}'
     + '.detalhes-part-btn:hover{text-decoration:underline}'
@@ -992,8 +1003,13 @@ function construirModeloLista(name, cached, anterior, stateKey){
     });
     if(temAcaoM2){
       var classificacao = classificarAcaoM2Lista(name, cached.headers, r);
-      c.push('<td>'+acaoM2BadgeHTML(classificacao)+'</td>'); t.push(classificacao.label);
-      c.push('<td>'+detalhesBtnHTML(name, rowIdx)+'</td>'); t.push('Detalhes');
+      if(isParticipantesColetiva){
+        // Participantes Ativ. Coletiva: o olho de Detalhes fica dentro do selo (sem coluna "Ações").
+        c.push('<td>'+acaoM2BadgeHTML(classificacao, detalhesIconeBtnHTML(name, rowIdx))+'</td>'); t.push(classificacao.label);
+      } else {
+        c.push('<td>'+acaoM2BadgeHTML(classificacao)+'</td>'); t.push(classificacao.label);
+        c.push('<td>'+detalhesBtnHTML(name, rowIdx)+'</td>'); t.push('Detalhes');
+      }
     }
     return {c:c, t:t, s:undefined};
   });
@@ -1089,7 +1105,7 @@ function renderListCard(name, containerId){
         return '<th class="sortable-th'+(idxsDataExtra.indexOf(i) !== -1 ? ' pa-data-extra' : '')+'" data-col-idx="'+i+'">'+escapeHtml(h)+'<span class="sort-ind"></span></th>';
       }).join('')
       + ((isParticipantesColetiva || ehListaResumoAtividadeColetiva(name))
-          ? '<th class="sortable-th" data-col-idx="'+cached.headers.length+'">AÇÃO M2<span class="sort-ind"></span></th><th>Ações</th>'
+          ? '<th class="sortable-th" data-col-idx="'+cached.headers.length+'">AÇÃO M2<span class="sort-ind"></span></th>'+(isParticipantesColetiva ? '' : '<th>Ações</th>')
           : '')
       + '</tr>';
     listModel[sk] = construirModeloLista(name, cached, null, sk);
