@@ -1003,13 +1003,8 @@ function construirModeloLista(name, cached, anterior, stateKey){
     });
     if(temAcaoM2){
       var classificacao = classificarAcaoM2Lista(name, cached.headers, r);
-      if(isParticipantesColetiva){
-        // Participantes Ativ. Coletiva: o olho de Detalhes fica dentro do selo (sem coluna "Ações").
-        c.push('<td>'+acaoM2BadgeHTML(classificacao, detalhesIconeBtnHTML(name, rowIdx))+'</td>'); t.push(classificacao.label);
-      } else {
-        c.push('<td>'+acaoM2BadgeHTML(classificacao)+'</td>'); t.push(classificacao.label);
-        c.push('<td>'+detalhesBtnHTML(name, rowIdx)+'</td>'); t.push('Detalhes');
-      }
+      // Participantes Ativ. Coletiva e Resumo Atividade Coletiva: o olho de Detalhes fica dentro do selo (sem coluna "Ações").
+      c.push('<td>'+acaoM2BadgeHTML(classificacao, detalhesIconeBtnHTML(name, rowIdx))+'</td>'); t.push(classificacao.label);
     }
     return {c:c, t:t, s:undefined};
   });
@@ -1105,7 +1100,7 @@ function renderListCard(name, containerId){
         return '<th class="sortable-th'+(idxsDataExtra.indexOf(i) !== -1 ? ' pa-data-extra' : '')+'" data-col-idx="'+i+'">'+escapeHtml(h)+'<span class="sort-ind"></span></th>';
       }).join('')
       + ((isParticipantesColetiva || ehListaResumoAtividadeColetiva(name))
-          ? '<th class="sortable-th" data-col-idx="'+cached.headers.length+'">AÇÃO M2<span class="sort-ind"></span></th>'+(isParticipantesColetiva ? '' : '<th>Ações</th>')
+          ? '<th class="sortable-th" data-col-idx="'+cached.headers.length+'">AÇÃO M2<span class="sort-ind"></span></th>'
           : '')
       + '</tr>';
     listModel[sk] = construirModeloLista(name, cached, null, sk);
