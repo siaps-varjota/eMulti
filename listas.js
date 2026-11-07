@@ -4,7 +4,7 @@
 // Cada seção "=== módulo: ... ===" corresponde a um arquivo original.
 // ======================================================================
 
-import { profissionaisRoster, ehProfissionalComparativoEmulti, EQUIPES, TOTAL_PROF_EMULTI_HEADER, profissionaisPorAtividade, calcularJanelaPeriodo, colIndex, colRespParticipantes, colTotalProfEmulti, createMultiSelect, dateColIndexForList, debounce, displayListName, equipeColIndex, escapeHtml, estadoApp, fmtBRDate, fmtDec, fmtInt, listDatasExpandidas, listDateColIdx, listModel, listMonthFilters, monthOptionLabel, monthOptionValue, monthOptionsForList, monthShortLabel, nomeEhDaEmulti, normalizeText, parseBRDate, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, withinPeriod } from './nucleo.js';
+import { profissionaisRoster, ehProfissionalComparativoEmulti, EQUIPES, TOTAL_PROF_EMULTI_HEADER, profissionaisPorAtividade, calcularJanelaPeriodo, colIndex, colRespParticipantes, colTotalProfEmulti, createMultiSelect, dateColIndexForList, debounce, displayListName, equipeColIndex, escapeHtml, estadoApp, fmtBRDate, fmtDec, fmtInt, listDatasExpandidas, listDateColIdx, listModel, listMonthFilters, monthOptionLabel, monthOptionValue, monthOptionsForList, monthShortLabel, nomeEhDaEmulti, equipesDaEmultiDoProfissional, normalizeText, parseBRDate, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, withinPeriod } from './nucleo.js';
 import { ACAO_M2_FILTER_VALUE, DIAS_SEM_ATENDIMENTO_HEADER, FAIXAS_DIAS_SEM_ATENDIMENTO, PROF_EMULTI_FILTER_VALUE, riscoCfgBusca, buscaAtivaCompute, diasBucketLabel, profissionalBadgeHtml, riscoTableHtml, wireRiscoFiltros } from './abas.js';
 import { latestWb } from './app.js';
 
@@ -432,7 +432,7 @@ function montarDetalhesAtividadeHTML(headers, row){
             + '<span class="part-modal-prof-nome">'+escapeHtml(p.nome)+'</span>'
             + '<span class="part-modal-prof-tags">'
             +   '<span class="part-modal-tag '+(p.responsavel ? 'tag-resp' : 'tag-part')+'">'+(p.responsavel ? 'Responsável' : 'Participante')+'</span>'
-            +   '<span class="part-modal-tag '+(p.emulti ? 'tag-emulti' : 'tag-fora')+'">'+(p.emulti ? 'eMulti' : 'Fora da eMulti')+'</span>'
+            +   '<span class="part-modal-tag '+(p.emulti ? 'tag-emulti' : 'tag-fora')+'">'+(p.emulti ? ('eMulti' + ((p.equipes && p.equipes.length) ? ' ' + p.equipes.map(escapeHtml).join(' + ') : '')) : 'Fora da eMulti')+'</span>'
             + '</span></div>';
         }).join('')
       + '<div class="part-modal-nota">'+nEm+' da eMulti · '+(profs.length-nEm)+' de fora da eMulti'

@@ -540,7 +540,7 @@ export function criarLigacaoAtividades(partRows, racHeader){
         if(ci === iRespLig) vistos[k].responsavel = true;
         return;
       }
-      vistos[k] = {nome:nome, responsavel:(ci === iRespLig), emulti:nomeEhDaEmulti(nome)};
+      vistos[k] = {nome:nome, responsavel:(ci === iRespLig), emulti:nomeEhDaEmulti(nome), equipes:equipesDaEmultiDoProfissional(nome)};
       lista.push(vistos[k]);
     });
     // Responsável primeiro, depois os demais na ordem das colunas.
@@ -1297,6 +1297,12 @@ export function nomeEhDaEmultiDasEquipes(nome, equipes){
   var porEq = rosterEquipesPorNomeCache[normalizarNomeProf(nome)];
   if(!porEq) return false;
   return (equipes || []).some(function(eq){ return !!porEq[eq.key]; });
+}
+// Nomes das eMulti (sufixo de EQUIPES, ex. "Centro", "Croatá") em que o profissional está
+// cadastrado na aba PROFISSIONAIS — usado pra mostrar QUAL eMulti no modal da atividade coletiva.
+export function equipesDaEmultiDoProfissional(nome){
+  return EQUIPES.filter(function(eq){ return nomeEhDaEmultiDasEquipes(nome, [eq]); })
+    .map(function(eq){ return eq.suffix; });
 }
 export function nomeEhDaEmultiSelecionada(nome){
   return nomeEhDaEmultiDasEquipes(nome, estadoApp.currentEquipes);
