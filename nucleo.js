@@ -399,7 +399,7 @@ export function criarCalculadoraTotalProfEmulti(partHeader){
       var vistos = {}, n = 0;
       for(var i=0;i<profCols.length;i++){
         var nomeP = r[profCols[i]];
-        if(!nomeP || !nomeEhDaEmultiSelecionada(nomeP)) continue;
+        if(!nomeP || !nomeEhDaEmulti(nomeP)) continue;
         var k = normalizarNomeProf(nomeP);
         if(vistos[k]) continue;
         vistos[k] = true; n++;
@@ -559,7 +559,7 @@ export function criarLigacaoAtividades(partRows, racHeader){
     var vistos = {}, n = 0;
     colsProfLig.forEach(function(ci){
       var nome = String(r[ci]===undefined||r[ci]===null ? "" : r[ci]).trim();
-      if(!nome || !nomeEhDaEmultiSelecionada(nome)) return;
+      if(!nome || !nomeEhDaEmulti(nome)) return;
       var k = normalizarNomeProf(nome);
       if(vistos[k]) return;
       vistos[k] = true; n++;
@@ -682,7 +682,7 @@ export function calcularIndicadoresDoPeriodo(wb, periodo){
   }
   function linhaTemProfissionalEmulti(r){
     for(var i=0;i<iPProfCols.length;i++){
-      if(nomeEhDaEmultiSelecionada(r[iPProfCols[i]])) return true;
+      if(nomeEhDaEmulti(r[iPProfCols[i]])) return true;
     }
     return false;
   }
@@ -1302,49 +1302,33 @@ export function nomeEhDaEmultiSelecionada(nome){
   return nomeEhDaEmultiDasEquipes(nome, estadoApp.currentEquipes);
 }
 
-// Filtra as abas de atividade coletiva pela(s) eMulti selecionada(s). Antes o filtro olhava só a
-// coluna "Equipe - Unidade" da linha (= equipe de quem REGISTROU, ex.: a eSF), então uma atividade
-// com profissionais de duas eMulti só aparecia pra equipe do responsável. Agora uma linha fica se:
-//  - a equipe da linha bate com a selecionada (comportamento antigo), OU
-//  - algum profissional da atividade (Responsável + Profissional 1..5) é da eMulti selecionada.
-// Quem decide de fato se a linha CONTA é o cálculo (nomeEhDaEmultiSelecionada). Com todas as
-// equipes selecionadas ("Geral") cada linha aparece uma única vez, então nada é contado em dobro.
+// Filtra as abas de atividade coletiva pela(s) eMulti selecionada(s): a atribuição é pela coluna
+// "Equipe - Unidade" da própria linha (a planilha já traz a atividade separada por eMulti).
+// Com MAIS DE UMA equipe selecionada ("Geral"), uma mesma atividade que apareça em duas eMulti
+// (mesmo ID_Atividade — e, em Participantes, mesmo participante — com equipes diferentes) é
+// contada UMA vez só. Sem coluna ID_Atividade não há como saber se é a mesma atividade, então
+// nada é removido.
 export function filtrarAtividadesColetivasPorEquipe(partMatrix, racMatrix, equipes){
-  var out = {part: filtrarLinhasPorEquipe(partMatrix, equipes), rac: filtrarLinhasPorEquipe(racMatrix, equipes)};
-  if(!profissionaisRoster.length || !partMatrix || partMatrix.length < 2) return out;
-  var partHeader = partMatrix[0];
-  var cols = [colRespParticipantes(partHeader)].concat(
-    ["profissional 1","profissional 2","profissional 3","profissional 4","profissional 5"]
-      .map(function(n){ return colIndex(partHeader, n); })
-  ).filter(function(i){ return i >= 0; });
-  if(!cols.length) return out;
-  function temProf(r){
-    for(var i=0;i<cols.length;i++){ if(nomeEhDaEmultiDasEquipes(r[cols[i]], equipes)) return true; }
-    return false;
-  }
-  var iEqP = equipeColIndex(partHeader);
-  var kws = equipes.map(function(eq){ return normalizeText(eq.matchKeyword || eq.suffix); });
-  function equipeBate(r, iEq){
-    if(iEq < 0) return true;
-    var v = normalizeText(r[iEq]);
-    return kws.some(function(kw){ return v.indexOf(kw) !== -1; });
-  }
-  out.part = [partHeader].concat(partMatrix.slice(1).filter(function(r){ return equipeBate(r, iEqP) || temProf(r); }));
-
-  if(racMatrix && racMatrix.length > 1){
-    var racHeader = racMatrix[0];
-    var iEqR = equipeColIndex(racHeader);
-    // Liga cada atividade do Resumo às linhas de Participantes SEM filtro de equipe, contando
-    // só profissionais das equipes selecionadas (nomeEhDaEmultiSelecionada usa currentEquipes).
-    var lig = criarLigacaoAtividades(partMatrix, racHeader);
-    out.rac = [racHeader].concat(racMatrix.slice(1).filter(function(r){
-      if(equipeBate(r, iEqR)) return true;
-      if(!lig) return false;
-      var t = lig.total(r);
-      return t !== undefined && t >= 1;
+  function dedupe(matrix, usaParticipante){
+    var filtrada = filtrarLinhasPorEquipe(matrix, equipes);
+    if(!filtrada || filtrada.length < 2 || (equipes || []).length < 2) return filtrada;
+    var h = filtrada[0];
+    var iId = colIndex(h, "id_atividade");
+    var iEq = equipeColIndex(h);
+    var iPart = usaParticipante ? colIndex(h, "participante") : -1;
+    if(iId < 0 || iEq < 0 || (usaParticipante && iPart < 0)) return filtrada;
+    var vistos = {};
+    return [h].concat(filtrada.slice(1).filter(function(r){
+      var id = String(r[iId]||"").trim();
+      if(!id) return true;
+      var chave = id + (usaParticipante ? "|" + normalizeText(r[iPart]) : "");
+      var eq = normalizeText(r[iEq]);
+      if(vistos.hasOwnProperty(chave)) return vistos[chave] === eq; // mesma equipe: mantém; outra equipe: duplicata
+      vistos[chave] = eq;
+      return true;
     }));
   }
-  return out;
+  return {part: dedupe(partMatrix, true), rac: dedupe(racMatrix, false)};
 }
 
 // Acha a coluna certa tentando primeiro nomes exatos e, não achando,

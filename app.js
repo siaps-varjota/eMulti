@@ -859,9 +859,8 @@ export function fetchAndLoad(){
         latestRawSheets[r.name] = parsedRows;
         parsedPorAba[r.name] = parsedRows;
       });
-      // Atividades coletivas: filtro por PROFISSIONAL da eMulti (e não só pela equipe de quem
-      // registrou), pra uma atividade com profissionais de duas eMulti contar nas duas e,
-      // no "Geral", uma vez só. Ver filtrarAtividadesColetivasPorEquipe.
+      // Atividades coletivas: filtro pela equipe da linha; no "Geral" a mesma atividade que
+      // aparece em duas eMulti conta uma vez só. Ver filtrarAtividadesColetivasPorEquipe.
       var ativColetivas = filtrarAtividadesColetivasPorEquipe(
         parsedPorAba["Participantes Ativ. Coletiva"], parsedPorAba["Resumo Atividade Coletiva"], estadoApp.currentEquipes);
       Object.keys(parsedPorAba).forEach(function(nomeAba){
