@@ -3000,17 +3000,20 @@ function ovEvoHTML(atual, anterior, domainMax, decimals, suffix, bands, classLab
 // (calculado pelo painel) — mesmo critério da tabela da aba Tendência.
 // "(123)" em tom mais claro ao lado do valor da janela; vazio quando o mês ainda não tem valor.
 // "(3,1%)" ao lado do valor grande (razão do mês sozinho). Vazio se o mês não tem base (den = 0).
-function mensalValorHTML(v, den, decimals, suffix){
+function mensalValorHTMLReal(v, den, decimals, suffix){
   if(v == null || isNaN(v) || !(den > 0)) return '';
   return ' <span class="ov-mes-valor-mensal" style="font-size:.62em;font-weight:600;opacity:.7;white-space:nowrap;">('+fmtDec(v,decimals)+suffix+')</span>';
 }
-function mensalParenHTML(v){
+function mensalParenHTMLReal(v){
   if(v == null || isNaN(v)) return '';
   return ' <span style="font-weight:600;opacity:.7;">('+fmtInt(v)+')</span>';
 }
 export function ovMesesHTML(kind, pontos, larga){
   if(!pontos || !pontos.length) return '';
   var CAL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M8 3v4M16 3v4M3.5 10h17"/></svg>';
+  // Valores entre parênteses (mês isolado) só na versão larga (abas M1 e M2); na Visão geral ficam só os dados básicos.
+  var mensalValorHTML = larga ? mensalValorHTMLReal : function(){ return ''; };
+  var mensalParenHTML = larga ? mensalParenHTMLReal : function(){ return ''; };
   var cards = pontos.map(function(p){
     var classe, valor, sub, oficial, subTitle = '';
     if(kind === 'm1'){
@@ -3036,7 +3039,7 @@ export function ovMesesHTML(kind, pontos, larga){
     }
     var st = ovStatus(classe);
     // Entre parênteses: valor do mês sozinho (a fração principal é a janela móvel de 4 meses).
-    var infoMensal = ((kind === 'm1' && p.mensal && p.mensal.numM1 != null) || (kind === 'm2' && p.mensal && p.mensal.numM2 != null))
+    var infoMensal = (larga && ((kind === 'm1' && p.mensal && p.mensal.numM1 != null) || (kind === 'm2' && p.mensal && p.mensal.numM2 != null)))
       ? 'Fora dos parênteses: janela de 4 meses que termina neste mês. Entre parênteses: valor só deste mês' + (oficial ? ' (em meses oficiais, obtido só por subtração das janelas oficiais, tendo jan/2025 como início; a soma dos 4 meses dá a janela, exceto quando algum mês sai negativo e é mostrado como 0' + (kind === 'm1' ? '. O denominador, de pessoas distintas, não soma e é o calculado do mês' : '') + ')' : '') + '.'
       : '';
     // M1 sem dado oficial: mostra de onde vem o numerador da janela (bate com as listas Atendimentos + Participantes Ativ. Coletiva).
