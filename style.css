@@ -1562,3 +1562,15 @@ h1,h2,h3,.serif{font-optical-sizing:auto;}
 }
 .ag-pills .pill-btn:hover{background:transparent;color:var(--ink);border:none;}
 .ag-pills .pill-btn.active,.ag-pills .pill-btn.active:hover{background:#153F35;color:#fff;box-shadow:none;}
+
+/* ---------- Lingueta dos filtros: em CIMA da barra (aberta) ----------
+   Com a barra visível, a lingueta fica pendurada na borda de CIMA dela (na folga entre o
+   cabeçalho e a barra). Recolhida (barra escondida), não há barra pra se prender: ela continua
+   pendurada na borda de baixo do menu de abas, como antes. */
+.filter-bar-outer:not(.filter-bar-collapsed):not(.filter-bar-recolhendo){margin-top:28px}
+.filter-bar-outer:not(.filter-bar-collapsed):not(.filter-bar-recolhendo) .filter-bar-toggle{
+  top:auto;bottom:100%;margin-top:0;margin-bottom:-1px;
+  border-top:1px solid var(--line);border-bottom:none;border-radius:12px 12px 0 0;
+  box-shadow:0 -8px 14px -10px rgba(19,36,31,.30)}
+.filter-bar-outer:not(.filter-bar-collapsed):not(.filter-bar-recolhendo) .filter-bar-toggle:hover{
+  box-shadow:0 -10px 16px -10px rgba(19,36,31,.38)}
