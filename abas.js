@@ -1520,7 +1520,7 @@ export function populateSheetsCache(wb){
       headers = headers.concat([TOTAL_PROF_EMULTI_HEADER]);
       dataRows = dataRows.map(function(r){ return r.concat([calcLinha(r)]); });
     } else if(nomeExib === "Resumo Atividade Coletiva" && partRowsBrutas.length){
-      var ligacao = criarLigacaoAtividades(partRowsBrutas, headers);
+      var ligacao = criarLigacaoAtividades(partRowsBrutas, headers, sheetToRows(latestRawSheets["Participantes Ativ. Coletiva"] || []));
       if(ligacao){
         var iTot = colTotalProfEmulti(headers);
         var acrescentar = iTot < 0;

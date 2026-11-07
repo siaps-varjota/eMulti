@@ -478,7 +478,7 @@ export function linhaEntraNaEmulti(total, equipeCelula){
   return normalizeText(equipeCelula).indexOf("EMULTI") !== -1;
 }
 
-export function criarLigacaoAtividades(partRows, racHeader){
+export function criarLigacaoAtividades(partRows, racHeader, todasPartRows){
   if(!partRows || !partRows.length) return null;
   var partHeader = partRows[0];
   var calc = criarCalculadoraTotalProfEmulti(partHeader);
@@ -494,6 +494,31 @@ export function criarLigacaoAtividades(partRows, racHeader){
   }
   var idP = colIndex(partHeader, "id_atividade"), idR = colIndex(racHeader, "id_atividade");
   function limpa(v){ return normalizeText(v).replace(/\s+/g," ").trim(); }
+  // Em quais eMulti a atividade aparece na planilha (uma linha por eMulti), olhando Participantes
+  // SEM filtro de equipe (todasPartRows). Chave sem equipe: ID da atividade, ou data+responsável+tipo.
+  var origemEq = (todasPartRows && todasPartRows.length > 1) ? todasPartRows : partRows;
+  var oH = origemEq[0] || [];
+  var oId = colIndex(oH, "id_atividade"), oD = colIndex(oH, "data"), oR = colIndex(oH, "responsavel"), oT = colIndex(oH, "tipo_atividade");
+  var oE = colIndex(oH, "equipe_unidade"); if(oE < 0) oE = equipeColIndex(oH);
+  function chaveSemEquipe(id, d, resp, tipo){
+    id = String(id||"").trim();
+    return id ? "id:"+id : "dr:"+[dataKey(d), limpa(resp), limpa(tipo)].join("|");
+  }
+  var equipesPorAtividade = {};
+  if(oE >= 0){
+    origemEq.slice(1).forEach(function(r){
+      var k = chaveSemEquipe(oId>=0 ? r[oId] : "", oD>=0 ? r[oD] : "", oR>=0 ? r[oR] : "", oT>=0 ? r[oT] : "");
+      (equipesPorAtividade[k] = equipesPorAtividade[k] || {})[eqKey(r[oE])] = true;
+    });
+  }
+  var rcId = colIndex(racHeader, "id_atividade"), rcD = colIndex(racHeader, "data"), rcR = colIndex(racHeader, "responsavel"), rcT = colIndex(racHeader, "tipo_atividade");
+  var rcE = colIndex(racHeader, "equipe_unidade"); if(rcE < 0) rcE = equipeColIndex(racHeader);
+  function equipesDaAtividadeRac(racRow){
+    var k = chaveSemEquipe(rcId>=0 ? racRow[rcId] : "", rcD>=0 ? racRow[rcD] : "", rcR>=0 ? racRow[rcR] : "", rcT>=0 ? racRow[rcT] : "");
+    var t = Object.assign({}, equipesPorAtividade[k] || {});
+    if(rcE >= 0) t[eqKey(racRow[rcE])] = true;
+    return t;
+  }
   // Cada "nível" é uma forma de ligar Resumo -> Participantes, da mais
   // precisa pra mais frouxa. O primeiro nível que achar a atividade vence.
   var niveis = [];
@@ -530,7 +555,7 @@ export function criarLigacaoAtividades(partRows, racHeader){
       ["profissional 1","profissional 2","profissional 3","profissional 4","profissional 5"]
         .map(function(n){ return colIndex(partHeader, n); })
     ).filter(function(i){ return i >= 0; });
-  function profissionaisDaLinha(r){
+  function profissionaisDaLinha(r, equipesAtiv){
     var vistos = {}, lista = [];
     colsProfLig.forEach(function(ci){
       var nome = String(r[ci]===undefined||r[ci]===null ? "" : r[ci]).trim();
@@ -540,7 +565,12 @@ export function criarLigacaoAtividades(partRows, racHeader){
         if(ci === iRespLig) vistos[k].responsavel = true;
         return;
       }
-      vistos[k] = {nome:nome, responsavel:(ci === iRespLig), emulti:nomeEhDaEmulti(nome), equipes:equipesDaEmultiDoProfissional(nome)};
+      // eMulti do profissional NESTA atividade: as do cadastro que também aparecem na atividade
+      // (Resumo/Participantes têm uma linha por eMulti). Se nenhuma bater, usa o cadastro.
+      var eqsCad = EQUIPES.filter(function(eq){ return nomeEhDaEmultiDasEquipes(nome, [eq]); });
+      var eqsAtiv = equipesAtiv ? eqsCad.filter(function(eq){ return equipesAtiv[eq.key]; }) : [];
+      vistos[k] = {nome:nome, responsavel:(ci === iRespLig), emulti:nomeEhDaEmulti(nome),
+        equipes:(eqsAtiv.length ? eqsAtiv : eqsCad).map(function(eq){ return eq.suffix; })};
       lista.push(vistos[k]);
     });
     // Responsável primeiro, depois os demais na ordem das colunas.
@@ -590,7 +620,7 @@ export function criarLigacaoAtividades(partRows, racHeader){
     profissionais: function(racRow){
       for(var i=0;i<niveis.length;i++){
         var k = niveis[i].kr(racRow);
-        if(k && niveis[i].linhaMax.hasOwnProperty(k)) return profissionaisDaLinha(niveis[i].linhaMax[k]);
+        if(k && niveis[i].linhaMax.hasOwnProperty(k)) return profissionaisDaLinha(niveis[i].linhaMax[k], equipesDaAtividadeRac(racRow));
       }
       return undefined;
     }
@@ -1322,12 +1352,17 @@ export function filtrarAtividadesColetivasPorEquipe(partMatrix, racMatrix, equip
     var iId = colIndex(h, "id_atividade");
     var iEq = equipeColIndex(h);
     var iPart = usaParticipante ? colIndex(h, "participante") : -1;
-    if(iId < 0 || iEq < 0 || (usaParticipante && iPart < 0)) return filtrada;
+    if(iEq < 0 || (usaParticipante && iPart < 0)) return filtrada;
+    // Sem ID_Atividade: duas linhas iguais em TUDO, menos na equipe (e no total de profissionais
+    // da eMulti, que varia por eMulti), são a mesma atividade repetida por eMulti.
+    var iTotEm = colTotalProfEmulti(h);
+    function chaveSemID(r){
+      return r.map(function(c, i){ return (i === iEq || i === iTotEm) ? "" : normalizeText(c).replace(/\s+/g," ").trim(); }).join("¦");
+    }
     var vistos = {};
     return [h].concat(filtrada.slice(1).filter(function(r){
-      var id = String(r[iId]||"").trim();
-      if(!id) return true;
-      var chave = id + (usaParticipante ? "|" + normalizeText(r[iPart]) : "");
+      var id = iId >= 0 ? String(r[iId]||"").trim() : "";
+      var chave = id ? (id + (usaParticipante ? "|" + normalizeText(r[iPart]) : "")) : "sem-id:" + chaveSemID(r);
       var eq = normalizeText(r[iEq]);
       if(vistos.hasOwnProperty(chave)) return vistos[chave] === eq; // mesma equipe: mantém; outra equipe: duplicata
       vistos[chave] = eq;
