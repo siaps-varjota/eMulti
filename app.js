@@ -436,7 +436,7 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
 }
 
 // ---------- Lingueta que recolhe/expande a barra de filtros gerais ----------
-// A lingueta (#filterBarToggle) fica pendurada na borda de baixo da barra (Equipe/Ano/Quadrimestre/Mês).
+// A lingueta (#filterBarToggle) fica pendurada na borda de CIMA da barra (aberta; recolhida, na borda de baixo do menu de abas) (Equipe/Ano/Quadrimestre/Mês).
 // O estado fica salvo no navegador. Ela só aparece nas abas em que a barra de filtros aparece.
 var FILTRO_RECOLHIDO_KEY = 'emulti_filtro_recolhido';
 function sincronizarLinguetaFiltro(aba){
@@ -1078,6 +1078,33 @@ window.debugAtividadesCompartilhadas = function(){
     var lista = Object.keys(porProf).map(function(k){ return porProf[k]; }).sort(function(a,b){ return b.linhas - a.linhas; });
     console.table(lista);
     return lista;
+  };
+
+
+  // Mostra as linhas BRUTAS (todas as equipes, sem filtro) de uma atividade coletiva nas abas
+  // "Resumo Atividade Coletiva" e "Participantes Ativ. Coletiva": cabeçalhos + linhas da data.
+  // Uso: debugAtividadeColetiva('21/08/2026')  ou  debugAtividadeColetiva('21/08/2026', 'Aline')
+  window.debugAtividadeColetiva = function(dataBR, texto){
+    var out = {};
+    ["Resumo Atividade Coletiva","Participantes Ativ. Coletiva"].forEach(function(nome){
+      var rows = latestRawSheets[nome];
+      if(!rows || rows.length < 2){ console.warn('[debugAtividadeColetiva] aba sem dados: '+nome); return; }
+      var h = rows[0];
+      console.log('[debugAtividadeColetiva] '+nome+' — cabeçalho:', h);
+      var iData = colIndex(h, "data");
+      var alvo = texto ? normalizeText(texto) : null;
+      var linhas = rows.slice(1).filter(function(r){
+        var d = parseBRDate(r[iData]);
+        if(!d || fmtBRDate(d) !== dataBR) return false;
+        return !alvo || r.some(function(c){ return normalizeText(c).indexOf(alvo) !== -1; });
+      }).map(function(r){
+        var o = {}; h.forEach(function(c, i){ o[String(c)] = r[i]; }); return o;
+      });
+      console.log('[debugAtividadeColetiva] '+nome+' — '+linhas.length+' linha(s) em '+dataBR);
+      console.table(linhas);
+      out[nome] = linhas;
+    });
+    return out;
   };
 
 refreshBtn.addEventListener('click', fetchAndLoad);
