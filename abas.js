@@ -2813,47 +2813,62 @@ export function faltaMediaJanelas(janelas, alvo, somaNoDen, pct){
 
 // Versão de faltaMediaJanelas que considera a sobreposição das janelas móveis (4 meses): uma
 // ação adicionada no mês m soma no numerador (e, no M2, no denominador) das janelas de m até m+3.
-// Busca, ação por ação, o mês aberto que mais sobe a média das razões (empate → o mais antigo,
-// que cobre mais janelas) até a média chegar em A. Ex.: ação em nov também conta em dez.
+// Regra: todos os meses abertos chegam à MESMA razão t, a menor que faz a média das razões
+// bater em A (ex.: set+out já feitos, nov e dez dividem o que falta, cada um em t). Os meses
+// abertos são tratados em ordem: as ações de um mês já contam nas janelas dos seguintes, então
+// o mês seguinte só recebe o que ainda faltar. t é achado por bisecção (o excedente que uma
+// janela recebe de meses anteriores baixa o t necessário).
 function faltaMediaJanelasSobrepostas(js, A, somaNoDen, esc){
   var EPS = 1e-9, N = js.length;
   var idx = js.map(function(j){ return j.dt.getFullYear()*12 + j.dt.getMonth(); });
   var abertos = [];
   js.forEach(function(j, i){ if(!j.fechado) abertos.push(i); });
-  var add = js.map(function(){ return 0; });
-  function extra(i){
-    var s = 0;
-    abertos.forEach(function(a){ if(idx[a] <= idx[i] && idx[i]-idx[a] <= 3) s += add[a]; });
-    return s;
-  }
-  function media(){
-    var soma = 0;
-    for(var i=0; i<N; i++){ var s = extra(i); soma += (js[i].num+s)/(js[i].den + (somaNoDen ? s : 0)); }
-    return soma/N;
-  }
-  var atual = media();
-  if(atual >= A - EPS) return {faltam:0, janelas:N, porMes:[]};
+  abertos.sort(function(x, y){ return idx[x]-idx[y]; });
+  function razao(i, s){ return (js[i].num+s)/(js[i].den + (somaNoDen ? s : 0)); }
+  var somaFechados = 0;
+  js.forEach(function(j, i){ if(j.fechado) somaFechados += razao(i, 0); });
+  var somaTodos = 0;
+  js.forEach(function(j, i){ somaTodos += razao(i, 0); });
+  if(somaTodos/N >= A - EPS) return {faltam:0, janelas:N, porMes:[]};
   if(!abertos.length) return null; // tudo fechado: nada a somar
-  var total = 0, guard = 0;
-  while(atual < A - EPS){
-    if(guard++ > 200000) return null;
-    var melhor = -1, melhorV = atual;
-    abertos.forEach(function(a){
-      add[a]++; var v = media(); add[a]--;
-      if(v > melhorV + 1e-15){ melhorV = v; melhor = a; }
+  function passada(t){
+    var add = js.map(function(){ return 0; });
+    abertos.forEach(function(i){
+      var tem = 0;
+      abertos.forEach(function(a){ if(a !== i && idx[a] <= idx[i] && idx[i]-idx[a] <= 3) tem += add[a]; });
+      var den = js[i].den, num = js[i].num;
+      var precisa = somaNoDen ? (t*den - num)/(1 - t) : (t*den - num);
+      precisa = Math.max(0, Math.ceil(precisa - EPS));
+      while(razao(i, precisa) < t - EPS) precisa++;
+      add[i] = Math.max(0, precisa - tem);
     });
-    if(melhor < 0) return null;
-    add[melhor]++; total++; atual = melhorV;
+    var soma = 0;
+    js.forEach(function(j, i){
+      var s = 0;
+      abertos.forEach(function(a){ if(idx[a] <= idx[i] && idx[i]-idx[a] <= 3) s += add[a]; });
+      soma += razao(i, s);
+    });
+    return {add:add, media:soma/N};
   }
-  var porMes = [];
+  var hi = (A*N - somaFechados)/abertos.length, lo = 0;
+  if(somaNoDen && hi >= 1 - EPS) return null; // M2 precisaria passar de 100%
+  var melhor = passada(hi);
+  if(melhor.media < A - EPS) return null;
+  for(var it=0; it<60; it++){
+    var mid = (lo+hi)/2, p = passada(mid);
+    if(p.media >= A - EPS){ hi = mid; melhor = p; } else { lo = mid; }
+  }
+  var add = melhor.add, total = 0, porMes = [];
   abertos.forEach(function(a){
     if(!(add[a] > 0)) return;
-    var s = extra(a);
-    var destino = (js[a].num+s)/(js[a].den + (somaNoDen ? s : 0)) * esc;
+    total += add[a];
+    var s = 0;
+    abertos.forEach(function(b2){ if(idx[b2] <= idx[a] && idx[a]-idx[b2] <= 3) s += add[b2]; });
     var tambem = [];
     js.forEach(function(j, i){ if(idx[i] > idx[a] && idx[i]-idx[a] <= 3) tambem.push(j.mes || ''); });
-    porMes.push({mes:js[a].mes, add:add[a], destino:destino, tambem:tambem});
+    porMes.push({mes:js[a].mes, add:add[a], destino:razao(a, s)*esc, tambem:tambem});
   });
+  if(!(total > 0)) return null;
   return {faltam:total, janelas:N, porMes:porMes};
 }
 
