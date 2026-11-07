@@ -254,6 +254,19 @@ export function colsProfissionaisNumerados(headerRow){
   return nomes.map(function(n){ return colIndex(headerRow, n); }).filter(function(i){ return i>=0; });
 }
 
+// Coluna "Quantidade Profissionais Envolvidos" (qualquer grafia com Quantidade/Qtd/Nº de
+// profissionais envolvidos) da lista "Participantes Ativ. Coletiva": fica oculta na tela e no PDF
+// (mesma classe .part-col-oculta das colunas "profissional 1..5"; o índice da coluna não muda,
+// então filtros e PDF continuam alinhados).
+export function colQtdProfEnvolvidosOculta(headerRow){
+  for(var i=0;i<(headerRow||[]).length;i++){
+    var h = normalizeText(headerRow[i]);
+    if(h.indexOf("PROFISSIONAIS") !== -1 && h.indexOf("ENVOLVIDOS") !== -1
+       && (h.indexOf("QUANT") !== -1 || h.indexOf("QTD") !== -1 || h.indexOf("NUMERO") !== -1 || /\bN[ºO°]/.test(h))) return i;
+  }
+  return -1;
+}
+
 // ---------- "Participantes Ativ. Coletiva": selo AÇÃO M2 + modal Detalhes ----------
 // Em vez de mostrar "Responsavel Atividade" + "profissional 1" a
 // "profissional 5" como 5 colunas soltas, a lista resume tudo num selo
@@ -962,7 +975,7 @@ function construirModeloLista(name, cached, anterior, stateKey){
     cached.headers.forEach(function(h, i){
       var v = r[i];
       var str = (v===undefined||v===null) ? '' : String(v);
-      var oculta = isParticipantesColetiva && idxsProfNumerados.indexOf(i) !== -1;
+      var oculta = isParticipantesColetiva && (idxsProfNumerados.indexOf(i) !== -1 || i === colQtdProfEnvolvidosOculta(cached.headers));
       if(i === idxProfissionalPessoas){
         c.push('<td data-cell-text="'+encodeURIComponent(str)+'">'+(r.profissionalHtml || escapeHtml(str))+'</td>');
         t.push(str);
@@ -1071,7 +1084,7 @@ function renderListCard(name, containerId){
     var isParticipantesColetiva = (displayListName(name) === "Participantes Ativ. Coletiva") && idxsProfNumerados.length > 0;
     var idxsDataExtra = isPessoasAtendidas ? idxsDatasExtraPessoasAtendidas(cached.headers) : [];
     var theadHtml = '<tr>'+cached.headers.map(function(h,i){
-        var oculta = isParticipantesColetiva && idxsProfNumerados.indexOf(i) !== -1;
+        var oculta = isParticipantesColetiva && (idxsProfNumerados.indexOf(i) !== -1 || i === colQtdProfEnvolvidosOculta(cached.headers));
         if(oculta) return '<th class="part-col-oculta">'+escapeHtml(h)+'</th>';
         return '<th class="sortable-th'+(idxsDataExtra.indexOf(i) !== -1 ? ' pa-data-extra' : '')+'" data-col-idx="'+i+'">'+escapeHtml(h)+'<span class="sort-ind"></span></th>';
       }).join('')
@@ -1090,6 +1103,7 @@ function renderListCard(name, containerId){
             ? '<option value="'+PROF_EMULTI_FILTER_VALUE+'">Profissional da eMulti</option>'
             : '';
         }
+        if(isParticipantesColetiva && i === colQtdProfEnvolvidosOculta(cached.headers)) return '';
         return '<option value="'+i+'">'+escapeHtml(h)+'</option>';
       }).join('')
       + ((isParticipantesColetiva || ehListaResumoAtividadeColetiva(name)) ? '<option value="'+ACAO_M2_FILTER_VALUE+'">AÇÃO M2</option>' : '');
