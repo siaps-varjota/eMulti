@@ -399,7 +399,7 @@ export function criarCalculadoraTotalProfEmulti(partHeader){
       var vistos = {}, n = 0;
       for(var i=0;i<profCols.length;i++){
         var nomeP = r[profCols[i]];
-        if(!nomeP || !nomeEhDaEmulti(nomeP)) continue;
+        if(!nomeP || !nomeEhDaEmultiSelecionada(nomeP)) continue;
         var k = normalizarNomeProf(nomeP);
         if(vistos[k]) continue;
         vistos[k] = true; n++;
@@ -559,7 +559,7 @@ export function criarLigacaoAtividades(partRows, racHeader){
     var vistos = {}, n = 0;
     colsProfLig.forEach(function(ci){
       var nome = String(r[ci]===undefined||r[ci]===null ? "" : r[ci]).trim();
-      if(!nome || !nomeEhDaEmulti(nome)) return;
+      if(!nome || !nomeEhDaEmultiSelecionada(nome)) return;
       var k = normalizarNomeProf(nome);
       if(vistos[k]) return;
       vistos[k] = true; n++;
@@ -682,7 +682,7 @@ export function calcularIndicadoresDoPeriodo(wb, periodo){
   }
   function linhaTemProfissionalEmulti(r){
     for(var i=0;i<iPProfCols.length;i++){
-      if(nomeEhDaEmulti(r[iPProfCols[i]])) return true;
+      if(nomeEhDaEmultiSelecionada(r[iPProfCols[i]])) return true;
     }
     return false;
   }
@@ -1275,6 +1275,76 @@ export function nomeEhDaEmulti(nome){
   }
   nome = String(nome||"").trim();
   return !!nome && !!rosterNomesEmultiCache[normalizarNomeProf(nome)];
+}
+
+// Igual a nomeEhDaEmulti, mas só vale se o profissional está cadastrado (aba PROFISSIONAIS) em
+// ALGUMA das `equipes` informadas — o roster guarda uma entrada por profissional+equipe.
+// É isso que separa uma atividade coletiva por eMulti: ela conta pra cada eMulti que tenha
+// ao menos um profissional seu na atividade (mesmo que quem registrou seja da eSF).
+var rosterEquipesPorNomeCache = null;
+var rosterEquipesPorNomeCacheFor = null;
+export function nomeEhDaEmultiDasEquipes(nome, equipes){
+  if(rosterEquipesPorNomeCacheFor !== profissionaisRoster){
+    rosterEquipesPorNomeCache = {};
+    profissionaisRoster.forEach(function(p){
+      var k = normalizarNomeProf(p.nome);
+      (rosterEquipesPorNomeCache[k] = rosterEquipesPorNomeCache[k] || {})[p.equipeKey] = true;
+    });
+    rosterEquipesPorNomeCacheFor = profissionaisRoster;
+  }
+  nome = String(nome||"").trim();
+  if(!nome) return false;
+  var porEq = rosterEquipesPorNomeCache[normalizarNomeProf(nome)];
+  if(!porEq) return false;
+  return (equipes || []).some(function(eq){ return !!porEq[eq.key]; });
+}
+export function nomeEhDaEmultiSelecionada(nome){
+  return nomeEhDaEmultiDasEquipes(nome, estadoApp.currentEquipes);
+}
+
+// Filtra as abas de atividade coletiva pela(s) eMulti selecionada(s). Antes o filtro olhava só a
+// coluna "Equipe - Unidade" da linha (= equipe de quem REGISTROU, ex.: a eSF), então uma atividade
+// com profissionais de duas eMulti só aparecia pra equipe do responsável. Agora uma linha fica se:
+//  - a equipe da linha bate com a selecionada (comportamento antigo), OU
+//  - algum profissional da atividade (Responsável + Profissional 1..5) é da eMulti selecionada.
+// Quem decide de fato se a linha CONTA é o cálculo (nomeEhDaEmultiSelecionada). Com todas as
+// equipes selecionadas ("Geral") cada linha aparece uma única vez, então nada é contado em dobro.
+export function filtrarAtividadesColetivasPorEquipe(partMatrix, racMatrix, equipes){
+  var out = {part: filtrarLinhasPorEquipe(partMatrix, equipes), rac: filtrarLinhasPorEquipe(racMatrix, equipes)};
+  if(!profissionaisRoster.length || !partMatrix || partMatrix.length < 2) return out;
+  var partHeader = partMatrix[0];
+  var cols = [colRespParticipantes(partHeader)].concat(
+    ["profissional 1","profissional 2","profissional 3","profissional 4","profissional 5"]
+      .map(function(n){ return colIndex(partHeader, n); })
+  ).filter(function(i){ return i >= 0; });
+  if(!cols.length) return out;
+  function temProf(r){
+    for(var i=0;i<cols.length;i++){ if(nomeEhDaEmultiDasEquipes(r[cols[i]], equipes)) return true; }
+    return false;
+  }
+  var iEqP = equipeColIndex(partHeader);
+  var kws = equipes.map(function(eq){ return normalizeText(eq.matchKeyword || eq.suffix); });
+  function equipeBate(r, iEq){
+    if(iEq < 0) return true;
+    var v = normalizeText(r[iEq]);
+    return kws.some(function(kw){ return v.indexOf(kw) !== -1; });
+  }
+  out.part = [partHeader].concat(partMatrix.slice(1).filter(function(r){ return equipeBate(r, iEqP) || temProf(r); }));
+
+  if(racMatrix && racMatrix.length > 1){
+    var racHeader = racMatrix[0];
+    var iEqR = equipeColIndex(racHeader);
+    // Liga cada atividade do Resumo às linhas de Participantes SEM filtro de equipe, contando
+    // só profissionais das equipes selecionadas (nomeEhDaEmultiSelecionada usa currentEquipes).
+    var lig = criarLigacaoAtividades(partMatrix, racHeader);
+    out.rac = [racHeader].concat(racMatrix.slice(1).filter(function(r){
+      if(equipeBate(r, iEqR)) return true;
+      if(!lig) return false;
+      var t = lig.total(r);
+      return t !== undefined && t >= 1;
+    }));
+  }
+  return out;
 }
 
 // Acha a coluna certa tentando primeiro nomes exatos e, não achando,

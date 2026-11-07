@@ -4,7 +4,7 @@
 // Cada seção "=== módulo: ... ===" corresponde a um arquivo original.
 // ======================================================================
 
-import { equipeColIndex, linhaEntraNaEmulti, anexarMensalNaSerie, CLASS_BANDS_M1, CLASS_BANDS_M1_OV, CLASS_BANDS_M2, CLASS_BANDS_M2_OV, CLASS_BANDS_NOTA_OV, CLASS_PILL_HEX, EQUIPES, JANELA_MESES, LEGEND_M1, LEGEND_M2, OV_LEGEND_M1, OV_LEGEND_M2, OV_LEGEND_NOTA, STORAGE_AVAILABLE, STORAGE_KEY, TREND_MESES, TREND_SEMANAS, anchorMonthDate, animateGauges, anoMs, calcularIndicadoresDoPeriodo, calcularJanelaComOverride, calcularJanelaPeriodo, calcularSerieSemanal, calcularSerieTendencia, classificarDesempenho, classificarM1, classificarM2, colIndex, compCardHeaderHTML, createMultiSelect, criarLigacaoAtividades, projecaoMesFuturo, escapeHtml, estadoApp, fetchAllSheets, fetchAtualizacaoSafe, fetchOfficialOverridesSafe, fetchProfissionaisSafe, filtrarLinhasPorEquipe, fmtBRDate, fmtDate, fmtDec, fmtInt, init_nucleo_config, init_nucleo_dados, init_nucleo_listas_estado, init_nucleo_periodos, init_nucleo_popovers, init_visual_gauge, init_visual_painel_kpi, isMesFuturo, labelQuadsSelecionados, m1ListNames, m2ListNames, mediaDeMeses, mesMs, mesesDosQuadsSelecionadosUniao, mesesElapsedDosQuadsSelecionadosUniao, monthOptionValue, monthShortLabel, normalizeText, parseBRDate, parseCsv, periodoMesUnico, pillHex, populateAnoQuadSelects, profissionaisRoster, quadCode, quadKeyOfDate, quadShortLabel, quadMs, refMonthLabel, sheetToRows, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, valoresUnicosOrdenados, withinPeriod } from './nucleo.js';
+import { equipeColIndex, linhaEntraNaEmulti, anexarMensalNaSerie, CLASS_BANDS_M1, CLASS_BANDS_M1_OV, CLASS_BANDS_M2, CLASS_BANDS_M2_OV, CLASS_BANDS_NOTA_OV, CLASS_PILL_HEX, EQUIPES, JANELA_MESES, LEGEND_M1, LEGEND_M2, OV_LEGEND_M1, OV_LEGEND_M2, OV_LEGEND_NOTA, STORAGE_AVAILABLE, STORAGE_KEY, TREND_MESES, TREND_SEMANAS, anchorMonthDate, animateGauges, anoMs, calcularIndicadoresDoPeriodo, calcularJanelaComOverride, calcularJanelaPeriodo, calcularSerieSemanal, calcularSerieTendencia, classificarDesempenho, classificarM1, classificarM2, colIndex, compCardHeaderHTML, createMultiSelect, criarLigacaoAtividades, projecaoMesFuturo, escapeHtml, estadoApp, fetchAllSheets, fetchAtualizacaoSafe, fetchOfficialOverridesSafe, fetchProfissionaisSafe, filtrarLinhasPorEquipe, filtrarAtividadesColetivasPorEquipe, fmtBRDate, fmtDate, fmtDec, fmtInt, init_nucleo_config, init_nucleo_dados, init_nucleo_listas_estado, init_nucleo_periodos, init_nucleo_popovers, init_visual_gauge, init_visual_painel_kpi, isMesFuturo, labelQuadsSelecionados, m1ListNames, m2ListNames, mediaDeMeses, mesMs, mesesDosQuadsSelecionadosUniao, mesesElapsedDosQuadsSelecionadosUniao, monthOptionValue, monthShortLabel, normalizeText, parseBRDate, parseCsv, periodoMesUnico, pillHex, populateAnoQuadSelects, profissionaisRoster, quadCode, quadKeyOfDate, quadShortLabel, quadMs, refMonthLabel, sheetToRows, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, valoresUnicosOrdenados, withinPeriod } from './nucleo.js';
 import { renderFluxoPacientes, ovMesesHTML, M1_META_THRESHOLDS, M2_META_THRESHOLDS, calcularAnalises, calcularMetasQuadrimestre, calcularPerformanceProfissionais, calcularQuadrimestreAnterior, init_abas_analises_calculo, init_abas_analises_render, init_abas_m1_m2, init_abas_profissionais, ipGaugeCardHTML, ipReadingHTML, metaQuadrimestreHTML, metaQuadrimestreMiniHTML, overviewCardHTML, populateSheetsCache, profListaAtual, renderAnalises, renderPerformanceProfissionais, setupPreliminarToggle, setupTrendInteractivity, sparkline, stackbar } from './abas.js';
 import { gerarPdfDivergenciaOficial, init_listas_atividade_coletiva, pessoasAtendidasParaMeses, renderListsSection } from './listas.js';
 
@@ -852,18 +852,27 @@ export function fetchAndLoad(){
       }
 
       var wb = {SheetNames:[], Sheets:{}};
+      var parsedPorAba = {};
       results.forEach(function(r){
         var parsedRows = parseCsv(r.csvText);
         if(!parsedRows.length) return;
         latestRawSheets[r.name] = parsedRows;
-        // r.name é o nome REAL da aba (sem sufixo). Filtra as linhas pela
-        // equipe selecionada e guarda no workbook sob a chave "sufixada"
-        // — o resto do painel (cálculo, listas) continua lendo por essa
-        // chave, sem precisar saber que a aba é compartilhada entre
-        // equipes. Note: SEM filtro de período aqui — cada mês de
-        // referência filtra por data na hora, em aplicarMesReferencia().
-        var filtradas = filtrarLinhasPorEquipe(parsedRows, estadoApp.currentEquipes);
-        var key = suffixedName(r.name);
+        parsedPorAba[r.name] = parsedRows;
+      });
+      // Atividades coletivas: filtro por PROFISSIONAL da eMulti (e não só pela equipe de quem
+      // registrou), pra uma atividade com profissionais de duas eMulti contar nas duas e,
+      // no "Geral", uma vez só. Ver filtrarAtividadesColetivasPorEquipe.
+      var ativColetivas = filtrarAtividadesColetivasPorEquipe(
+        parsedPorAba["Participantes Ativ. Coletiva"], parsedPorAba["Resumo Atividade Coletiva"], estadoApp.currentEquipes);
+      Object.keys(parsedPorAba).forEach(function(nomeAba){
+        // nomeAba é o nome REAL da aba (sem sufixo). Filtra as linhas pela equipe selecionada e
+        // guarda no workbook sob a chave "sufixada" — o resto do painel lê por essa chave.
+        // SEM filtro de período aqui — cada mês de referência filtra por data na hora.
+        var filtradas;
+        if(nomeAba === "Participantes Ativ. Coletiva" && ativColetivas.part) filtradas = ativColetivas.part;
+        else if(nomeAba === "Resumo Atividade Coletiva" && ativColetivas.rac) filtradas = ativColetivas.rac;
+        else filtradas = filtrarLinhasPorEquipe(parsedPorAba[nomeAba], estadoApp.currentEquipes);
+        var key = suffixedName(nomeAba);
         wb.Sheets[key] = filtradas;
         wb.SheetNames.push(key);
       });
