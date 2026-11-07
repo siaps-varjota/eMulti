@@ -2594,7 +2594,8 @@ export function calcularSerieTendencia(wb, refMonth, n){
       janela:janela
     });
   }
-  projetarDenominadoresFuturos(wb, pontos);
+  // Meses futuros NÃO são mais projetados: a janela móvel deles já é o dado real
+  // (ex.: dez/2026 = set+out+nov, pois dezembro ainda é zero), tanto no M1 quanto no M2.
   return pontos;
 }
 
@@ -2746,30 +2747,6 @@ export function projecaoMesFuturo(wb, pontos){
     numM1: med(acc.numM1), denM1: med(acc.denM1), numM2: med(acc.numM2), denM2: med(acc.denM2),
     label: monthShortLabel(meses[0]) + ' a ' + monthShortLabel(meses[meses.length-1])
   };
-}
-
-function projetarDenominadoresFuturos(wb, pontos){
-  var hoje = new Date();
-  var mesAtual = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-  var futuros = pontos.filter(function(p){ return p.mes > mesAtual; });
-  if(!futuros.length) return;
-  var proj = projecaoMesFuturo(wb, pontos);
-  futuros.forEach(function(p){
-    if(proj.denM1 && proj.numM1!=null){
-      p.numeradorM1 = proj.numM1;
-      p.denominadorM1 = proj.denM1;
-      p.m1 = proj.numM1/proj.denM1;
-    }
-    if(proj.denM2 && proj.numM2!=null){
-      p.numeradorM2 = proj.numM2;
-      p.denominadorM2 = proj.denM2;
-      p.m2 = proj.numM2/proj.denM2*100;
-    }
-    var pM1 = PONTOS_POR_CLASSE[classificarM1(p.m1)], pM2 = PONTOS_POR_CLASSE[classificarM2(p.m2)];
-    p.notaFinal = (pM1!==undefined && pM2!==undefined) ? (pM1*6 + pM2*4) : null;
-    p.denominadorProjetado = true;
-    p.denominadorProjecaoLabel = proj.label;
-  });
 }
 
 // Aba Tendência, visão "Semana": cada ponto é uma semana (segunda a domingo) e o valor é o

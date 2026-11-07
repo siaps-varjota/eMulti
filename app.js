@@ -807,21 +807,12 @@ function periodoEfetivoAtual(){
 function janelasInfoDeMeses(meses, jaMeses, jaJanelas){
   var cache = {};
   jaMeses.forEach(function(m, i){ cache[monthOptionValue(m)] = jaJanelas[i]; });
-  var hoje = new Date();
-  var mesAtual = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-  var proj = null;
   return meses.map(function(m){
     var k = monthOptionValue(m);
     var r = cache[k] || (cache[k] = calcularJanelaComOverride(latestWb, m));
     var data = r.data;
-    // Mês que ainda não começou: usa a MESMA projeção dos cards/Tendência — numerador e
-    // denominador = média das janelas dos 4 últimos meses (ago–nov), ver projecaoMesFuturo.
-    if(m > mesAtual){
-      proj = proj || projecaoMesFuturo(latestWb);
-      data = Object.assign({}, data);
-      if(proj.denM1 && proj.numM1!=null){ data.numeradorM1 = proj.numM1; data.denominadorM1 = proj.denM1; }
-      if(proj.denM2 && proj.numM2!=null){ data.numeradorM2 = proj.numM2; data.denominadorM2 = proj.denM2; }
-    }
+    // Mês que ainda não começou: sem projeção — usa o dado real da janela (mesmo critério
+    // dos cards/Tendência; ex.: dez = set+out+nov, pois dezembro ainda é zero).
     return {data: data, label: monthShortLabel(m).split('/')[0], fechado: !isMesFuturo(m)};
   });
 }
