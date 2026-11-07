@@ -813,7 +813,7 @@ function janelasInfoDeMeses(meses, jaMeses, jaJanelas){
     var data = r.data;
     // Mês que ainda não começou: sem projeção — usa o dado real da janela (mesmo critério
     // dos cards/Tendência; ex.: dez = set+out+nov, pois dezembro ainda é zero).
-    return {data: data, label: monthShortLabel(m).split('/')[0], fechado: !isMesFuturo(m)};
+    return {data: data, label: monthShortLabel(m).split('/')[0], fechado: !isMesFuturo(m), dt: m};
   });
 }
 

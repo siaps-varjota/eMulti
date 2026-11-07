@@ -2772,6 +2772,9 @@ export function faltaMediaJanelas(janelas, alvo, somaNoDen, pct){
   if(!js.length || !isFinite(alvo)) return null;
   var esc = pct ? 100 : 1, EPS = 1e-9;
   var A = alvo/esc, N = js.length;
+  // Com a data de cada mês, a janela móvel de 4 meses é levada em conta: uma ação somada num
+  // mês aberto também entra nas janelas dos meses seguintes (até 3 depois).
+  if(js.every(function(j){ return j.dt instanceof Date; })) return faltaMediaJanelasSobrepostas(js, A, somaNoDen, esc);
   var itens = js.map(function(j, i){
     return {j:j, r:j.num/j.den, mes:(j.mes || ('Mês '+(i+1))), aberto:!j.fechado};
   });
@@ -2808,13 +2811,60 @@ export function faltaMediaJanelas(janelas, alvo, somaNoDen, pct){
   return {faltam:total, janelas:N, porMes:porMes};
 }
 
+// Versão de faltaMediaJanelas que considera a sobreposição das janelas móveis (4 meses): uma
+// ação adicionada no mês m soma no numerador (e, no M2, no denominador) das janelas de m até m+3.
+// Busca, ação por ação, o mês aberto que mais sobe a média das razões (empate → o mais antigo,
+// que cobre mais janelas) até a média chegar em A. Ex.: ação em nov também conta em dez.
+function faltaMediaJanelasSobrepostas(js, A, somaNoDen, esc){
+  var EPS = 1e-9, N = js.length;
+  var idx = js.map(function(j){ return j.dt.getFullYear()*12 + j.dt.getMonth(); });
+  var abertos = [];
+  js.forEach(function(j, i){ if(!j.fechado) abertos.push(i); });
+  var add = js.map(function(){ return 0; });
+  function extra(i){
+    var s = 0;
+    abertos.forEach(function(a){ if(idx[a] <= idx[i] && idx[i]-idx[a] <= 3) s += add[a]; });
+    return s;
+  }
+  function media(){
+    var soma = 0;
+    for(var i=0; i<N; i++){ var s = extra(i); soma += (js[i].num+s)/(js[i].den + (somaNoDen ? s : 0)); }
+    return soma/N;
+  }
+  var atual = media();
+  if(atual >= A - EPS) return {faltam:0, janelas:N, porMes:[]};
+  if(!abertos.length) return null; // tudo fechado: nada a somar
+  var total = 0, guard = 0;
+  while(atual < A - EPS){
+    if(guard++ > 200000) return null;
+    var melhor = -1, melhorV = atual;
+    abertos.forEach(function(a){
+      add[a]++; var v = media(); add[a]--;
+      if(v > melhorV + 1e-15){ melhorV = v; melhor = a; }
+    });
+    if(melhor < 0) return null;
+    add[melhor]++; total++; atual = melhorV;
+  }
+  var porMes = [];
+  abertos.forEach(function(a){
+    if(!(add[a] > 0)) return;
+    var s = extra(a);
+    var destino = (js[a].num+s)/(js[a].den + (somaNoDen ? s : 0)) * esc;
+    var tambem = [];
+    js.forEach(function(j, i){ if(idx[i] > idx[a] && idx[i]-idx[a] <= 3) tambem.push(j.mes || ''); });
+    porMes.push({mes:js[a].mes, add:add[a], destino:destino, tambem:tambem});
+  });
+  return {faltam:total, janelas:N, porMes:porMes};
+}
+
 // Texto da quebra por mês: "Out +49 (→ 6,0%) · Nov +76 (→ 6,0%)". Vazio sem quebra (1 mês só).
 export function faltaPorMesTexto(porMes, pct){
   if(!porMes || !porMes.length) return '';
   return porMes.map(function(m){
     var dest = pct ? fmtDecMeta(m.destino)+'%'
       : m.destino.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
-    return escapeHtml(m.mes)+' +'+fmtInt(m.add)+' (→ '+dest+')';
+    var tb = (m.tambem && m.tambem.length) ? ', conta também em '+m.tambem.map(escapeHtml).join('/') : '';
+    return escapeHtml(m.mes)+' +'+fmtInt(m.add)+' (→ '+dest+tb+')';
   }).join(' · ');
 }
 

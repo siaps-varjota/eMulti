@@ -3023,10 +3023,10 @@ export function mediaDeMeses(resultadosMensais, resultadosJanela, mesesProjecaoL
       // mês aberto recebe as ações a somar (ver faltaMediaJanelas). Sem ele, usa só
       // resultadosJanela e trata todos os meses como abertos.
       janelasM1: tipoCalculo === 'soma' ? null : (janelasInfo || resultadosJanela.map(function(r){ return {data:r.data}; })).map(function(r){
-        return {num: r.data.numeradorM1, den: r.data.denominadorM1, mes: r.label, fechado: !!r.fechado};
+        return {num: r.data.numeradorM1, den: r.data.denominadorM1, mes: r.label, fechado: !!r.fechado, dt: r.dt};
       }).filter(function(j){ return j.num!=null && j.den!=null; }),
       janelasM2: tipoCalculo === 'soma' ? null : (janelasInfo || resultadosJanela.map(function(r){ return {data:r.data}; })).map(function(r){
-        return {num: r.data.numeradorM2, den: r.data.denominadorM2, mes: r.label, fechado: !!r.fechado};
+        return {num: r.data.numeradorM2, den: r.data.denominadorM2, mes: r.label, fechado: !!r.fechado, dt: r.dt};
       }).filter(function(j){ return j.num!=null && j.den!=null; }),
       m1: m1,
       classificacaoM1: classificacaoM1,
