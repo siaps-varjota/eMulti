@@ -4,7 +4,7 @@
 // Cada seção "=== módulo: ... ===" corresponde a um arquivo original.
 // ======================================================================
 
-import { equipeColIndex, linhaEntraNaEmulti, anexarMensalNaSerie, CLASS_BANDS_M1, CLASS_BANDS_M1_OV, CLASS_BANDS_M2, CLASS_BANDS_M2_OV, CLASS_BANDS_NOTA_OV, CLASS_PILL_HEX, EQUIPES, JANELA_MESES, LEGEND_M1, LEGEND_M2, OV_LEGEND_M1, OV_LEGEND_M2, OV_LEGEND_NOTA, STORAGE_AVAILABLE, STORAGE_KEY, TREND_MESES, TREND_SEMANAS, anchorMonthDate, animateGauges, anoMs, calcularIndicadoresDoPeriodo, calcularJanelaComOverride, calcularJanelaPeriodo, calcularSerieSemanal, calcularSerieTendencia, classificarDesempenho, classificarM1, classificarM2, colIndex, compCardHeaderHTML, createMultiSelect, criarLigacaoAtividades, projecaoMesFuturo, escapeHtml, estadoApp, fetchAllSheets, fetchAtualizacaoSafe, fetchOfficialOverridesSafe, fetchProfissionaisSafe, filtrarLinhasPorEquipe, filtrarAtividadesColetivasPorEquipe, fmtBRDate, fmtDate, fmtDec, fmtInt, init_nucleo_config, init_nucleo_dados, init_nucleo_listas_estado, init_nucleo_periodos, init_nucleo_popovers, init_visual_gauge, init_visual_painel_kpi, isMesFuturo, labelQuadsSelecionados, m1ListNames, m2ListNames, mediaDeMeses, mesMs, mesesDosQuadsSelecionadosUniao, mesesElapsedDosQuadsSelecionadosUniao, monthOptionValue, monthShortLabel, normalizeText, parseBRDate, parseCsv, periodoMesUnico, pillHex, populateAnoQuadSelects, profissionaisRoster, quadCode, quadKeyOfDate, quadShortLabel, quadMs, refMonthLabel, sheetToRows, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, valoresUnicosOrdenados, withinPeriod } from './nucleo.js';
+import { equipeColIndex, colRespParticipantes, nomeEhDaEmultiDasEquipes, nomeEhDaEmultiSelecionada, linhaEntraNaEmulti, anexarMensalNaSerie, CLASS_BANDS_M1, CLASS_BANDS_M1_OV, CLASS_BANDS_M2, CLASS_BANDS_M2_OV, CLASS_BANDS_NOTA_OV, CLASS_PILL_HEX, EQUIPES, JANELA_MESES, LEGEND_M1, LEGEND_M2, OV_LEGEND_M1, OV_LEGEND_M2, OV_LEGEND_NOTA, STORAGE_AVAILABLE, STORAGE_KEY, TREND_MESES, TREND_SEMANAS, anchorMonthDate, animateGauges, anoMs, calcularIndicadoresDoPeriodo, calcularJanelaComOverride, calcularJanelaPeriodo, calcularSerieSemanal, calcularSerieTendencia, classificarDesempenho, classificarM1, classificarM2, colIndex, compCardHeaderHTML, createMultiSelect, criarLigacaoAtividades, projecaoMesFuturo, escapeHtml, estadoApp, fetchAllSheets, fetchAtualizacaoSafe, fetchOfficialOverridesSafe, fetchProfissionaisSafe, filtrarLinhasPorEquipe, filtrarAtividadesColetivasPorEquipe, fmtBRDate, fmtDate, fmtDec, fmtInt, init_nucleo_config, init_nucleo_dados, init_nucleo_listas_estado, init_nucleo_periodos, init_nucleo_popovers, init_visual_gauge, init_visual_painel_kpi, isMesFuturo, labelQuadsSelecionados, m1ListNames, m2ListNames, mediaDeMeses, mesMs, mesesDosQuadsSelecionadosUniao, mesesElapsedDosQuadsSelecionadosUniao, monthOptionValue, monthShortLabel, normalizeText, parseBRDate, parseCsv, periodoMesUnico, pillHex, populateAnoQuadSelects, profissionaisRoster, quadCode, quadKeyOfDate, quadShortLabel, quadMs, refMonthLabel, sheetToRows, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, valoresUnicosOrdenados, withinPeriod } from './nucleo.js';
 import { renderFluxoPacientes, ovMesesHTML, M1_META_THRESHOLDS, M2_META_THRESHOLDS, calcularAnalises, calcularMetasQuadrimestre, calcularPerformanceProfissionais, calcularQuadrimestreAnterior, init_abas_analises_calculo, init_abas_analises_render, init_abas_m1_m2, init_abas_profissionais, ipGaugeCardHTML, ipReadingHTML, metaQuadrimestreHTML, metaQuadrimestreMiniHTML, overviewCardHTML, populateSheetsCache, profListaAtual, renderAnalises, renderPerformanceProfissionais, setupPreliminarToggle, setupTrendInteractivity, sparkline, stackbar } from './abas.js';
 import { gerarPdfDivergenciaOficial, init_listas_atividade_coletiva, pessoasAtendidasParaMeses, renderListsSection } from './listas.js';
 
@@ -1027,6 +1027,58 @@ window.debugAtividadesCompartilhadas = function(){
     console.table(linhas);
     return linhas;
 
+  };
+
+
+  // Abre a conta das "Participações coletivas" (M1) da(s) eMulti selecionada(s) no período atual:
+  // quantas linhas contam, por que contam (equipe da linha x só pelo profissional) e quem são os
+  // profissionais que mais contribuem (marcando os que estão cadastrados em 2+ eMulti).
+  window.debugParticipacoesColetivas = function(){
+    if(!latestWb){ console.warn('[debugParticipacoesColetivas] o painel ainda não carregou nenhuma planilha.'); return; }
+    var periodo = periodoEfetivoAtual();
+    var ws = latestWb.Sheets[suffixedName("Participantes Ativ. Coletiva")];
+    var rows = ws ? sheetToRows(ws) : [];
+    if(rows.length < 2){ console.warn('[debugParticipacoesColetivas] aba sem linhas.'); return; }
+    var h = rows[0];
+    var iData = colIndex(h, "data"), iNome = colIndex(h, "participante"), iEq = equipeColIndex(h);
+    var cols = [colRespParticipantes(h)].concat(["profissional 1","profissional 2","profissional 3","profissional 4","profissional 5"]
+      .map(function(n){ return colIndex(h, n); })).filter(function(i){ return i >= 0; });
+    var eqs = estadoApp.currentEquipes;
+    var kws = eqs.map(function(e){ return normalizeText(e.matchKeyword || e.suffix); });
+    var porProf = {}, nContam = 0, nPelaEquipeDaLinha = 0, nSoPeloProf = 0, nComProfMultiEquipe = 0;
+    rows.slice(1).forEach(function(r){
+      var nome = String(r[iNome]||"").trim();
+      if(!nome || nome.indexOf("(sem lista nominal") === 0) return;
+      if(!withinPeriod(parseBRDate(r[iData]), periodo.inicio, periodo.fim)) return;
+      var profs = [], vistos = {};
+      cols.forEach(function(ci){
+        var p = String(r[ci]||"").trim();
+        var k = normalizeText(p);
+        if(p && !vistos[k] && nomeEhDaEmultiDasEquipes(p, eqs)){ vistos[k] = true; profs.push(p); }
+      });
+      if(!profs.length) return;
+      nContam++;
+      var linhaEq = iEq >= 0 ? normalizeText(r[iEq]) : "";
+      var daEquipe = iEq < 0 || kws.some(function(kw){ return linhaEq.indexOf(kw) !== -1; });
+      if(daEquipe) nPelaEquipeDaLinha++; else nSoPeloProf++;
+      var multi = false;
+      profs.forEach(function(p){
+        var eqsDoProf = EQUIPES.filter(function(e){ return nomeEhDaEmultiDasEquipes(p, [e]); }).map(function(e){ return e.suffix; });
+        if(eqsDoProf.length > 1) multi = true;
+        var o = porProf[p] = porProf[p] || {profissional:p, "equipes no cadastro":eqsDoProf.join(' + '), linhas:0, "linhas de outra equipe":0};
+        o.linhas++; if(!daEquipe) o["linhas de outra equipe"]++;
+      });
+      if(multi) nComProfMultiEquipe++;
+    });
+    console.log('[debugParticipacoesColetivas] equipe(s): '+eqs.map(function(e){ return e.label; }).join(' + ')
+      +' | período: '+fmtBRDate(periodo.inicio)+' a '+fmtBRDate(periodo.fim)
+      +' | participações que contam: '+nContam
+      +' | com a equipe da linha = selecionada: '+nPelaEquipeDaLinha
+      +' | só pelo profissional (linha de outra equipe): '+nSoPeloProf
+      +' | linhas com profissional cadastrado em 2+ eMulti: '+nComProfMultiEquipe);
+    var lista = Object.keys(porProf).map(function(k){ return porProf[k]; }).sort(function(a,b){ return b.linhas - a.linhas; });
+    console.table(lista);
+    return lista;
   };
 
 refreshBtn.addEventListener('click', fetchAndLoad);
