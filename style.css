@@ -1574,3 +1574,8 @@ h1,h2,h3,.serif{font-optical-sizing:auto;}
   box-shadow:0 -8px 14px -10px rgba(19,36,31,.30)}
 .filter-bar-outer:not(.filter-bar-collapsed):not(.filter-bar-recolhendo) .filter-bar-toggle:hover{
   box-shadow:0 -10px 16px -10px rgba(19,36,31,.38)}
+
+/* Configurar agenda: profissional desativado (não recebe agendamentos gerados) */
+.agendamentos-cfg .data-table tr.ag-inativo>td{opacity:.55}
+.agendamentos-cfg .data-table tr.ag-inativo>td:nth-child(2){opacity:1}
+.agendamentos-cfg .ag-cfg-ativos small{flex-basis:100%;color:var(--muted,#5b6b64)}
