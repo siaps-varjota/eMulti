@@ -118,7 +118,7 @@
   <button class="tab" data-tab="agendamentos">Agendamentos</button>
   <button class="tab" data-tab="profissionais">Panoroma Assistencial</button>
   <button class="tab" data-tab="tendencia">Tendência</button>
-  <button class="tab" data-tab="notas">Notas metodológicas</button>
+  <button class="tab" data-tab="pareto">Análises</button>
 </nav>
 </div>
 
@@ -398,11 +398,13 @@
     </div>
   </div>
 
-  <div id="tabNotas" class="tab-panel">
-    <div class="card">
+  <div id="tabPareto" class="tab-panel">
+    <div id="apRaiz"></div>
+    <details class="card ap-notas">
+      <summary>Notas metodológicas</summary>
       <ul class="notes-list" id="notesList"></ul>
-    </div>
-  </div><!-- /#tabNotas -->
+    </details>
+  </div><!-- /#tabPareto -->
 </main>
 
 <footer class="app-footer">
@@ -415,6 +417,7 @@
 <script type="module" src="agendamentos.js"></script>
 <script type="module" src="agenda.js"></script>
 <script type="module" src="faltas.js"></script>
+<script type="module" src="analises-pareto.js"></script>
 <script src="auth.js"></script>
 </body>
 </html>
