@@ -104,12 +104,14 @@ function estadoAgenda(){
   var lot={};
   ev.forEach(function(e){if(e.tipo==='faltou')return;var k=chaveDiaAgenda(e.dt)+'|'+e.profKey;var o=lot[k]=lot[k]||{n:0,cap:e.capDia};o.n++;});
   var lotados={};Object.keys(lot).forEach(function(k){if(lot[k].cap>0&&lot[k].n>=lot[k].cap)lotados[k.split('|')[0]]=true;});
-  return {pronto:base.pronto,erro:base.erro,diag:base.diag,todos:todos,evProf:ev,profs:profs,ev:doMes,filtrados:filtrados,semanas:semanas,sem:sem,dia:dia,lotados:lotados};
+  return {busca:!!normBuscaAgenda(buscaAgenda),pronto:base.pronto,erro:base.erro,diag:base.diag,todos:todos,evProf:ev,profs:profs,ev:doMes,filtrados:filtrados,semanas:semanas,sem:sem,dia:dia,lotados:lotados};
 }
 
 function contarAgenda(lista,tipo){return lista.filter(function(e){return e.tipo===tipo;}).length;}
 // O que aparece na tela e vai para PDF/WhatsApp/Imagem: o dia escolhido, senão a semana, senão o mês.
-function listaVisivelAgenda(st){return st.dia?st.dia.eventos:(st.sem?st.filtrados:st.ev);}
+// Com nome digitado em "Buscar paciente", a lista (e PDF/WhatsApp/Imagem) traz o paciente em QUALQUER data, não só no mês/semana exibidos.
+// O calendário continua mostrando o mês escolhido; para ver outro mês, clique no dia na lista.
+function listaVisivelAgenda(st){return st.dia?st.dia.eventos:(st.busca?st.evProf:(st.sem?st.filtrados:st.ev));}
 function rotuloDiaAgenda(dt){return DIAS_AGENDA_LONGO[dt.getDay()]+', '+brAgenda(dt);}
 
 
@@ -172,6 +174,7 @@ function renderAgenda(){
     +'<span><i style="background:#9AA79F"></i>Realizado ('+contarAgenda(lista,'realizado')+')</span>'
     +'<span><i style="background:#8C6BAE"></i>Faltou ('+contarAgenda(lista,'faltou')+')</span>'
     +'<span><i style="background:#B5474B"></i>Dia lotado (vagas do dia preenchidas)</span>'
+    +(st.busca&&!st.dia?'<span class="agenda-dia-sel">🔎 Busca por nome em todas as datas: a lista abaixo e o PDF, WhatsApp e Imagem trazem '+escAgenda(buscaAgenda.trim())+' em qualquer mês. O calendário mostra só o mês escolhido.</span>':'')
     +(st.dia?'<span class="agenda-dia-sel">📌 PDF, WhatsApp e Imagem vão usar só '+escAgenda(rotDia)+'. Clique no dia de novo (ou escolha "Todos os dias") para voltar ao período.</span>':'');
 
   if(st.erro){
@@ -210,12 +213,12 @@ function renderAgenda(){
 
   // Lista detalhada
   var el=elAgenda('agendaLista');
-  if(!lista.length){el.innerHTML='<p class="agendamentos-vazio" style="padding:14px 2px">Nenhum agendamento '+(st.dia?'neste dia':'neste período')+'.'+motivoVazioAgenda(st)+'</p>';return;}
+  if(!lista.length){el.innerHTML='<p class="agendamentos-vazio" style="padding:14px 2px">Nenhum agendamento '+(st.dia?'neste dia':(st.busca?'encontrado em nenhuma data':'neste período'))+'.'+motivoVazioAgenda(st)+'</p>';return;}
   var grupos={},ordem=[];
   lista.forEach(function(e){var k=chaveDiaAgenda(e.dt);if(!grupos[k]){grupos[k]=[];ordem.push(k);}grupos[k].push(e);});
-  el.innerHTML='<h3>Agendamentos '+(st.dia?'do dia':'do período')+' ('+lista.length+')</h3>'+ordem.map(function(k){
+  el.innerHTML='<h3>Agendamentos '+(st.dia?'do dia':(st.busca?'encontrados (todas as datas)':'do período'))+' ('+lista.length+')</h3>'+ordem.map(function(k){
     var gs=grupos[k],dt=gs[0].dt;
-    return '<div class="agenda-lista-dia">'+DIAS_AGENDA[dt.getDay()]+', '+brAgenda(dt)+' — '+gs.length+(gs.length===1?' pessoa':' pessoas')+'</div>'
+    return '<div class="agenda-lista-dia" data-ir-dia="'+k+'" role="button" tabindex="0" title="Ver o mês deste dia no calendário" style="cursor:pointer">'+DIAS_AGENDA[dt.getDay()]+', '+brAgenda(dt)+' — '+gs.length+(gs.length===1?' pessoa':' pessoas')+'</div>'
       +gs.map(function(e){return '<div class="agenda-lista-linha"><span class="nome">'+escAgenda(e.nome)+'</span><span class="prof">'+escAgenda(e.turno||'—')+' · '+escAgenda(e.prof)+'</span><span class="agenda-tag '+e.tipo+'">'+TIPO_ROTULO_AGENDA[e.tipo]+'</span></div>';}).join('');
   }).join('');
 }
@@ -223,6 +226,7 @@ function renderAgenda(){
 // ---------- Exportações ----------
 function periodoRotuloAgenda(st){
   if(st.dia)return rotuloDiaAgenda(st.dia.dt);
+  if(st.busca)return 'Busca: '+buscaAgenda.trim()+' (todas as datas)';
   return MESES_AGENDA[mesAgenda.getMonth()]+' '+mesAgenda.getFullYear()+(st.sem?' — '+st.sem.label:'');
 }
 function profRotuloAgenda(st){
@@ -384,6 +388,12 @@ function iniciarAgenda(){
   function alternarDia(c){var k=c&&c.getAttribute('data-dia');if(!k)return;diaAgenda=(diaAgenda===k)?'':k;renderAgenda();}
   gradeEl.addEventListener('click',function(e){alternarDia(e.target.closest&&e.target.closest('[data-dia]'));});
   gradeEl.addEventListener('keydown',function(e){if((e.key==='Enter'||e.key===' ')&&e.target.matches&&e.target.matches('[data-dia]')){e.preventDefault();alternarDia(e.target);}});
+  var listaEl=elAgenda('agendaLista');
+  function irParaDiaAgenda(c){var k=c&&c.getAttribute('data-ir-dia'),d=isoParaDataAgenda(k);if(!d)return;mesAgenda=new Date(d.getFullYear(),d.getMonth(),1);semanaAgenda='';diaAgenda='';renderAgenda();var g=elAgenda('agendaGrade');if(g&&g.scrollIntoView)g.scrollIntoView({block:'nearest'});}
+  if(listaEl){
+    listaEl.addEventListener('click',function(e){irParaDiaAgenda(e.target.closest&&e.target.closest('[data-ir-dia]'));});
+    listaEl.addEventListener('keydown',function(e){if((e.key==='Enter'||e.key===' ')&&e.target.matches&&e.target.matches('[data-ir-dia]')){e.preventDefault();irParaDiaAgenda(e.target);}});
+  }
   elAgenda('agendaSemana').addEventListener('change',function(e){semanaAgenda=e.target.value;renderAgenda();});
   elAgenda('agendaSemPrev').addEventListener('click',function(){irSemanaAgenda(-1);});
   elAgenda('agendaSemNext').addEventListener('click',function(){irSemanaAgenda(1);});
