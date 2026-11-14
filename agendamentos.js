@@ -444,7 +444,7 @@ function calcularListaAg(){
   var list=semProf?[]:rowsAg.filter(function(r,ix){
     if(uc&&!uc.elegiveis[normAg(r.Nome)])return false;   // só atendidos por profissional da eMulti (não só atividade coletiva)
     if(lf&&!lf.set[normAg(r.Nome)])return false;
-    if(!dentroDiasAg(r,uc,lim,ix))return false;
+    if(!q&&!dentroDiasAg(r,uc,lim,ix))return false;   // buscando por nome: vale qualquer mês (o filtro de meses é ignorado)
     if(sf&&(r.Situação||'Pendente')!==sf)return false;
     if(tf){var t=turnos[ix];if(tf==='sem'?!!t:(!t||t.classe!==tf))return false;}
     if(de||ate){var d=propostaAg[ix]||dateAg(r['Data agendada']);if(!d||(de&&d<de)||(ate&&d>ate))return false;}
@@ -453,7 +453,7 @@ function calcularListaAg(){
     return true;
   });
   list=ordenarAg(list,uc,turnos);
-  return {uc:uc,list:list,turnos:turnos,lf:lf,lim:lim,semProf:semProf,filtrado:!!(q||pq||lf||lim||tf||sf||de||ate)};
+  return {uc:uc,list:list,turnos:turnos,lf:lf,lim:lim,buscaNome:!!q,semProf:semProf,filtrado:!!(q||pq||lf||lim||tf||sf||de||ate)};
 }
 function renderAg(){
   atualizarBotoesGeracaoAg();
@@ -464,7 +464,7 @@ function renderAg(){
   var c=calcularListaAg(),uc=c.uc,list=c.list,turnos=c.turnos,lf=c.lf,lim=c.lim;
   document.getElementById('agendamentosContagem').textContent=list.length+(list.length===1?' pessoa':' pessoas');
   var info=document.getElementById('agendamentosFiltroInfo');
-  if(info){var txtDias=lim?((mesesModoAg==='qualquer'?'Atendidos ou agendados em ':'Último atendimento ou agendamento em ')+(lim.n<=3?mesesSelAg.slice().sort().reverse().map(rotuloMesAg).join(', '):lim.n+' meses selecionados')):'Todos os períodos';info.textContent=txtDias+(lf?' · seguindo também a lista Pessoas atendidas (aba '+lf.origem+'): '+lf.n+(lf.n===1?' pessoa':' pessoas')+' · '+(lf.meses.length?lf.meses.length+(lf.meses.length===1?' mês selecionado':' meses selecionados'):'todos os meses')+'.':'.');}
+  if(info){var txtDias=(lim&&c.buscaNome)?'Busca por nome em todos os meses (filtro de meses ignorado)':lim?((mesesModoAg==='qualquer'?'Atendidos ou agendados em ':'Último atendimento ou agendamento em ')+(lim.n<=3?mesesSelAg.slice().sort().reverse().map(rotuloMesAg).join(', '):lim.n+' meses selecionados')):'Todos os períodos';info.textContent=txtDias+(lf?' · seguindo também a lista Pessoas atendidas (aba '+lf.origem+'): '+lf.n+(lf.n===1?' pessoa':' pessoas')+' · '+(lf.meses.length?lf.meses.length+(lf.meses.length===1?' mês selecionado':' meses selecionados'):'todos os meses')+'.':'.');}
   // Paginação
   var porPag=parseInt(valAg('agendamentosPorPagina'),10)||0,total=list.length,paginas=porPag?Math.max(1,Math.ceil(total/porPag)):1;
   if(paginaAg>paginas)paginaAg=paginas;if(paginaAg<1)paginaAg=1;
