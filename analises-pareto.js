@@ -19,7 +19,7 @@ import {
 
 // IA opcional: endereço da função serverless que devolve {resumo, prioridades}.
 // Vazio = só regras fixas. Também pode ser definido em window.EMULTI_IA_URL.
-var URL_IA = 'https://saude-bucal-varjota.vercel.app/api/sugerir-acoes;
+var URL_IA = 'https://saude-bucal-varjota.vercel.app/api/sugerir-acoes';
 
 var estado = { quads: [], equipes: [], indicador: 'todos', agrupar: 'indicador', cache: { wb: null, mapa: {} }, chart: null, resultados: [], montado: false, analise: null };
 
