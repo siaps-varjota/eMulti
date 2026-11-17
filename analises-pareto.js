@@ -10,8 +10,11 @@
 import {
   estadoApp, EQUIPES, QUAD_LABELS, CLASS_PILL_HEX, calcularSerieTendencia, classificarM1, classificarM2,
   classificarDesempenho, createMultiSelect, escapeHtml, filtrarLinhasPorEquipe,
-  filtrarAtividadesColetivasPorEquipe, suffixedName, monthShortLabel
+  filtrarAtividadesColetivasPorEquipe, suffixedName, monthShortLabel,
+  sheetToRows, colIndex, colRespParticipantes, normalizeText, normalizarNomeProf, nomeEhDaEmulti,
+  criarLigacaoAtividades
 } from './nucleo.js';
+import { profissionalColIndex } from './listas.js';
 import { latestRawSheets, latestWb } from './app.js';
 import {
   PESOS, NOME_INDICADOR, PONTOS_CLASSE, fmtNum, linhasDePerda, agregarPareto, gerarPrioridadesRegras
@@ -21,7 +24,7 @@ import {
 // Vazio = só regras fixas. Também pode ser definido em window.EMULTI_IA_URL.
 var URL_IA = 'https://saude-bucal-varjota.vercel.app/api/sugerir-acoes';
 
-var estado = { quads: [], equipes: [], indicador: 'todos', agrupar: 'indicador', cache: { wb: null, mapa: {} }, chart: null, resultados: [], montado: false, analise: null };
+var estado = { quads: [], equipes: [], indicador: 'todos', profissional: '', profMs: null, cache: { wb: null, mapa: {} }, chart: null, resultados: [], montado: false, analise: null };
 
 function el(id) { return document.getElementById(id); }
 
@@ -51,9 +54,63 @@ function opcoesQuad() {
 
 // ---------- cálculo por equipe/quadrimestre ----------
 function comEquipe(eq, fn) {
-  var salvo = estadoApp.currentEquipes;
+  var salvo = estadoApp.currentEquipes, salvoOv = estadoApp.officialOverrides;
   estadoApp.currentEquipes = [eq];
-  try { return fn(); } finally { estadoApp.currentEquipes = salvo; }
+  // Valores oficiais são da equipe inteira: com profissional escolhido, usa só o cálculo das linhas dele.
+  if (estado.profissional) estadoApp.officialOverrides = {};
+  try { return fn(); } finally { estadoApp.currentEquipes = salvo; estadoApp.officialOverrides = salvoOv; }
+}
+
+var COLS_PROF_PART = ['profissional 1', 'profissional 2', 'profissional 3', 'profissional 4', 'profissional 5'];
+function colsProfPart(header) {
+  return [colRespParticipantes(header)].concat(COLS_PROF_PART.map(function (n) { return colIndex(header, n); }))
+    .filter(function (i) { return i >= 0; });
+}
+function chaveProf(nome) { return normalizarNomeProf(nome); }
+
+// Reduz o workbook de UMA equipe às linhas de UM profissional:
+//  - Atendimentos: só os atendimentos dele;
+//  - Participantes Ativ. Coletiva: só as linhas em que ele é responsável/profissional;
+//  - Resumo Atividade Coletiva: só as atividades ligadas a essas linhas;
+//  - Resumo Reuniões: só as reuniões com coluna de profissional/responsável que o inclua
+//    (sem essa coluna na aba, nenhuma reunião é atribuída a ele);
+//  - TOTAL RELATÓRIO AC: zerado (é total da equipe, não dá para atribuir a um profissional).
+function filtrarWbPorProfissional(wb, nomeProf) {
+  var alvo = chaveProf(nomeProf);
+  var out = { SheetNames: wb.SheetNames.slice(), Sheets: {} };
+  Object.keys(wb.Sheets).forEach(function (k) { out.Sheets[k] = wb.Sheets[k]; });
+  function rows(base) { var ws = out.Sheets[suffixedName(base)]; return ws ? sheetToRows(ws) : null; }
+  function set(base, linhas) { out.Sheets[suffixedName(base)] = linhas; }
+
+  var at = rows('Atendimentos');
+  if (at && at.length) {
+    var iP = profissionalColIndex(at[0]);
+    set('Atendimentos', [at[0]].concat(iP < 0 ? [] : at.slice(1).filter(function (r) { return chaveProf(r[iP]) === alvo; })));
+  }
+  var part = rows('Participantes Ativ. Coletiva'), partF = null;
+  if (part && part.length) {
+    var cols = colsProfPart(part[0]);
+    partF = [part[0]].concat(part.slice(1).filter(function (r) {
+      return cols.some(function (ci) { return chaveProf(r[ci]) === alvo; });
+    }));
+    set('Participantes Ativ. Coletiva', partF);
+  }
+  var rac = rows('Resumo Atividade Coletiva');
+  if (rac && rac.length) {
+    var lig = partF ? criarLigacaoAtividades(partF, rac[0]) : null;
+    set('Resumo Atividade Coletiva', [rac[0]].concat(lig ? rac.slice(1).filter(function (r) { return lig.total(r) !== undefined; }) : []));
+  }
+  var rr = rows('Resumo Reuniões');
+  if (rr && rr.length) {
+    var colsRr = [];
+    rr[0].forEach(function (h, i) { var t = normalizeText(h); if (t.indexOf('PROFISSIONAL') >= 0 || t.indexOf('RESPONSAVEL') >= 0) colsRr.push(i); });
+    set('Resumo Reuniões', [rr[0]].concat(rr.slice(1).filter(function (r) {
+      return colsRr.some(function (ci) { return chaveProf(r[ci]) === alvo; });
+    })));
+  }
+  var ac = rows('TOTAL RELATÓRIO AC');
+  if (ac && ac.length) set('TOTAL RELATÓRIO AC', [ac[0]]);
+  return out;
 }
 
 function construirWb(eq) {
@@ -79,11 +136,12 @@ function media(vals) {
 
 function resultadoEquipeQuad(eq, ano, q) {
   if (estado.cache.wb !== latestWb) estado.cache = { wb: latestWb, mapa: {} };
-  var chave = eq.key + '|' + ano + '|' + q;
+  var chave = eq.key + '|' + ano + '|' + q + '|' + chaveProf(estado.profissional);
   if (estado.cache.mapa[chave]) return estado.cache.mapa[chave];
   var meses = mesesDoQuad(ano, q);
   var res = comEquipe(eq, function () {
     var wb = construirWb(eq);
+    if (estado.profissional) wb = filtrarWbPorProfissional(wb, estado.profissional);
     var serie = calcularSerieTendencia(wb, meses[meses.length - 1], meses.length);
     var m1 = media(serie.map(function (p) { return p.m1; }));
     var m2 = media(serie.map(function (p) { return p.m2; }));
@@ -92,7 +150,7 @@ function resultadoEquipeQuad(eq, ano, q) {
     var p1 = PONTOS_CLASSE[classeM1], p2 = PONTOS_CLASSE[classeM2];
     var nota = (p1 !== undefined && p2 !== undefined) ? p1 * PESOS.M1 + p2 * PESOS.M2 : null;
     return {
-      equipe: eq.label, equipeKey: eq.key, periodo: rotuloQuad(ano, q), ano: ano, q: q,
+      equipe: eq.label + (estado.profissional ? ' — ' + estado.profissional : ''), equipeKey: eq.key, periodo: rotuloQuad(ano, q), ano: ano, q: q,
       m1: m1, m2: m2, classeM1: classeM1, classeM2: classeM2, nota: nota, desempenho: classificarDesempenho(nota),
       meses: serie.map(function (p) { return { mes: monthShortLabel(p.mes), m1: p.m1, m2: p.m2 }; })
     };
@@ -122,7 +180,7 @@ function montar() {
     +     '<div class="list-month-filter"><label class="list-month-filter-label">Quadrimestre</label><div class="ms-wrap" id="apQuadMs"></div></div>'
     +     '<div class="list-month-filter"><label class="list-month-filter-label">Equipe</label><div class="ms-wrap" id="apEquipeMs"></div></div>'
     +     '<div class="list-month-filter"><label class="list-month-filter-label">Indicador</label><div class="ms-wrap" id="apIndMs"></div></div>'
-    +     '<div class="list-month-filter"><label class="list-month-filter-label">Agrupar por</label><div class="ms-wrap" id="apAgrMs"></div></div>'
+    +     '<div class="list-month-filter"><label class="list-month-filter-label">Profissional</label><div class="ms-wrap" id="apProfMs"></div></div>'
     +   '</div>'
     + '</div>'
     + '<div id="apCorpo"></div>';
@@ -142,6 +200,7 @@ function montar() {
     placeholder: 'Todas', multi: true, search: false,
     onChange: function (keys) {
       estado.equipes = keys.length ? EQUIPES.filter(function (e) { return keys.indexOf(e.key) >= 0; }) : EQUIPES.slice();
+      atualizarOpcoesProf();
       estado.analise = null; renderizar();
     }
   });
@@ -155,14 +214,39 @@ function montar() {
   indMs.setOptions([{ value: 'todos', label: 'Todos' }, { value: 'M1', label: 'M1 — Média de atendimentos' }, { value: 'M2', label: 'M2 — Ações compartilhadas' }]);
   indMs.setSelected(['todos']);
 
-  var agrMs = createMultiSelect(el('apAgrMs'), {
-    placeholder: 'Indicador', multi: false, search: false,
-    onChange: function (keys) { estado.agrupar = keys[0] || 'indicador'; renderizar(); }
+  estado.profMs = createMultiSelect(el('apProfMs'), {
+    placeholder: 'Todos', multi: false, search: false,
+    onChange: function (keys) { estado.profissional = keys[0] || ''; estado.analise = null; renderizar(); }
   });
-  agrMs.setOptions([{ value: 'indicador', label: 'Indicador' }, { value: 'equipe', label: 'Equipe + indicador' }]);
-  agrMs.setSelected(['indicador']);
+  atualizarOpcoesProf();
 
   estado.montado = true;
+}
+
+// Profissionais da eMulti que aparecem nas equipes escolhidas (Atendimentos + atividades coletivas).
+function atualizarOpcoesProf() {
+  if (!estado.profMs) return;
+  var nomes = {};
+  function add(nome) {
+    nome = String(nome == null ? '' : nome).trim();
+    if (nome && nomeEhDaEmulti(nome) && !nomes[chaveProf(nome)]) nomes[chaveProf(nome)] = nome;
+  }
+  if (latestRawSheets && latestRawSheets['Atendimentos']) {
+    var at = filtrarLinhasPorEquipe(sheetToRows(latestRawSheets['Atendimentos']), estado.equipes);
+    var iP = at.length ? profissionalColIndex(at[0]) : -1;
+    if (iP >= 0) at.slice(1).forEach(function (r) { add(r[iP]); });
+  }
+  if (latestRawSheets && latestRawSheets['Participantes Ativ. Coletiva']) {
+    var pa = filtrarLinhasPorEquipe(sheetToRows(latestRawSheets['Participantes Ativ. Coletiva']), estado.equipes);
+    if (pa.length) {
+      var cols = colsProfPart(pa[0]);
+      pa.slice(1).forEach(function (r) { cols.forEach(function (ci) { add(r[ci]); }); });
+    }
+  }
+  var lista = Object.keys(nomes).map(function (k) { return nomes[k]; }).sort(function (a, b) { return a.localeCompare(b, 'pt-BR'); });
+  estado.profMs.setOptions([{ value: '', label: 'Todos' }].concat(lista.map(function (n) { return { value: n, label: n }; })));
+  if (estado.profissional && lista.indexOf(estado.profissional) < 0) estado.profissional = '';
+  estado.profMs.setSelected([estado.profissional]);
 }
 
 function pill(classe) {
@@ -202,7 +286,7 @@ function desenhar(resultados) {
     destruirGrafico();
     return;
   }
-  var pareto = agregarPareto(linhas, estado.agrupar);
+  var pareto = agregarPareto(linhas, 'indicador');
   var possivel = linhas.reduce(function (s, l) { return s + l.peso; }, 0);
   var obtido = linhas.reduce(function (s, l) { return s + l.obtido; }, 0);
   var perdido = possivel - obtido;
@@ -339,6 +423,7 @@ function gerarAnalise() {
 // ---------- ativação da aba ----------
 function ativar() {
   montar();
+  atualizarOpcoesProf();
   renderizar();
 }
 
