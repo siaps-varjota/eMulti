@@ -1052,7 +1052,7 @@ export function fetchSheetCsv(sheetName){
 // abas por vez e até 3 tentativas por aba, com espera crescente.
 // Erros de sessão (login) NÃO são repetidos.
 var FETCH_MAX_TENTATIVAS = 3;
-var FETCH_CONCORRENCIA = 2;
+var FETCH_CONCORRENCIA = 5;   // todas as abas de uma vez (antes: 2 por vez = 3 rodadas seguidas)
 function esperar(ms){ return new Promise(function(res){ setTimeout(res, ms); }); }
 function fetchSheetCsvComRetry(name, tentativa){
   tentativa = tentativa || 1;
@@ -1060,7 +1060,7 @@ function fetchSheetCsvComRetry(name, tentativa){
     var msg = String(err && err.message || err);
     var semRetry = /Sessão/.test(msg) || /Sess\u00e3o/.test(msg);
     if(semRetry || tentativa >= FETCH_MAX_TENTATIVAS) throw err;
-    return esperar(1200 * tentativa).then(function(){ return fetchSheetCsvComRetry(name, tentativa+1); });
+    return esperar(500 * tentativa).then(function(){ return fetchSheetCsvComRetry(name, tentativa+1); });
   });
 }
 
