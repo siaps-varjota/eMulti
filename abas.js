@@ -3125,7 +3125,7 @@ function gaugeCardHTML(title, formula, value, domainMax, bands, gaugeId, valueHt
 
 
 // ---------- Composition bars ----------
-export function stackbar(segments, total){
+export function stackbar(segments, total, mostrarTotal){
   var t = total || segments.reduce(function(s,x){return s+(x.value||0);},0);
   var bars = segments.map(function(s){
     var pct = t>0 ? (s.value/t*100) : 0;
@@ -3151,6 +3151,15 @@ export function stackbar(segments, total){
       + '<span class="legend-label">'+s.label+infoBtnHtml+'</span>'
       + '<span class="legend-count">'+fmtInt(s.value)+'<span class="legend-pct">('+fmtDec(pct,1)+'%)</span></span></span>';
   }).join('');
+  // mostrarTotal: linha extra "Total" abaixo das parcelas = SOMA das parcelas, com o percentual que
+  // essa soma representa em relação ao total/oficial (t) usado nas porcentagens acima.
+  if(mostrarTotal){
+    var soma = segments.reduce(function(a, x){ return a + (x.value||0); }, 0);
+    var pctTotal = t>0 ? (soma/t*100) : 0;
+    legend += '<span class="legend-item legend-total"><i style="background:transparent"></i>'
+      + '<span class="legend-label">Total</span>'
+      + '<span class="legend-count">'+fmtInt(soma)+'<span class="legend-pct">('+fmtDec(pctTotal,1)+'%)</span></span></span>';
+  }
   return '<div class="stackbar">'+bars+'</div><div class="legend">'+legend+'</div>';
 }
 

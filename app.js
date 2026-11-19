@@ -114,7 +114,7 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
     numM1Parts.push({label:'Resultado oficial (sem detalhamento)', value:restoNumM1, color:'#9AA7A0',
       title:'Parte do numerador que vem do resultado oficial do SIAPS dos meses já publicados (e da diferença entre janelas oficiais). O oficial traz só o total, sem separar atendimentos individuais e participações em atividades coletivas.'});
   }
-  var numM1Bar = stackbar(numM1Parts, numM1Gauge);
+  var numM1Bar = stackbar(numM1Parts, numM1Gauge, true);
   var denM1Bar = stackbar([
       {label:'Pessoas atendidas', value:denM1CalcGauge, color:'#153F35'}
     ], denM1Gauge);
@@ -131,7 +131,7 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
     numM2Parts.push({label:'Resultado oficial (sem detalhamento)', value:restoNumM2, color:'#9AA7A0',
       title:'Parte do numerador que vem do resultado oficial do SIAPS dos meses já publicados (e da diferença entre janelas oficiais). O oficial traz só o total, sem separar atendimentos compartilhados, atividades coletivas, reuniões e compartilhamento de cuidado.'});
   }
-  var numM2Bar = stackbar(numM2Parts, numM2Gauge);
+  var numM2Bar = stackbar(numM2Parts, numM2Gauge, true);
   var denM2Bar = stackbar([
       {label:'Atendimentos individuais (específicos)', value:atendEspGauge||0, color:'#CBD3C4', title:DEF_ATEND_ESPECIFICO},
       {label:'Atendimentos individuais (compartilhados)', value:atendCompGauge||0, color:'#3B7DDD', title:DEF_ATEND_COMPARTILHADO},

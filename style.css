@@ -1620,3 +1620,6 @@ h1,h2,h3,.serif{font-optical-sizing:auto;}
 /* Filtro "Equipe - Unidade": nomes longos (ex.: "EMULTI CENTRO - VILA NAIARA") */
 #unidadeMs .ms-panel{min-width:300px;}
 #unidadeMs .ms-option-label{white-space:normal;}
+
+/* Linha "Total" (soma das parcelas) no fim da legenda da composição do numerador */
+.legend-item.legend-total{margin-top:4px;padding-top:8px;border-top:1px dashed var(--line);font-weight:700;}
