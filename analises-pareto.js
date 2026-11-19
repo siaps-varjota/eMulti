@@ -54,11 +54,12 @@ function opcoesQuad() {
 
 // ---------- cálculo por equipe/quadrimestre ----------
 function comEquipe(eq, fn) {
-  var salvo = estadoApp.currentEquipes, salvoOv = estadoApp.officialOverrides;
+  var salvo = estadoApp.currentEquipes, salvoOv = estadoApp.officialOverrides, salvoUn = estadoApp.currentUnidades;
   estadoApp.currentEquipes = [eq];
+  estadoApp.currentUnidades = []; // a aba Análises tem filtros próprios, não usa a unidade do topo
   // Valores oficiais são da equipe inteira: com profissional escolhido, usa só o cálculo das linhas dele.
   if (estado.profissional) estadoApp.officialOverrides = {};
-  try { return fn(); } finally { estadoApp.currentEquipes = salvo; estadoApp.officialOverrides = salvoOv; }
+  try { return fn(); } finally { estadoApp.currentEquipes = salvo; estadoApp.officialOverrides = salvoOv; estadoApp.currentUnidades = salvoUn; }
 }
 
 var COLS_PROF_PART = ['profissional 1', 'profissional 2', 'profissional 3', 'profissional 4', 'profissional 5'];
