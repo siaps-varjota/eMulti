@@ -1705,10 +1705,10 @@ export function filtrarLinhasPorUnidade(matrix, unidades){
   return [matrix[0]].concat(matrix.slice(1).filter(function(r){ return set[normalizeText(r[idx])]; }));
 }
 
-// Rótulo exibido no topo / histórico: as unidades marcadas (quando restringem) ou as equipes.
+// Rótulo exibido no topo / histórico: só as equipes.
 export function rotuloEquipeFiltro(){
-  var base = estadoApp.currentEquipes.map(function(e){ return e.label; }).join(' + ');
-  return filtroUnidadeAtivo() ? base + ' — ' + estadoApp.currentUnidades.join(' + ') : base;
+  // Só a(s) equipe(s): as unidades marcadas ficam subentendidas (aparecem apenas no próprio filtro).
+  return estadoApp.currentEquipes.map(function(e){ return e.label; }).join(' + ');
 }
 
 // Parser de CSV manual (RFC4180: respeita campos entre aspas, vírgulas e
