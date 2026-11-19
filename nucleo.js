@@ -119,10 +119,6 @@ export function init_nucleo_config(){
   // marcada, as linhas de AMBAS entram no cálculo (resultado combinado/
   // somado das equipes selecionadas). Sempre fica pelo menos 1 marcada.
   estadoApp.currentEquipes = EQUIPES.slice(); // padrão: Todas as equipes
-  // Filtro "Equipe - Unidade" do topo (multisseleção sobre a coluna equipe_unidade, igual ao
-  // filtro de coluna das listas). Vazio = sem restrição de unidade (só vale a(s) equipe(s)).
-  // Só fica preenchido quando a seleção REALMENTE restringe alguma unidade de uma equipe marcada.
-  estadoApp.currentUnidades = [];
 
   // Filtro de Equipe da aba Análises — INDEPENDENTE do filtro global do
   // topo (currentEquipes): mudar um não muda o outro (a pedido). Mesmo
@@ -987,7 +983,7 @@ export function calcularIndicadoresDoPeriodo(wb, periodo){
   });
 
   return {
-    equipe: rotuloEquipeFiltro(),
+    equipe: estadoApp.currentEquipes.map(function(e){ return e.label; }).join(' + '),
     data: {
       atendimentosIndividuais: atendimentosIndividuais,
       atendimentosEspecificos: atendimentosEspecificos,
@@ -1464,7 +1460,6 @@ export function fetchProfissionaisSafe(){
 // M2 continua calculado pelo painel — ficam como estavam.
 function somaMesesJan(d, n){ return new Date(d.getFullYear(), d.getMonth()+n, 1); }
 function numeradorOficialJanela(ind, mes){
-  if(filtroUnidadeAtivo()) return null; // oficial é por equipe, não por unidade
   var ents = estadoApp.currentEquipes.map(function(eq){
     return estadoApp.officialOverrides[officialOverrideKey(eq.key, mes.getFullYear(), mes.getMonth(), ind)];
   });
@@ -1537,8 +1532,6 @@ function aplicarOverrideOficial(data, ano, mesIdx, wb){
   data.denominadorM2Calculado = data.denominadorM2;
   data.m2Calculado = data.m2;
   ['M1','M2'].forEach(function(indicador){
-    // Dados oficiais existem só por equipe: com restrição por unidade, valem os números calculados.
-    if(filtroUnidadeAtivo()) return;
     var entradas = estadoApp.currentEquipes.map(function(eq){
       return estadoApp.officialOverrides[officialOverrideKey(eq.key, ano, mesIdx, indicador)];
     });
@@ -1563,7 +1556,7 @@ function aplicarOverrideOficial(data, ano, mesIdx, wb){
   });
   // M1/M2 de mês SEM dado oficial (preliminar): o numerador passa a ser montado em cima do
   // histórico oficial dos meses anteriores da mesma janela (ver numeradorHibrido).
-  if(wb && !filtroUnidadeAtivo()){
+  if(wb){
     var mesRef = new Date(ano, mesIdx, 1);
     // M1 preliminar usa o numerador CALCULADO da planilha (atendimentos individuais + participações coletivas dos 4 meses da janela,
     // o mesmo que as listas mostram). O modelo híbrido (janela oficial anterior − mês que sai + mês calculado) fica desligado aqui.
@@ -1623,85 +1616,6 @@ export function filtrarLinhasPorEquipe(matrix, equipes){
     return keywords.some(function(kw){ return valor.indexOf(kw) !== -1; });
   });
   return [header].concat(linhas);
-}
-
-// ---------- Filtro "Equipe - Unidade" (topo) ----------
-// Valores distintos da coluna equipe_unidade (ex.: "EMULTI CENTRO - ARARINHA") que pertencem a
-// alguma eMulti conhecida (EQUIPES), lidos das abas brutas já baixadas (sem filtro de equipe).
-export function unidadesDisponiveisDasAbas(parsedPorAba){
-  var vistos = {};
-  var lista = [];
-  Object.keys(parsedPorAba || {}).forEach(function(nomeAba){
-    var m = parsedPorAba[nomeAba];
-    if(!m || m.length < 2) return;
-    var idx = equipeColIndex(m[0]);
-    if(idx < 0) return;
-    m.slice(1).forEach(function(r){
-      var raw = String(r[idx] || '').trim();
-      if(!raw) return;
-      var norm = normalizeText(raw);
-      if(vistos[norm]) return;
-      if(!equipesDaUnidade(raw).length) return;
-      vistos[norm] = true;
-      lista.push(raw);
-    });
-  });
-  lista.sort(function(a, b){ return a.localeCompare(b, 'pt-BR'); });
-  return lista;
-}
-
-// eMulti(s) (EQUIPES) cuja palavra-chave aparece no valor da unidade — mesma regra de filtrarLinhasPorEquipe.
-export function equipesDaUnidade(raw){
-  var valor = normalizeText(raw);
-  return EQUIPES.filter(function(eq){
-    return valor.indexOf(normalizeText(eq.matchKeyword || eq.suffix)) !== -1;
-  });
-}
-
-// Aplica a seleção do filtro: define currentEquipes (equipes das unidades marcadas) e
-// currentUnidades (só quando a seleção restringe alguma unidade dessas equipes).
-// `selecionadas` vazio = Todas. `disponiveis` = lista completa de unidades (unidadesDisponiveisDasAbas).
-export function aplicarSelecaoEquipeUnidade(selecionadas, disponiveis){
-  selecionadas = selecionadas || [];
-  if(!selecionadas.length){
-    estadoApp.currentEquipes = EQUIPES.slice();
-    estadoApp.currentUnidades = [];
-    return;
-  }
-  var chaves = {};
-  selecionadas.forEach(function(u){
-    equipesDaUnidade(u).forEach(function(eq){ chaves[eq.key] = true; });
-  });
-  var equipes = EQUIPES.filter(function(eq){ return chaves[eq.key]; });
-  estadoApp.currentEquipes = equipes.length ? equipes : EQUIPES.slice();
-  var selNorm = {};
-  selecionadas.forEach(function(u){ selNorm[normalizeText(u)] = true; });
-  var restringe = (disponiveis || []).some(function(u){
-    var eqs = equipesDaUnidade(u);
-    var dentro = eqs.some(function(eq){ return chaves[eq.key]; });
-    return dentro && !selNorm[normalizeText(u)];
-  });
-  estadoApp.currentUnidades = restringe ? selecionadas.slice() : [];
-}
-
-export function filtroUnidadeAtivo(){
-  return !!(estadoApp.currentUnidades && estadoApp.currentUnidades.length);
-}
-
-// Restringe as linhas às unidades marcadas (coluna equipe_unidade). Sem unidades ativas, não filtra.
-export function filtrarLinhasPorUnidade(matrix, unidades){
-  if(!matrix || matrix.length < 2 || !unidades || !unidades.length) return matrix || [];
-  var idx = equipeColIndex(matrix[0]);
-  if(idx < 0) return matrix;
-  var set = {};
-  unidades.forEach(function(u){ set[normalizeText(u)] = true; });
-  return [matrix[0]].concat(matrix.slice(1).filter(function(r){ return set[normalizeText(r[idx])]; }));
-}
-
-// Rótulo exibido no topo / histórico: as unidades marcadas (quando restringem) ou as equipes.
-export function rotuloEquipeFiltro(){
-  if(filtroUnidadeAtivo()) return estadoApp.currentUnidades.join(' + ');
-  return estadoApp.currentEquipes.map(function(e){ return e.label; }).join(' + ');
 }
 
 // Parser de CSV manual (RFC4180: respeita campos entre aspas, vírgulas e
@@ -2743,7 +2657,6 @@ function janelaOficialEquipe(eqKey, k, indicador){
 // Soma, nas equipes selecionadas, do mês k derivado por subtração. Retorna null se alguma
 // equipe não tem o mês (ou a cadeia até ele) oficial.
 function mensalOficialSelecionadas(k, indicador, campo){
-  if(filtroUnidadeAtivo()) return null; // oficial é por equipe, não por unidade
   var total = 0;
   var eqs = estadoApp.currentEquipes;
   if(!eqs.length) return null;
@@ -3070,7 +2983,7 @@ export function mediaDeMeses(resultadosMensais, resultadosJanela, mesesProjecaoL
   var desempenho = classificarDesempenho(notaFinal);
 
   return {
-    equipe: rotuloEquipeFiltro(),
+    equipe: estadoApp.currentEquipes.map(function(e){ return e.label; }).join(' + '),
     data: {
       atendimentosIndividuais: soma('atendimentosIndividuais'),
       atendimentosEspecificos: soma('atendimentosEspecificos'),

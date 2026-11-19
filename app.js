@@ -4,7 +4,7 @@
 // Cada seção "=== módulo: ... ===" corresponde a um arquivo original.
 // ======================================================================
 
-import { unidadesDisponiveisDasAbas, aplicarSelecaoEquipeUnidade, filtrarLinhasPorUnidade, equipeColIndex, colRespParticipantes, nomeEhDaEmultiDasEquipes, nomeEhDaEmultiSelecionada, linhaEntraNaEmulti, anexarMensalNaSerie, CLASS_BANDS_M1, CLASS_BANDS_M1_OV, CLASS_BANDS_M2, CLASS_BANDS_M2_OV, CLASS_BANDS_NOTA_OV, CLASS_PILL_HEX, EQUIPES, JANELA_MESES, LEGEND_M1, LEGEND_M2, OV_LEGEND_M1, OV_LEGEND_M2, OV_LEGEND_NOTA, STORAGE_AVAILABLE, STORAGE_KEY, TREND_MESES, TREND_SEMANAS, anchorMonthDate, animateGauges, anoMs, calcularIndicadoresDoPeriodo, calcularJanelaComOverride, calcularJanelaPeriodo, calcularSerieSemanal, calcularSerieTendencia, classificarDesempenho, classificarM1, classificarM2, colIndex, compCardHeaderHTML, createMultiSelect, criarLigacaoAtividades, projecaoMesFuturo, escapeHtml, estadoApp, fetchAllSheets, fetchAtualizacaoSafe, fetchOfficialOverridesSafe, fetchProfissionaisSafe, filtrarLinhasPorEquipe, filtrarAtividadesColetivasPorEquipe, fmtBRDate, fmtDate, fmtDec, fmtInt, init_nucleo_config, init_nucleo_dados, init_nucleo_listas_estado, init_nucleo_periodos, init_nucleo_popovers, init_visual_gauge, init_visual_painel_kpi, isMesFuturo, labelQuadsSelecionados, m1ListNames, m2ListNames, mediaDeMeses, mesMs, mesesDosQuadsSelecionadosUniao, mesesElapsedDosQuadsSelecionadosUniao, monthOptionValue, monthShortLabel, normalizeText, parseBRDate, parseCsv, periodoMesUnico, pillHex, populateAnoQuadSelects, profissionaisRoster, quadCode, quadKeyOfDate, quadShortLabel, quadMs, refMonthLabel, sheetToRows, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, valoresUnicosOrdenados, withinPeriod } from './nucleo.js';
+import { equipeColIndex, colRespParticipantes, nomeEhDaEmultiDasEquipes, nomeEhDaEmultiSelecionada, linhaEntraNaEmulti, anexarMensalNaSerie, CLASS_BANDS_M1, CLASS_BANDS_M1_OV, CLASS_BANDS_M2, CLASS_BANDS_M2_OV, CLASS_BANDS_NOTA_OV, CLASS_PILL_HEX, EQUIPES, JANELA_MESES, LEGEND_M1, LEGEND_M2, OV_LEGEND_M1, OV_LEGEND_M2, OV_LEGEND_NOTA, STORAGE_AVAILABLE, STORAGE_KEY, TREND_MESES, TREND_SEMANAS, anchorMonthDate, animateGauges, anoMs, calcularIndicadoresDoPeriodo, calcularJanelaComOverride, calcularJanelaPeriodo, calcularSerieSemanal, calcularSerieTendencia, classificarDesempenho, classificarM1, classificarM2, colIndex, compCardHeaderHTML, createMultiSelect, criarLigacaoAtividades, projecaoMesFuturo, escapeHtml, estadoApp, fetchAllSheets, fetchAtualizacaoSafe, fetchOfficialOverridesSafe, fetchProfissionaisSafe, filtrarLinhasPorEquipe, filtrarAtividadesColetivasPorEquipe, fmtBRDate, fmtDate, fmtDec, fmtInt, init_nucleo_config, init_nucleo_dados, init_nucleo_listas_estado, init_nucleo_periodos, init_nucleo_popovers, init_visual_gauge, init_visual_painel_kpi, isMesFuturo, labelQuadsSelecionados, m1ListNames, m2ListNames, mediaDeMeses, mesMs, mesesDosQuadsSelecionadosUniao, mesesElapsedDosQuadsSelecionadosUniao, monthOptionValue, monthShortLabel, normalizeText, parseBRDate, parseCsv, periodoMesUnico, pillHex, populateAnoQuadSelects, profissionaisRoster, quadCode, quadKeyOfDate, quadShortLabel, quadMs, refMonthLabel, sheetToRows, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, valoresUnicosOrdenados, withinPeriod } from './nucleo.js';
 import { renderFluxoPacientes, ovMesesHTML, M1_META_THRESHOLDS, M2_META_THRESHOLDS, calcularAnalises, calcularMetasQuadrimestre, calcularPerformanceProfissionais, calcularQuadrimestreAnterior, init_abas_analises_calculo, init_abas_analises_render, init_abas_m1_m2, init_abas_profissionais, ipGaugeCardHTML, ipReadingHTML, metaQuadrimestreHTML, metaQuadrimestreMiniHTML, overviewCardHTML, populateSheetsCache, profListaAtual, renderAnalises, renderPerformanceProfissionais, setupPreliminarToggle, setupTrendInteractivity, sparkline, stackbar } from './abas.js';
 import { gerarPdfDivergenciaOficial, init_listas_atividade_coletiva, pessoasAtendidasParaMeses, renderListsSection } from './listas.js';
 
@@ -850,17 +850,10 @@ export function fetchAndLoad(){
         latestRawSheets[r.name] = parsedRows;
         parsedPorAba[r.name] = parsedRows;
       });
-      // Filtro "Equipe - Unidade" do topo: as opções vêm dos dados brutos (sem filtro de equipe).
-      atualizarOpcoesEquipeUnidade(unidadesDisponiveisDasAbas(parsedPorAba));
-      var unidadesAtivas = estadoApp.currentUnidades || [];
       // Atividades coletivas: filtro pela equipe da linha; no "Geral" a mesma atividade que
       // aparece em duas eMulti conta uma vez só. Ver filtrarAtividadesColetivasPorEquipe.
       var ativColetivas = filtrarAtividadesColetivasPorEquipe(
         parsedPorAba["Participantes Ativ. Coletiva"], parsedPorAba["Resumo Atividade Coletiva"], estadoApp.currentEquipes);
-      ativColetivas = {
-        part: filtrarLinhasPorUnidade(ativColetivas.part, unidadesAtivas),
-        rac: filtrarLinhasPorUnidade(ativColetivas.rac, unidadesAtivas)
-      };
       Object.keys(parsedPorAba).forEach(function(nomeAba){
         // nomeAba é o nome REAL da aba (sem sufixo). Filtra as linhas pela equipe selecionada e
         // guarda no workbook sob a chave "sufixada" — o resto do painel lê por essa chave.
@@ -868,7 +861,7 @@ export function fetchAndLoad(){
         var filtradas;
         if(nomeAba === "Participantes Ativ. Coletiva" && ativColetivas.part) filtradas = ativColetivas.part;
         else if(nomeAba === "Resumo Atividade Coletiva" && ativColetivas.rac) filtradas = ativColetivas.rac;
-        else filtradas = filtrarLinhasPorUnidade(filtrarLinhasPorEquipe(parsedPorAba[nomeAba], estadoApp.currentEquipes), unidadesAtivas);
+        else filtradas = filtrarLinhasPorEquipe(parsedPorAba[nomeAba], estadoApp.currentEquipes);
         var key = suffixedName(nomeAba);
         wb.Sheets[key] = filtradas;
         wb.SheetNames.push(key);
@@ -898,35 +891,24 @@ export function fetchAndLoad(){
     });
 }
 
-// Filtro principal "Equipe - Unidade": multisseleção sobre os valores da coluna equipe_unidade
-// (o mesmo conjunto de valores do filtro de coluna "Equipe / Unidade" das listas). Nada marcado =
-// "Todas". As opções são preenchidas a cada leitura da planilha (atualizarOpcoesEquipeUnidade).
-var equipeMsInst = null;
-var unidadesDisponiveis = [];
-var unidadesSelecionadasUi = [];
-
-function atualizarOpcoesEquipeUnidade(lista){
-  unidadesDisponiveis = lista || [];
-  if(!equipeMsInst) return;
-  equipeMsInst.setOptions(unidadesDisponiveis.map(function(u){ return {value: u, label: u}; }));
-  // mantém só o que ainda existe, sem disparar novo fetch
-  var existentes = unidadesSelecionadasUi.filter(function(u){ return unidadesDisponiveis.indexOf(u) >= 0; });
-  unidadesSelecionadasUi = existentes;
-  equipeMsInst.setSelected(existentes, true);
-}
-
 function renderEquipeSwitcher(){
-  equipeMsInst = createMultiSelect(document.getElementById('equipeMs'), {
-    placeholder: 'Todas', multi: true, search: true,
+  var TODAS_KEY = 'todas';
+  var equipeMs = createMultiSelect(document.getElementById('equipeMs'), {
+    placeholder: 'Selecione',
+    multi: false,
+    search: false,
     onChange: function(keys){
-      unidadesSelecionadasUi = keys.slice();
-      aplicarSelecaoEquipeUnidade(unidadesSelecionadasUi, unidadesDisponiveis);
+      estadoApp.currentEquipes = keys[0] === TODAS_KEY ? EQUIPES.slice()
+        : EQUIPES.filter(function(eq){ return eq.key === keys[0]; });
       document.getElementById('statusState').style.display = '';
       fetchAndLoad();
     }
   });
-  equipeMsInst.setOptions([]);
-  equipeMsInst.setSelected([], true);
+  equipeMs.setOptions(
+    EQUIPES.map(function(eq){ return {value: eq.key, label: eq.label}; })
+      .concat([{value: TODAS_KEY, label: 'Todas'}])
+  );
+  equipeMs.setSelected([estadoApp.currentEquipes.length > 1 ? TODAS_KEY : estadoApp.currentEquipes[0].key]);
 }
 
 // Código que rodava no carregamento (ordem original preservada pelo main.js)

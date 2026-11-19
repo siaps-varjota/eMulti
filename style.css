@@ -1616,7 +1616,3 @@ h1,h2,h3,.serif{font-optical-sizing:auto;}
 #tabPareto .ap-notas summary{cursor:pointer;font-weight:600;}
 #tabPareto .ap-notas .notes-list{margin-top:12px;}
 @media (max-width:640px){#tabPareto .ap-chart-box{height:300px;}#tabPareto .ap-kpi b{font-size:17px;}}
-
-/* Filtro principal "Equipe - Unidade": nomes longos (ex.: "EMULTI CENTRO - VILA NAIARA") */
-#equipeMs .ms-panel{min-width:300px;}
-#equipeMs .ms-option-label{white-space:normal;}
