@@ -84,13 +84,9 @@ export function pdfLinhaProfissional(doc, rotulo, nomes, x, y, larguraMax){
   return y + 13*linhas.length;
 }
 
-export function gerarPdfLista(listName, card, btn){
-  if(!card) return;
-  var jspdfNs = window.jspdf;
-  if(!jspdfNs || !jspdfNs.jsPDF){
-    alert('Não foi possível carregar a biblioteca de geração de PDF (verifique a conexão com a internet) — tente novamente.');
-    return;
-  }
+// Coleta o que está visível na lista (colunas, linhas filtradas, resumo dos filtros) —
+// compartilhado entre PDF e Excel pra os dois saírem sempre iguais ao que está na tela.
+function coletarDadosLista(listName, card, acao){
   // Colunas ocultas na tela (ex.: "profissional 1".."5" da lista
   // "Participantes Ativ. Coletiva", resumidas no selo "AÇÃO M2" — ver
   // renderListCard) também ficam fora do PDF. headersOriginal preserva a
@@ -112,8 +108,8 @@ export function gerarPdfLista(listName, card, btn){
       return idxsPdfOcultos.length ? celulas.filter(function(c,i){ return idxsPdfOcultos.indexOf(i) === -1; }) : celulas;
     });
   if(!linhasVisiveis.length){
-    alert('Nenhuma linha visível com os filtros atuais dessa lista — ajuste os filtros antes de gerar o PDF.');
-    return;
+    alert('Nenhuma linha visível com os filtros atuais dessa lista — ajuste os filtros antes de gerar o '+acao+'.');
+    return null;
   }
 
   // Monta o resumo dos filtros ativos nesta lista, pra registrar no
@@ -148,6 +144,70 @@ export function gerarPdfLista(listName, card, btn){
   var totalLinhas = todasLinhas.length;
   var nomeExibicao = displayListName(listName);
   var equipeLabel = estadoApp.currentEquipes.map(function(e){ return e.label; }).join(' + ');
+
+  return {headers:headers, linhasVisiveis:linhasVisiveis, filtrosAtivos:filtrosAtivos, profissionaisSel:profissionaisSel, totalLinhas:totalLinhas, nomeExibicao:nomeExibicao, equipeLabel:equipeLabel};
+}
+
+// Converte o texto da célula em valor de planilha: inteiros curtos viram número (dá pra somar/ordenar);
+// datas, CPF/CNS, códigos com zero à esquerda e textos ficam como texto. "—" (vazio) vira célula vazia.
+function valorCelulaExcel(v){
+  var t = String(v == null ? '' : v).trim();
+  if(t === '' || t === '—' || t === '-') return '';
+  if(/^(0|[1-9]\d{0,6})$/.test(t)) return Number(t);
+  return t;
+}
+
+export function gerarExcelLista(listName, card){
+  if(!card) return;
+  if(typeof XLSX === 'undefined' || !XLSX.utils){
+    alert('Não foi possível carregar a biblioteca de Excel (verifique a conexão com a internet) — tente novamente.');
+    return;
+  }
+  var d = coletarDadosLista(listName, card, 'Excel');
+  if(!d) return;
+  var head = ['Nº'].concat(d.headers);
+  var linhas = d.linhasVisiveis.map(function(cel, i){ return [i+1].concat(cel.map(valorCelulaExcel)); });
+  var ws = XLSX.utils.aoa_to_sheet([head].concat(linhas));
+  ws['!cols'] = head.map(function(h, c){
+    var max = String(h).length;
+    for(var r=0; r<linhas.length && r<300; r++){ var l = String(linhas[r][c] == null ? '' : linhas[r][c]).length; if(l > max) max = l; }
+    return {wch: Math.max(6, Math.min(max + 2, 48))};
+  });
+  ws['!freeze'] = {xSplit:0, ySplit:1};
+  ws['!views'] = [{state:'frozen', ySplit:1}];
+  ws['!autofilter'] = {ref: XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:linhas.length, c:head.length-1}})};
+  // Aba 2: de onde vieram os dados (equipe, filtros aplicados, data de geração).
+  var info = [
+    ['Painel eMulti — Indicadores M1 e M2'],
+    ['Lista', d.nomeExibicao],
+    ['Equipe', d.equipeLabel],
+    ['Gerado em', new Date().toLocaleString('pt-BR')],
+    ['Linhas exportadas', d.linhasVisiveis.length+' de '+d.totalLinhas]
+  ];
+  if(d.profissionaisSel.length) info.push([d.profissionaisSel.length > 1 ? 'Profissionais' : 'Profissional', d.profissionaisSel.join(', ')]);
+  if(d.filtrosAtivos.length) d.filtrosAtivos.forEach(function(f, i){ info.push([i === 0 ? 'Filtros' : '', f]); });
+  else info.push(['Filtros', 'Sem filtros aplicados — todos os registros.']);
+  var wsInfo = XLSX.utils.aoa_to_sheet(info);
+  wsInfo['!cols'] = [{wch:20},{wch:80}];
+  var wb = XLSX.utils.book_new();
+  var nomeAba = String(d.nomeExibicao).replace(/[\\\/\?\*\[\]:]/g, ' ').trim().slice(0, 31) || 'Lista';
+  XLSX.utils.book_append_sheet(wb, ws, nomeAba);
+  XLSX.utils.book_append_sheet(wb, wsInfo, 'Filtros e resumo');
+  XLSX.writeFile(wb, slugifyFileName(d.nomeExibicao)+'__'+slugifyFileName(d.equipeLabel)+'__'+slugifyFileName(new Date().toLocaleDateString('pt-BR'))+'.xlsx');
+}
+
+export function gerarPdfLista(listName, card, btn){
+  if(!card) return;
+  var jspdfNs = window.jspdf;
+  if(!jspdfNs || !jspdfNs.jsPDF){
+    alert('Não foi possível carregar a biblioteca de geração de PDF (verifique a conexão com a internet) — tente novamente.');
+    return;
+  }
+  var dadosLista = coletarDadosLista(listName, card, 'PDF');
+  if(!dadosLista) return;
+  var headers = dadosLista.headers, linhasVisiveis = dadosLista.linhasVisiveis, filtrosAtivos = dadosLista.filtrosAtivos,
+      profissionaisSel = dadosLista.profissionaisSel, totalLinhas = dadosLista.totalLinhas,
+      nomeExibicao = dadosLista.nomeExibicao, equipeLabel = dadosLista.equipeLabel;
 
   var doc = new jspdfNs.jsPDF({orientation: headers.length > 6 ? 'landscape' : 'portrait', unit:'pt', format:'a4'});
   var pageWidth = doc.internal.pageSize.getWidth();
@@ -1149,6 +1209,11 @@ function renderListCard(name, containerId){
       + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h1a1.5 1.5 0 0 0 0-3H9v5"/><path d="M13 12v5h1a2 2 0 0 0 0-5z"/><path d="M18.5 12H17v5"/><path d="M17 14.5h1.3"/></svg>'
       + '<span>Gerar PDF</span></button>'
     : '';
+  var xlsxBtnHtml = hasTable
+    ? '<button type="button" class="pdf-btn xlsx-btn" data-xlsx-btn="'+escapeHtml(name)+'">'
+      + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 12l6 6"/><path d="M15 12l-6 6"/></svg>'
+      + '<span>Gerar Excel</span></button>'
+    : '';
   // Lista "Atendimentos": botão extra com o relatório de potencial de atendimento por profissional.
   var potBtnHtml = (hasTable && name === suffixedName("Atendimentos"))
     ? '<button type="button" class="pdf-btn pot-btn" data-potencial-btn="1">'
@@ -1156,7 +1221,7 @@ function renderListCard(name, containerId){
       + '<span>Potencial de atendimento</span></button>'
     : '';
   return '<div class="card list-card'+(listDatasExpandidas[sk] ? ' pa-datas-expandidas' : '')+'" data-list-card="'+escapeHtml(name)+'" data-state-key="'+escapeHtml(sk)+'">'
-    + '<div class="list-card-head"><h4>'+escapeHtml(displayListName(name))+'</h4>'+(potBtnHtml ? '<div class="list-card-actions">'+potBtnHtml+pdfBtnHtml+'</div>' : pdfBtnHtml)+'</div>'
+    + '<div class="list-card-head"><h4>'+escapeHtml(displayListName(name))+'</h4>'+'<div class="list-card-actions">'+potBtnHtml+xlsxBtnHtml+pdfBtnHtml+'</div>'+'</div>'
     + body + '</div>';
 }
 
@@ -1650,6 +1715,12 @@ export function renderListsSection(containerId, names){
   el.querySelectorAll('[data-pdf-btn]').forEach(function(btn){
     btn.addEventListener('click', function(){
       gerarPdfLista(btn.getAttribute('data-pdf-btn'), btn.closest('.list-card'), btn);
+    });
+  });
+
+  el.querySelectorAll('[data-xlsx-btn]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      gerarExcelLista(btn.getAttribute('data-xlsx-btn'), btn.closest('.list-card'));
     });
   });
 
