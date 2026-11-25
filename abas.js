@@ -2419,7 +2419,8 @@ function metaCardHTML(cfg){
     nota = '<p class="mq-tier-note">Faltam <b>'+fmtInt(cfg.faltam)+'</b> '+escapeHtml(cfg.unidadeFaltam)
       + (qm ? ' no total' : '')
       + (cfg.semanasRestantes<=0 ? ' (quadrimestre encerrado)' : '')+'.'
-      + (qm ? '<br><span class="mq-tier-permes">'+qm+'</span>' : '')+'</p>';
+      + (qm ? '<br><span class="mq-tier-permes">'+qm+'</span>' : '')
+      + (cfg.divisao ? '<br><span class="mq-tier-divisao">'+faltaDivisaoTexto(cfg.divisao)+'</span>' : '')+'</p>';
   }
   return '<div class="mq-tier" style="--tc:'+cfg.color+'">'
     + '<div class="mq-tier-top">'
@@ -2528,7 +2529,8 @@ export function metaQuadrimestreMiniHTML(base, baseLabel, cardsCfg, preliminar, 
     var alertHtml = (c.faltam>0 && !quaseLa)
       ? '<div class="meta-mini-alert"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"/><path d="M12 8v5"/><circle cx="12" cy="15.8" r=".9" fill="currentColor" stroke="none"/></svg>'
         + '<span>Faltam '+fmtInt(c.faltam)+' '+c.unidadeFaltam+(c.porMes && c.porMes.length ? ' no total' : '')+'.'
-        + (c.porMes && c.porMes.length ? ' '+faltaPorMesTexto(c.porMes, c.pct) : '')+'</span></div>'
+        + (c.porMes && c.porMes.length ? ' '+faltaPorMesTexto(c.porMes, c.pct) : '')
+        + (c.divisao ? '<br><span class="meta-mini-divisao">'+faltaDivisaoTexto(c.divisao)+'</span>' : '')+'</span></div>'
       : '';
     return '<div class="meta-mini-row" style="background:color-mix(in srgb,'+c.color+' 10%,white);border-color:color-mix(in srgb,'+c.color+' 30%,white);">'
       + '<div class="meta-mini-row-left">'
@@ -2632,6 +2634,7 @@ export function calcularMetasQuadrimestre(numerador, denominador, thresholds, un
     var alvo = Math.ceil(t.value*denominador);
     var faltam = Math.max(0, alvo-(numerador||0));
     var porMes = [];
+    var divisao = null;
     // Vários meses no modo "média": o valor exibido é a média das razões de cada
     // janela, então o que falta sai dessa mesma conta (e não de alvo - numerador
     // médios). O alvo acompanha, pra barra de progresso e o "atual/alvo" baterem.
@@ -2640,6 +2643,7 @@ export function calcularMetasQuadrimestre(numerador, denominador, thresholds, un
       if(rJ){
         faltam = rJ.faltam;
         porMes = rJ.porMes || [];
+        divisao = rJ.divisao || null;
         if(faltam>0) alvo = (numerador||0) + faltam;
       }
     }
@@ -2651,6 +2655,7 @@ export function calcularMetasQuadrimestre(numerador, denominador, thresholds, un
       mediaSemana: alvo/semanasQuad,
       faltam: faltam,
       porMes: porMes,
+      divisao: divisao,
       pct: isM2,
       semanasRestantes: semanasRestantes,
       mediaSemanaFaltam: semanasRestantes>0 ? faltam/semanasRestantes : 0
@@ -2738,7 +2743,7 @@ export function faltaM2ParaMeta(num, den, thresholdPct, janelas){
   if(janelas && janelas.length>1){
     var rJ = faltaMediaJanelas(janelas, Number(thresholdPct), false, true);
     if(!rJ) return null;
-    return {faltam:rJ.faltam, numAtual:num, denAtual:den, numNovo:num+rJ.faltam, denNovo:den, janelas:rJ.janelas, porMes:rJ.porMes};
+    return {faltam:rJ.faltam, numAtual:num, denAtual:den, numNovo:num+rJ.faltam, denNovo:den, janelas:rJ.janelas, porMes:rJ.porMes, divisao:rJ.divisao||null};
   }
   var t = Number(thresholdPct)/100;
   if(!(t>0) || den<=0) return null;
@@ -2869,7 +2874,41 @@ function faltaMediaJanelasSobrepostas(js, A, somaNoDen, esc){
     porMes.push({mes:js[a].mes, add:add[a], destino:razao(a, s)*esc, tambem:tambem});
   });
   if(!(total > 0)) return null;
-  return {faltam:total, janelas:N, porMes:porMes};
+  return {faltam:total, janelas:N, porMes:porMes, divisao:divisaoEntreAbertos(js, idx, abertos, A, somaNoDen, esc, total, porMes)};
+}
+
+// Plano B: se não der pra fazer tudo no primeiro mês aberto (ex.: as 21 de novembro), divide o que
+// falta ENTRE os meses abertos (ex.: novembro e dezembro) de forma equilibrada. Só aparece quando o
+// plano principal concentra tudo num único mês e há mais de um mês aberto. Como uma ação feita em
+// dezembro conta só na janela de dezembro (e uma de novembro conta em novembro e dezembro), o total
+// da divisão costuma ser maior que o do plano principal. Devolve {faltam, porMes:[{mes, add}]} ou null.
+function divisaoEntreAbertos(js, idx, abertos, A, somaNoDen, esc, totalBase, porMesBase){
+  if(abertos.length < 2 || !porMesBase || porMesBase.length !== 1) return null;
+  var EPS = 1e-9, N = js.length;
+  function razao(i, s){ return (js[i].num+s)/(js[i].den + (somaNoDen ? s : 0)); }
+  function distribui(T){
+    var base = Math.floor(T/abertos.length), resto = T - base*abertos.length;
+    return abertos.map(function(a, k){ return base + (k < resto ? 1 : 0); });
+  }
+  function media(add){
+    var soma = 0;
+    js.forEach(function(j, i){
+      var s = 0;
+      abertos.forEach(function(a, k){ if(idx[a] <= idx[i] && idx[i]-idx[a] <= 3) s += add[k]; });
+      soma += razao(i, s);
+    });
+    return soma/N;
+  }
+  var lo = 0, hi = Math.max(1, totalBase), guard = 0;
+  while(media(distribui(hi)) < A - EPS){ hi *= 2; if(++guard > 40) return null; }
+  while(lo < hi){
+    var mid = Math.floor((lo+hi)/2);
+    if(media(distribui(mid)) >= A - EPS) hi = mid; else lo = mid+1;
+  }
+  var add = distribui(lo), porMes = [];
+  abertos.forEach(function(a, k){ if(add[k] > 0) porMes.push({mes:js[a].mes, add:add[k]}); });
+  if(porMes.length < 2) return null;
+  return {faltam:lo, porMes:porMes};
 }
 
 // Texto da quebra por mês: "Out +49 (→ 6,0%) · Nov +76 (→ 6,0%)". Vazio sem quebra (1 mês só).
@@ -2883,11 +2922,19 @@ export function faltaPorMesTexto(porMes, pct){
   }).join(' · ');
 }
 
+// Texto do plano B: "Se não der pra fazer tudo em Nov, divida: Nov +11 · Dez +11 (total 22)".
+export function faltaDivisaoTexto(divisao){
+  if(!divisao || !divisao.porMes || divisao.porMes.length < 2) return '';
+  var partes = divisao.porMes.map(function(m){ return escapeHtml(m.mes)+' +'+fmtInt(m.add); }).join(' · ');
+  return 'Se não der pra fazer tudo em '+escapeHtml(divisao.porMes[0].mes)+', divida entre os meses: '+partes+' (total '+fmtInt(divisao.faltam)+').';
+}
+
 // Explicação (só em tooltip): cada ação compartilhada nova soma nos dois lados da conta.
 function faltaM2Texto(f){
   if(f.janelas>1){
     var q = faltaPorMesTexto(f.porMes, true).replace(/&amp;/g,'&');
-    return 'O M2 é a média dos M2 de cada mês: faltam '+fmtInt(f.faltam)+' ações compartilhadas no total'+(q ? ' — '+q : '');
+    var dv = faltaDivisaoTexto(f.divisao).replace(/&amp;/g,'&');
+    return 'O M2 é a média dos M2 de cada mês: faltam '+fmtInt(f.faltam)+' ações compartilhadas no total'+(q ? ' — '+q : '')+(dv ? '. '+dv : '');
   }
   return 'Faltam '+fmtInt(f.faltam)+' ações compartilhadas: '+fmtInt(f.numAtual)+' → '+fmtInt(f.numNovo)+' sobre '+fmtInt(f.denAtual)+' ações realizadas';
 }
