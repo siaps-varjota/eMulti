@@ -12,7 +12,7 @@ import {
   classificarDesempenho, createMultiSelect, escapeHtml, filtrarLinhasPorEquipe,
   filtrarAtividadesColetivasPorEquipe, suffixedName, monthShortLabel,
   sheetToRows, colIndex, colRespParticipantes, normalizeText, normalizarNomeProf, nomeEhDaEmulti,
-  criarLigacaoAtividades
+  criarLigacaoAtividades, criarFiltroResponsavelEmulti
 } from './nucleo.js';
 import { profissionalColIndex } from './listas.js';
 import { latestRawSheets, latestWb } from './app.js';
@@ -54,11 +54,12 @@ function opcoesQuad() {
 
 // ---------- cálculo por equipe/quadrimestre ----------
 function comEquipe(eq, fn) {
-  var salvo = estadoApp.currentEquipes, salvoOv = estadoApp.officialOverrides;
+  var salvo = estadoApp.currentEquipes, salvoOv = estadoApp.officialOverrides, salvoUn = estadoApp.currentUnidades;
   estadoApp.currentEquipes = [eq];
+  estadoApp.currentUnidades = []; // a aba Análises tem filtros próprios, não usa a unidade do topo
   // Valores oficiais são da equipe inteira: com profissional escolhido, usa só o cálculo das linhas dele.
   if (estado.profissional) estadoApp.officialOverrides = {};
-  try { return fn(); } finally { estadoApp.currentEquipes = salvo; estadoApp.officialOverrides = salvoOv; }
+  try { return fn(); } finally { estadoApp.currentEquipes = salvo; estadoApp.officialOverrides = salvoOv; estadoApp.currentUnidades = salvoUn; }
 }
 
 var COLS_PROF_PART = ['profissional 1', 'profissional 2', 'profissional 3', 'profissional 4', 'profissional 5'];
@@ -90,8 +91,9 @@ function filtrarWbPorProfissional(wb, nomeProf) {
   var part = rows('Participantes Ativ. Coletiva'), partF = null;
   if (part && part.length) {
     var cols = colsProfPart(part[0]);
+    var filtroResp = criarFiltroResponsavelEmulti(part[0]); // responsável fora da eMulti: atividade excluída
     partF = [part[0]].concat(part.slice(1).filter(function (r) {
-      return cols.some(function (ci) { return chaveProf(r[ci]) === alvo; });
+      return filtroResp.ok(r) && cols.some(function (ci) { return chaveProf(r[ci]) === alvo; });
     }));
     set('Participantes Ativ. Coletiva', partF);
   }

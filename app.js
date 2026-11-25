@@ -4,7 +4,7 @@
 // Cada seção "=== módulo: ... ===" corresponde a um arquivo original.
 // ======================================================================
 
-import { equipeColIndex, colRespParticipantes, nomeEhDaEmultiDasEquipes, nomeEhDaEmultiSelecionada, linhaEntraNaEmulti, anexarMensalNaSerie, CLASS_BANDS_M1, CLASS_BANDS_M1_OV, CLASS_BANDS_M2, CLASS_BANDS_M2_OV, CLASS_BANDS_NOTA_OV, CLASS_PILL_HEX, EQUIPES, JANELA_MESES, LEGEND_M1, LEGEND_M2, OV_LEGEND_M1, OV_LEGEND_M2, OV_LEGEND_NOTA, STORAGE_AVAILABLE, STORAGE_KEY, TREND_MESES, TREND_SEMANAS, anchorMonthDate, animateGauges, anoMs, calcularIndicadoresDoPeriodo, calcularJanelaComOverride, calcularJanelaPeriodo, calcularSerieSemanal, calcularSerieTendencia, classificarDesempenho, classificarM1, classificarM2, colIndex, compCardHeaderHTML, createMultiSelect, criarLigacaoAtividades, projecaoMesFuturo, escapeHtml, estadoApp, fetchAllSheets, fetchAtualizacaoSafe, fetchOfficialOverridesSafe, fetchProfissionaisSafe, filtrarLinhasPorEquipe, filtrarAtividadesColetivasPorEquipe, fmtBRDate, fmtDate, fmtDec, fmtInt, init_nucleo_config, init_nucleo_dados, init_nucleo_listas_estado, init_nucleo_periodos, init_nucleo_popovers, init_visual_gauge, init_visual_painel_kpi, isMesFuturo, labelQuadsSelecionados, m1ListNames, m2ListNames, mediaDeMeses, mesMs, mesesDosQuadsSelecionadosUniao, mesesElapsedDosQuadsSelecionadosUniao, monthOptionValue, monthShortLabel, normalizeText, parseBRDate, parseCsv, periodoMesUnico, pillHex, populateAnoQuadSelects, profissionaisRoster, quadCode, quadKeyOfDate, quadShortLabel, quadMs, refMonthLabel, sheetToRows, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, valoresUnicosOrdenados, withinPeriod } from './nucleo.js';
+import { unidadesDisponiveisDasAbas, definirUnidadesSelecionadas, unidadesDasEquipesAtuais, filtrarLinhasPorUnidade, equipeColIndex, colRespParticipantes, nomeEhDaEmultiDasEquipes, nomeEhDaEmultiSelecionada, linhaEntraNaEmulti, anexarMensalNaSerie, CLASS_BANDS_M1, CLASS_BANDS_M1_OV, CLASS_BANDS_M2, CLASS_BANDS_M2_OV, CLASS_BANDS_NOTA_OV, CLASS_PILL_HEX, EQUIPES, JANELA_MESES, LEGEND_M1, LEGEND_M2, OV_LEGEND_M1, OV_LEGEND_M2, OV_LEGEND_NOTA, STORAGE_AVAILABLE, STORAGE_KEY, TREND_MESES, TREND_SEMANAS, anchorMonthDate, animateGauges, anoMs, calcularIndicadoresDoPeriodo, calcularJanelaComOverride, calcularJanelaPeriodo, calcularSerieSemanal, calcularSerieTendencia, classificarDesempenho, classificarM1, classificarM2, colIndex, compCardHeaderHTML, createMultiSelect, criarLigacaoAtividades, criarFiltroResponsavelEmulti, projecaoMesFuturo, escapeHtml, estadoApp, fetchAllSheets, fetchAtualizacaoSafe, fetchOfficialOverridesSafe, fetchProfissionaisSafe, filtrarLinhasPorEquipe, filtrarAtividadesColetivasPorEquipe, fmtBRDate, fmtDate, fmtDec, fmtInt, init_nucleo_config, init_nucleo_dados, init_nucleo_listas_estado, init_nucleo_periodos, init_nucleo_popovers, init_visual_gauge, init_visual_painel_kpi, isMesFuturo, labelQuadsSelecionados, m1ListNames, m2ListNames, mediaDeMeses, mesMs, mesesDosQuadsSelecionadosUniao, mesesElapsedDosQuadsSelecionadosUniao, monthOptionValue, monthShortLabel, normalizeText, parseBRDate, parseCsv, periodoMesUnico, pillHex, populateAnoQuadSelects, profissionaisRoster, quadCode, quadKeyOfDate, quadShortLabel, quadMs, refMonthLabel, sheetToRows, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, valoresUnicosOrdenados, withinPeriod } from './nucleo.js';
 import { renderFluxoPacientes, ovMesesHTML, M1_META_THRESHOLDS, M2_META_THRESHOLDS, calcularAnalises, calcularMetasQuadrimestre, calcularPerformanceProfissionais, calcularQuadrimestreAnterior, init_abas_analises_calculo, init_abas_analises_render, init_abas_m1_m2, init_abas_profissionais, ipGaugeCardHTML, ipReadingHTML, metaQuadrimestreHTML, metaQuadrimestreMiniHTML, overviewCardHTML, populateSheetsCache, profListaAtual, renderAnalises, renderPerformanceProfissionais, setupPreliminarToggle, setupTrendInteractivity, sparkline, stackbar } from './abas.js';
 import { gerarPdfDivergenciaOficial, init_listas_atividade_coletiva, pessoasAtendidasParaMeses, renderListsSection } from './listas.js';
 
@@ -92,7 +92,7 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
   var DEF_ATEND_IND = 'Atendimento individual (presencial, domiciliar ou remoto) registrado por profissional da eMulti com CNS/CPF identificado — Modelo de Informação de Atendimento Individual (MIAI). Mesma contagem usada no Numerador do M1 (NT 43/2026) e no Denominador do M2 (NT 44/2026), que soma TODOS os atendimentos e atividades da eMulti no período.';
   var DEF_PARTIC_COLETIVA = 'Participações em atividade coletiva (códigos 04 a 07: Educação em saúde, Atendimento em grupo, Avaliação/Procedimento coletivo, Mobilização social), específica ou compartilhada — cada pessoa participante conta 1 vez por atividade (Modelo de Informação de Atividade Coletiva - MIAC). Entra no Numerador do M1 (NT 43/2026) junto com os atendimentos individuais.';
   var DEF_AC_ESPECIFICA = 'Atividade coletiva (Resumo Atividade Coletiva) que NÃO teve 2+ profissionais com CNS diferentes (sendo ao menos 1 da eMulti) — ou que é uma reunião sem o tema "Discussão de caso/Projeto terapêutico singular" — entra no Denominador do M2 como ação específica, mas NÃO no Numerador (não é compartilhada).';
-  var DEF_AC_COMPARTILHADA = 'Atividade coletiva realizada de forma simultânea por 2 ou mais profissionais (CNS diferentes), com pelo menos 1 da eMulti — conta como ação compartilhada no Numerador do M2 (NT 44/2026). Reuniões (de equipe, com outras equipes ou intersetorial) só contam se o tema for "Discussão de caso/Projeto terapêutico singular".';
+  var DEF_AC_COMPARTILHADA = 'Atividade coletiva com responsável da eMulti, realizada de forma simultânea por 2 ou mais profissionais (CNS diferentes) — conta como ação compartilhada no Numerador do M2 (NT 44/2026). Reuniões (de equipe, com outras equipes ou intersetorial) só contam se o tema for "Discussão de caso/Projeto terapêutico singular".';
   var DEF_REUNIAO_ESPECIFICA = 'Reunião (Resumo Reuniões) que não é dos tipos 01-03 (Reunião de equipe/outras equipes de saúde/intersetorial) com tema "Discussão de caso/Projeto terapêutico singular", ou não teve 2+ participantes, ou a planilha não traz o tema — entra no Denominador do M2, mas NÃO no Numerador.';
   var DEF_REUNIAO_COMPARTILHADA = 'Reunião de equipe, com outras equipes de saúde ou intersetorial (códigos 01-03), registrada com o tema "Discussão de caso/Projeto terapêutico singular" e 2 ou mais participantes — conta como ação compartilhada no Numerador do M2 (NT 44/2026).';
 
@@ -114,7 +114,7 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
     numM1Parts.push({label:'Resultado oficial (sem detalhamento)', value:restoNumM1, color:'#9AA7A0',
       title:'Parte do numerador que vem do resultado oficial do SIAPS dos meses já publicados (e da diferença entre janelas oficiais). O oficial traz só o total, sem separar atendimentos individuais e participações em atividades coletivas.'});
   }
-  var numM1Bar = stackbar(numM1Parts, numM1Gauge);
+  var numM1Bar = stackbar(numM1Parts, numM1Gauge, true);
   var denM1Bar = stackbar([
       {label:'Pessoas atendidas', value:denM1CalcGauge, color:'#153F35'}
     ], denM1Gauge);
@@ -131,7 +131,7 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
     numM2Parts.push({label:'Resultado oficial (sem detalhamento)', value:restoNumM2, color:'#9AA7A0',
       title:'Parte do numerador que vem do resultado oficial do SIAPS dos meses já publicados (e da diferença entre janelas oficiais). O oficial traz só o total, sem separar atendimentos compartilhados, atividades coletivas, reuniões e compartilhamento de cuidado.'});
   }
-  var numM2Bar = stackbar(numM2Parts, numM2Gauge);
+  var numM2Bar = stackbar(numM2Parts, numM2Gauge, true);
   var denM2Bar = stackbar([
       {label:'Atendimentos individuais (específicos)', value:atendEspGauge||0, color:'#CBD3C4', title:DEF_ATEND_ESPECIFICO},
       {label:'Atendimentos individuais (compartilhados)', value:atendCompGauge||0, color:'#3B7DDD', title:DEF_ATEND_COMPARTILHADO},
@@ -850,22 +850,30 @@ export function fetchAndLoad(){
         latestRawSheets[r.name] = parsedRows;
         parsedPorAba[r.name] = parsedRows;
       });
+      // Filtro "Equipe - Unidade": as opções vêm dos dados brutos (sem filtro de equipe).
+      atualizarOpcoesUnidade(unidadesDisponiveisDasAbas(parsedPorAba));
+      var unidadesAtivas = estadoApp.currentUnidades || [];
       // Atividades coletivas: filtro pela equipe da linha; no "Geral" a mesma atividade que
       // aparece em duas eMulti conta uma vez só. Ver filtrarAtividadesColetivasPorEquipe.
       var ativColetivas = filtrarAtividadesColetivasPorEquipe(
         parsedPorAba["Participantes Ativ. Coletiva"], parsedPorAba["Resumo Atividade Coletiva"], estadoApp.currentEquipes);
+      // Com unidade marcada: wb = abas restritas às unidades (M1, listas...); semUnidade = só por equipe
+      // (usado pra manter o M2 igual, independente da unidade — ver calcularIndicadoresDoPeriodo).
+      var wbSemUnidade = unidadesAtivas.length ? {SheetNames:[], Sheets:{}} : null;
       Object.keys(parsedPorAba).forEach(function(nomeAba){
         // nomeAba é o nome REAL da aba (sem sufixo). Filtra as linhas pela equipe selecionada e
         // guarda no workbook sob a chave "sufixada" — o resto do painel lê por essa chave.
         // SEM filtro de período aqui — cada mês de referência filtra por data na hora.
-        var filtradas;
-        if(nomeAba === "Participantes Ativ. Coletiva" && ativColetivas.part) filtradas = ativColetivas.part;
-        else if(nomeAba === "Resumo Atividade Coletiva" && ativColetivas.rac) filtradas = ativColetivas.rac;
-        else filtradas = filtrarLinhasPorEquipe(parsedPorAba[nomeAba], estadoApp.currentEquipes);
+        var porEquipe;
+        if(nomeAba === "Participantes Ativ. Coletiva" && ativColetivas.part) porEquipe = ativColetivas.part;
+        else if(nomeAba === "Resumo Atividade Coletiva" && ativColetivas.rac) porEquipe = ativColetivas.rac;
+        else porEquipe = filtrarLinhasPorEquipe(parsedPorAba[nomeAba], estadoApp.currentEquipes);
         var key = suffixedName(nomeAba);
-        wb.Sheets[key] = filtradas;
+        wb.Sheets[key] = filtrarLinhasPorUnidade(porEquipe, unidadesAtivas);
         wb.SheetNames.push(key);
+        if(wbSemUnidade){ wbSemUnidade.Sheets[key] = porEquipe; wbSemUnidade.SheetNames.push(key); }
       });
+      if(wbSemUnidade) wb.semUnidade = wbSemUnidade;
 
       latestWb = wb;
       aplicarMesReferencia(true);
@@ -909,6 +917,41 @@ function renderEquipeSwitcher(){
       .concat([{value: TODAS_KEY, label: 'Todas'}])
   );
   equipeMs.setSelected([estadoApp.currentEquipes.length > 1 ? TODAS_KEY : estadoApp.currentEquipes[0].key]);
+
+  renderUnidadeSwitcher();
+}
+
+// Filtro "Equipe - Unidade" (multisseleção sobre a coluna equipe_unidade, ao lado do filtro de Equipe).
+// Nada marcado = todas as unidades. Só lista as unidades das equipes marcadas no filtro de Equipe.
+// Não altera o M2 (ver calcularIndicadoresDoPeriodo). As opções são preenchidas a cada leitura da planilha.
+var unidadeMsInst = null;
+var todasUnidades = [];
+var unidadesSelecionadasUi = [];
+
+function atualizarOpcoesUnidade(lista){
+  todasUnidades = lista || [];
+  if(!unidadeMsInst) return;
+  var disponiveis = unidadesDasEquipesAtuais(todasUnidades);
+  unidadeMsInst.setOptions(disponiveis.map(function(u){ return {value: u, label: u}; }));
+  unidadesSelecionadasUi = unidadesSelecionadasUi.filter(function(u){ return disponiveis.indexOf(u) >= 0; });
+  unidadeMsInst.setSelected(unidadesSelecionadasUi);
+  definirUnidadesSelecionadas(unidadesSelecionadasUi, disponiveis);
+}
+
+function renderUnidadeSwitcher(){
+  var el = document.getElementById('unidadeMs');
+  if(!el) return;
+  unidadeMsInst = createMultiSelect(el, {
+    placeholder: 'Todas', multi: true, search: true,
+    onChange: function(keys){
+      unidadesSelecionadasUi = keys.slice();
+      definirUnidadesSelecionadas(unidadesSelecionadasUi, unidadesDasEquipesAtuais(todasUnidades));
+      document.getElementById('statusState').style.display = '';
+      fetchAndLoad();
+    }
+  });
+  unidadeMsInst.setOptions([]);
+  unidadeMsInst.setSelected([]);
 }
 
 // Código que rodava no carregamento (ordem original preservada pelo main.js)
@@ -1036,9 +1079,11 @@ window.debugAtividadesCompartilhadas = function(){
     var eqs = estadoApp.currentEquipes;
     var kws = eqs.map(function(e){ return normalizeText(e.matchKeyword || e.suffix); });
     var porProf = {}, nContam = 0, nPelaEquipeDaLinha = 0, nSoPeloProf = 0, nComProfMultiEquipe = 0;
+    var filtroRespDbg = criarFiltroResponsavelEmulti(h);
     rows.slice(1).forEach(function(r){
       var nome = String(r[iNome]||"").trim();
       if(!nome || nome.indexOf("(sem lista nominal") === 0) return;
+      if(!filtroRespDbg.ok(r)) return; // responsável fora da eMulti: não conta
       if(!withinPeriod(parseBRDate(r[iData]), periodo.inicio, periodo.fim)) return;
       var profs = [], vistos = {};
       cols.forEach(function(ci){
