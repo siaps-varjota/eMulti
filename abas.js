@@ -4,7 +4,7 @@
 // Cada seção "=== módulo: ... ===" corresponde a um arquivo original.
 // ======================================================================
 
-import { classificarDesempenho, monthShortLabel, CLASS_BANDS_M1, EQUIPES, OV_ICONS, PONTOS_POR_CLASSE, QUAD_LABELS, TOTAL_PROF_EMULTI_HEADER, profissionaisPorAtividade, avisarNomesProfissionaisSemMatch, addMonths, buildGauge, calcularJanelaPeriodo, calcularSerieTendencia, classificarM1, classificarM2, colIndex, colTotalProfEmulti, createMultiSelect, criarCalculadoraTotalProfEmulti, criarLigacaoAtividades, displayListName, ehProfissionalComparativoEmulti, equipeColIndex, linhaEntraNaEmulti, escapeHtml, estadoApp, filtrarLinhasPorEquipe, fmtBRDate, fmtDec, fmtInt, gaugeInterpretationHTML, gaugeLegendHTML, kpiPanelHTML, kpiPanelIcon, mesesDosQuadsSelecionadosUniao, nomeEhDaEmulti, normalizeText, ovIconHTML, ovLegendHTML, ovStatus, parseBRDate, pillHex, profissionaisRoster, quadShortLabel, sheetToRows, suffixedName, ultimoMesDosQuadsSelecionados, withinPeriod } from './nucleo.js';
+import { classificarDesempenho, monthShortLabel, CLASS_BANDS_M1, EQUIPES, OV_ICONS, PONTOS_POR_CLASSE, QUAD_LABELS, TOTAL_PROF_EMULTI_HEADER, profissionaisPorAtividade, avisarNomesProfissionaisSemMatch, addMonths, buildGauge, calcularJanelaPeriodo, calcularSerieTendencia, classificarM1, classificarM2, colIndex, colTotalProfEmulti, createMultiSelect, criarCalculadoraTotalProfEmulti, criarFiltroResponsavelEmulti, criarLigacaoAtividades, displayListName, ehProfissionalComparativoEmulti, equipeColIndex, linhaEntraNaEmulti, escapeHtml, estadoApp, filtrarLinhasPorEquipe, fmtBRDate, fmtDec, fmtInt, gaugeInterpretationHTML, gaugeLegendHTML, kpiPanelHTML, kpiPanelIcon, mesesDosQuadsSelecionadosUniao, nomeEhDaEmulti, normalizeText, ovIconHTML, ovLegendHTML, ovStatus, parseBRDate, pillHex, profissionaisRoster, quadShortLabel, sheetToRows, suffixedName, ultimoMesDosQuadsSelecionados, withinPeriod } from './nucleo.js';
 import { equipeLabelFromRaw, pdfComNumeracao, pdfLinhaProfissional, profissionalColIndex, slugifyFileName } from './listas.js';
 import { latestRawSheets, latestWb } from './app.js';
 
@@ -1407,9 +1407,11 @@ export function buscaAtivaCompute(){
     var h = pr[0] || [];
     var iN = colIndex(h, "participante"), iD = colIndex(h, "data");
     if(iN < 0 || iD < 0) return;
+    var filtroResp = criarFiltroResponsavelEmulti(h);
     pr.slice(1).forEach(function(r){
       var nome = String(r[iN]||"").trim();
       if(!nome || nome.indexOf("(sem lista nominal") === 0) return;
+      if(!filtroResp.ok(r)) return; // atividade com responsável fora da eMulti não conta
       var d = parseBRDate(r[iD]);
       if(!d) return;
       var k = nome.toUpperCase();
@@ -1514,6 +1516,17 @@ export function populateSheetsCache(wb){
     //   atividade); se não existir, é acrescentada no fim.
     var nomeExib = displayListName(name);
     var resumoLigado = false;
+    // Atividade coletiva com responsável FORA da eMulti sai da lista (e dos cálculos).
+    if(nomeExib === "Participantes Ativ. Coletiva"){
+      var filtroRespLista = criarFiltroResponsavelEmulti(headers);
+      if(filtroRespLista.ativo) dataRows = dataRows.filter(function(r){ return filtroRespLista.ok(r); });
+    }
+    // Resumo Atividade Coletiva: sem total da eMulti (sem ligação), confere o responsável na própria linha.
+    var iRespResumo = (nomeExib === "Resumo Atividade Coletiva") ? colIndex(headers, "responsavel") : -1;
+    function respResumoForaDaEmulti(r){
+      return profissionaisRoster.length > 0 && iRespResumo >= 0
+        && String(r[iRespResumo]||"").trim() !== "" && !nomeEhDaEmulti(r[iRespResumo]);
+    }
     if(nomeExib === "Participantes Ativ. Coletiva" && totalEmultiCalc && totalEmultiCalc.disponivel
        && colTotalProfEmulti(headers) < 0){
       var calcLinha = totalEmultiCalc.calcular;
@@ -1541,6 +1554,8 @@ export function populateSheetsCache(wb){
           // Total vazio/indefinido (sem ligação): mantém só se a linha é da própria
           // eMulti; linha de outra equipe sem profissional da eMulti confirmado sai.
           var iEqL = equipeColIndex(headers);
+          var semTotal = (r[iTot]===undefined || r[iTot]===null || String(r[iTot]).trim()==="");
+          if(semTotal && respResumoForaDaEmulti(r)) return false;
           return linhaEntraNaEmulti(r[iTot], iEqL >= 0 ? r[iEqL] : null);
         });
         resumoLigado = true;
@@ -1553,7 +1568,7 @@ export function populateSheetsCache(wb){
     // profissional da eMulti.
     if(nomeExib === "Resumo Atividade Coletiva" && !resumoLigado){
       var iEqSL = equipeColIndex(headers);
-      if(iEqSL >= 0) dataRows = dataRows.filter(function(r){ return linhaEntraNaEmulti(undefined, r[iEqSL]); });
+      if(iEqSL >= 0) dataRows = dataRows.filter(function(r){ return !respResumoForaDaEmulti(r) && linhaEntraNaEmulti(undefined, r[iEqSL]); });
     }
     estadoApp.latestSheets[name] = {headers: headers, rows: dataRows};
   });
@@ -3681,9 +3696,11 @@ export function calcularAnalises(){
     var h = pr[0] || [];
     var iN = colIndex(h, "participante"), iD = colIndex(h, "data");
     if(iN < 0 || iD < 0) return;
+    var filtroResp = criarFiltroResponsavelEmulti(h);
     pr.slice(1).forEach(function(r){
       var nome = String(r[iN]||"").trim();
       if(!nome || nome.indexOf("(sem lista nominal") === 0) return;
+      if(!filtroResp.ok(r)) return; // atividade com responsável fora da eMulti não conta
       var d = parseBRDate(r[iD]);
       if(!d) return;
       var k = nome.toUpperCase();

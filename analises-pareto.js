@@ -12,7 +12,7 @@ import {
   classificarDesempenho, createMultiSelect, escapeHtml, filtrarLinhasPorEquipe,
   filtrarAtividadesColetivasPorEquipe, suffixedName, monthShortLabel,
   sheetToRows, colIndex, colRespParticipantes, normalizeText, normalizarNomeProf, nomeEhDaEmulti,
-  criarLigacaoAtividades
+  criarLigacaoAtividades, criarFiltroResponsavelEmulti
 } from './nucleo.js';
 import { profissionalColIndex } from './listas.js';
 import { latestRawSheets, latestWb } from './app.js';
@@ -91,8 +91,9 @@ function filtrarWbPorProfissional(wb, nomeProf) {
   var part = rows('Participantes Ativ. Coletiva'), partF = null;
   if (part && part.length) {
     var cols = colsProfPart(part[0]);
+    var filtroResp = criarFiltroResponsavelEmulti(part[0]); // responsável fora da eMulti: atividade excluída
     partF = [part[0]].concat(part.slice(1).filter(function (r) {
-      return cols.some(function (ci) { return chaveProf(r[ci]) === alvo; });
+      return filtroResp.ok(r) && cols.some(function (ci) { return chaveProf(r[ci]) === alvo; });
     }));
     set('Participantes Ativ. Coletiva', partF);
   }

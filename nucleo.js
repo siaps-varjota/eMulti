@@ -396,9 +396,12 @@ export function criarCalculadoraTotalProfEmulti(partHeader){
     )
     .filter(function(i){ return i >= 0; });
   var podeVirtual = profissionaisRoster.length > 0 && profCols.length > 0;
+  var filtroResp = criarFiltroResponsavelEmulti(partHeader);
   return {
     disponivel: iReal >= 0 || podeVirtual,
     calcular: function(r){
+      // Responsável fora da eMulti: a atividade não conta na eMulti (total 0).
+      if(!filtroResp.ok(r)) return 0;
       if(iReal >= 0 && String(r[iReal]===undefined||r[iReal]===null?"":r[iReal]).trim() !== "") return toInt(r[iReal]);
       var vistos = {}, n = 0;
       for(var i=0;i<profCols.length;i++){
@@ -588,8 +591,11 @@ export function criarLigacaoAtividades(partRows, racHeader, todasPartRows){
   // a planilha traga um número maior numa coluna própria. Sem roster/colunas de nome,
   // cai no cálculo antigo.
   var contarPorNomes = (profissionaisRoster.length > 0 && colsProfLig.length > 0);
+  var filtroRespLig = criarFiltroResponsavelEmulti(partHeader);
   function totalEmultiDaLinha(r){
     if(!contarPorNomes) return calc.calcular(r);
+    // Responsável fora da eMulti: atividade excluída (total 0).
+    if(!filtroRespLig.ok(r)) return 0;
     var vistos = {}, n = 0;
     colsProfLig.forEach(function(ci){
       var nome = String(r[ci]===undefined||r[ci]===null ? "" : r[ci]).trim();
@@ -714,7 +720,11 @@ export function calcularIndicadoresDoPeriodo(wb, periodo){
     console.warn('[Participantes Ativ. Coletiva] filtro de profissional eMulti desativado (roster PROFISSIONAIS vazio ou colunas "Responsavel Atividade"/"Profissional 1..5" não encontradas no cabeçalho) — contando todas as participações coletivas do período, sem checar profissional. cabeçalho real:', partHeader,
       '| iPProfCols='+JSON.stringify(iPProfCols), '| profissionaisRoster.length='+profissionaisRoster.length);
   }
+  // Só conta quando o RESPONSÁVEL pela atividade é da eMulti (responsável de fora da eMulti
+  // exclui a atividade, mesmo com profissional da eMulti entre os envolvidos).
+  var filtroRespM1 = criarFiltroResponsavelEmulti(partHeader);
   function linhaTemProfissionalEmulti(r){
+    if(filtroRespM1.ativo) return filtroRespM1.ok(r);
     for(var i=0;i<iPProfCols.length;i++){
       if(nomeEhDaEmulti(r[iPProfCols[i]])) return true;
     }
@@ -779,8 +789,12 @@ export function calcularIndicadoresDoPeriodo(wb, periodo){
   // Sem ligação com Participantes (total indefinido): atividade da própria eMulti é mantida;
   // atividade de outra equipe não entra.
   var iRacEquipe = equipeColIndex(racHeader);
+  var iRacResp = colIndex(racHeader, "responsavel");
   function atividadeEntraNaEmulti(r){
     var totalEmultiPart = ligacaoAtiv ? ligacaoAtiv.total(r) : undefined;
+    // Sem ligação com Participantes: confere o responsável na própria linha do Resumo.
+    if(totalEmultiPart === undefined && profissionaisRoster.length > 0 && iRacResp >= 0
+       && String(r[iRacResp]||"").trim() !== "" && !nomeEhDaEmulti(r[iRacResp])) return false;
     return linhaEntraNaEmulti(totalEmultiPart, iRacEquipe >= 0 ? r[iRacEquipe] : null);
   }
   var racFiltradas = racRows.slice(1).filter(function(r){
@@ -1324,6 +1338,20 @@ export function nomeEhDaEmulti(nome){
   }
   nome = String(nome||"").trim();
   return !!nome && !!rosterNomesEmultiCache[normalizarNomeProf(nome)];
+}
+
+// REGRA: atividade coletiva só entra na eMulti (listas e cálculos de M1/M2) quando o
+// RESPONSÁVEL pela atividade é um profissional da eMulti (aba PROFISSIONAIS). Atividade
+// conduzida por responsável de fora da eMulti é excluída, mesmo que algum profissional
+// envolvido seja da eMulti. `ok(linha)` -> true se a linha pode entrar. Sem roster carregado
+// ou sem coluna de responsável o filtro fica inativo (ok sempre true), como os demais.
+export function criarFiltroResponsavelEmulti(headerRow){
+  var iResp = colRespParticipantes(headerRow);
+  var ativo = profissionaisRoster.length > 0 && iResp >= 0;
+  return {
+    ativo: ativo,
+    ok: function(r){ return !ativo || nomeEhDaEmulti(r[iResp]); }
+  };
 }
 
 // Igual a nomeEhDaEmulti, mas só vale se o profissional está cadastrado (aba PROFISSIONAIS) em
@@ -1892,10 +1920,10 @@ export var NOTAS_METODOLOGICAS = [
   "Cálculo feito pelo próprio painel, direto dos dados brutos extraídos do e-SUS PEC (Atendimentos + Registro Tardio + Atividade Coletiva + Reuniões) para esta equipe/EMULTI, seguindo as fórmulas das Notas Metodológicas M1 (NT 43/2026-CGIAD/DEAPS/SAPS/MS) e M2 (NT 44/2026-CGIAD/DEAPS/SAPS/MS), na janela dos últimos 4 meses (ver 'Período' no topo da página) — não um quadrimestre fixo do calendário.",
   "M1 usa NOME da pessoa (a nota oficial usa CPF/CNS) — pessoas diferentes com o mesmo nome seriam contadas como se fossem uma só.",
   "Atendimento individual (M1) só conta quando o profissional responsável (coluna 'profissional' da aba Atendimentos) está cadastrado na aba PROFISSIONAIS como sendo da eMulti — atendimentos de profissionais de fora da eMulti não entram no numerador.",
-  "Participação coletiva (M1) só conta quando pelo menos um dos profissionais da atividade (coluna do Responsável — identificada pelo nome do cabeçalho ou, se não encontrada por nome, pela 4ª coluna da tabela — ou 'Profissional 1' a 'Profissional 5' da aba Participantes Ativ. Coletiva) está cadastrado na aba PROFISSIONAIS como sendo da eMulti — participações conduzidas só por profissionais de fora da eMulti não entram no numerador.",
+  "Participação coletiva (M1) só conta quando o RESPONSÁVEL pela atividade (coluna do Responsável da aba Participantes Ativ. Coletiva — identificada pelo nome do cabeçalho ou, se não encontrada por nome, pela 4ª coluna da tabela) está cadastrado na aba PROFISSIONAIS como sendo da eMulti — participações em atividades cujo responsável é de fora da eMulti (mesmo com profissional da eMulti entre os envolvidos) ficam fora da lista e do numerador.",
   "M2 oficial soma 3 componentes: atendimentos individuais compartilhados, atividades coletivas compartilhadas e compartilhamento de cuidado (PEC). Esta extração só consegue aproximar as parcelas de 'atividades coletivas' e 'reuniões'. Regra de ação compartilhada aplicada: pelo menos 1 profissional identificado (CNS/CPF) da eMulti — seja como responsável ou como profissional envolvido, não precisa ser especificamente o responsável — e 2 ou mais profissionais distintos no total; compartilhamentos com eSB ou com qualquer profissional da APS contam igual, desde que identificados. Ainda não é possível checar CBO/CNS propriamente ditos (só o cadastro da aba PROFISSIONAIS), nem aplicar a regra de descartar ação específica duplicada quando a mesma pessoa/grupo também teve ação compartilhada registrada no mesmo dia.",
   "Atendimentos individuais compartilhados NÃO são medidos aqui: a lista de Atendimentos não traz os profissionais secundários nem o horário simultâneo, e atendimento da mesma pessoa no mesmo dia por profissionais diferentes não comprova atendimento conjunto. Por isso todos os atendimentos individuais entram no denominador do M2 como específicos e nenhum entra no numerador. O compartilhamento de cuidado (PEC) NÃO entra aqui (não há aba equivalente) — por isso o M2 calculado tende a ficar ABAIXO do valor oficial. O denominador do M2 é o TOTAL de ações da eMulti no período: atendimentos individuais (todos contados como específicos) + atividades coletivas (todas, específicas e compartilhadas, incluindo reuniões) — sem contar solicitações de compartilhamento de cuidado no PEC, pelo mesmo motivo.",
-  "Atividade Coletiva só conta como 'compartilhada' aqui quando tem pelo menos 1 profissional da eMulti (coluna 'Total de Profissionais da EMulti', de Participantes Ativ. Coletiva) e 2 ou mais profissionais no total ('Qtd total de profissionais') — sem restrição de tipo de atividade, EXCETO reuniões (tipo 'Reunião de equipe' etc.): essas só contam quando o tema é 'Discussão de caso / Projeto terapêutico singular'; se a aba não trouxer coluna de temas, a reunião não entra no numerador.",
+  "Atividade Coletiva só entra aqui quando o responsável é da eMulti (responsável de fora da eMulti exclui a atividade da lista e do cálculo) e só conta como 'compartilhada' quando tem 2 ou mais profissionais no total ('Qtd total de profissionais') — sem restrição de tipo de atividade, EXCETO reuniões (tipo 'Reunião de equipe' etc.): essas só contam quando o tema é 'Discussão de caso / Projeto terapêutico singular'; se a aba não trouxer coluna de temas, a reunião não entra no numerador.",
   "Reuniões (Resumo Reuniões) só contam pra M2 quando o 'Tipo' é Reunião de Equipe, Reunião com outras equipes de saúde ou Reunião intersetorial/Conselho local de saúde/Controle social (códigos 01-03) E têm 2+ participantes E o tema 'Discussão de caso / Projeto terapêutico singular' marcado na coluna 'Temas da reunião' (a célula pode ter vários temas). Reuniões que não batem essas condições aparecem no total de reuniões, mas não entram como 'compartilhadas'. Se a coluna de temas não existir na aba, NENHUMA reunião entra no numerador (o tema não pode ser confirmado). O total anual 'TOTAL RELATÓRIO AC', quando maior que a contagem detalhada, é um número fechado do relatório e não pode ser filtrado por tema.",
   "'Desempenho quadrimestral' usa a fórmula oficial da Nota Final do Componente III (Qualidade) para eMulti — NT 8/2026-DEAPS/SAPS/MS, Quadro 4: Nota final = pontos M1 × 6 + pontos M2 × 4 (pontos por classificação: Regular=0,25, Suficiente=0,5, Bom=0,75, Ótimo=1), classificada conforme o Quadro 6 da mesma nota: Regular ≤ 2,5, Suficiente > 2,5 e < 5, Bom ≥ 5 e ≤ 7,5, Ótimo > 7,5. O que NÃO é oficial aqui é o DADO de entrada: o M1 e o M2 usados nessa conta são os calculados por este painel a partir dos dados brutos (ver notas acima), não os valores publicados pelo Siaps — por isso o resultado exibido é uma aproximação do Componente III oficial, não o valor de cofinanciamento em si.",
   "Abandono consumado: o paciente precisa ter pelo menos 2 consultas. O painel calcula a mediana histórica do intervalo entre a 1ª e a 2ª consulta dos pacientes analisados e mede os dias desde a última consulta de cada paciente. Quando esse intervalo é maior que 3 vezes a mediana histórica, o paciente é classificado como abandono consumado.",
