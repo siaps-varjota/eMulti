@@ -4,7 +4,7 @@
 // Cada seção "=== módulo: ... ===" corresponde a um arquivo original.
 // ======================================================================
 
-import { unidadesDisponiveisDasAbas, definirUnidadesSelecionadas, unidadesDasEquipesAtuais, filtrarLinhasPorUnidade, equipeColIndex, colRespParticipantes, nomeEhDaEmultiDasEquipes, nomeEhDaEmultiSelecionada, linhaEntraNaEmulti, anexarMensalNaSerie, CLASS_BANDS_M1, CLASS_BANDS_M1_OV, CLASS_BANDS_M2, CLASS_BANDS_M2_OV, CLASS_BANDS_NOTA_OV, CLASS_PILL_HEX, EQUIPES, JANELA_MESES, LEGEND_M1, LEGEND_M2, OV_LEGEND_M1, OV_LEGEND_M2, OV_LEGEND_NOTA, STORAGE_AVAILABLE, STORAGE_KEY, TREND_MESES, TREND_SEMANAS, anchorMonthDate, animateGauges, anoMs, calcularIndicadoresDoPeriodo, calcularJanelaComOverride, calcularJanelaPeriodo, calcularSerieSemanal, calcularSerieTendencia, classificarDesempenho, classificarM1, classificarM2, colIndex, compCardHeaderHTML, createMultiSelect, criarLigacaoAtividades, criarFiltroResponsavelEmulti, projecaoMesFuturo, escapeHtml, estadoApp, fetchAllSheets, fetchSheetsPorNome, listSheetNames, fetchAtualizacaoSafe, fetchOfficialOverridesSafe, fetchProfissionaisSafe, filtrarLinhasPorEquipe, filtrarAtividadesColetivasPorEquipe, fmtBRDate, fmtDate, fmtDec, fmtInt, init_nucleo_config, init_nucleo_dados, init_nucleo_listas_estado, init_nucleo_periodos, init_nucleo_popovers, init_visual_gauge, init_visual_painel_kpi, isMesFuturo, labelQuadsSelecionados, m1ListNames, m2ListNames, mediaDeMeses, mesMs, mesesDosQuadsSelecionadosUniao, mesesElapsedDosQuadsSelecionadosUniao, monthOptionValue, monthShortLabel, normalizeText, parseBRDate, parseCsv, periodoMesUnico, pillHex, populateAnoQuadSelects, profissionaisRoster, quadCode, quadKeyOfDate, quadShortLabel, quadMs, refMonthLabel, sheetToRows, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, valoresUnicosOrdenados, withinPeriod } from './nucleo.js';
+import { colPendencias, pendenciaExcluiDoCalculo, pessoasExcluidasPorPendencia, filtrarLinhasPorPendencia, unidadesDisponiveisDasAbas, definirUnidadesSelecionadas, unidadesDasEquipesAtuais, filtrarLinhasPorUnidade, equipeColIndex, colRespParticipantes, nomeEhDaEmultiDasEquipes, nomeEhDaEmultiSelecionada, linhaEntraNaEmulti, anexarMensalNaSerie, CLASS_BANDS_M1, CLASS_BANDS_M1_OV, CLASS_BANDS_M2, CLASS_BANDS_M2_OV, CLASS_BANDS_NOTA_OV, CLASS_PILL_HEX, EQUIPES, JANELA_MESES, LEGEND_M1, LEGEND_M2, OV_LEGEND_M1, OV_LEGEND_M2, OV_LEGEND_NOTA, STORAGE_AVAILABLE, STORAGE_KEY, TREND_MESES, TREND_SEMANAS, anchorMonthDate, animateGauges, anoMs, calcularIndicadoresDoPeriodo, calcularJanelaComOverride, calcularJanelaPeriodo, calcularSerieSemanal, calcularSerieTendencia, classificarDesempenho, classificarM1, classificarM2, colIndex, compCardHeaderHTML, createMultiSelect, criarLigacaoAtividades, criarFiltroResponsavelEmulti, projecaoMesFuturo, escapeHtml, estadoApp, fetchAllSheets, fetchSheetsPorNome, listSheetNames, fetchAtualizacaoSafe, fetchOfficialOverridesSafe, fetchProfissionaisSafe, filtrarLinhasPorEquipe, filtrarAtividadesColetivasPorEquipe, fmtBRDate, fmtDate, fmtDec, fmtInt, init_nucleo_config, init_nucleo_dados, init_nucleo_listas_estado, init_nucleo_periodos, init_nucleo_popovers, init_visual_gauge, init_visual_painel_kpi, isMesFuturo, labelQuadsSelecionados, m1ListNames, m2ListNames, mediaDeMeses, mesMs, mesesDosQuadsSelecionadosUniao, mesesElapsedDosQuadsSelecionadosUniao, monthOptionValue, monthShortLabel, normalizeText, parseBRDate, parseCsv, periodoMesUnico, pillHex, populateAnoQuadSelects, profissionaisRoster, quadCode, quadKeyOfDate, quadShortLabel, quadMs, refMonthLabel, sheetToRows, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, valoresUnicosOrdenados, withinPeriod } from './nucleo.js';
 import { renderFluxoPacientes, ovMesesHTML, M1_META_THRESHOLDS, M2_META_THRESHOLDS, calcularAnalises, calcularMetasQuadrimestre, calcularPerformanceProfissionais, calcularQuadrimestreAnterior, init_abas_analises_calculo, init_abas_analises_render, init_abas_m1_m2, init_abas_profissionais, ipGaugeCardHTML, ipReadingHTML, metaQuadrimestreHTML, metaQuadrimestreMiniHTML, overviewCardHTML, populateSheetsCache, profListaAtual, renderAnalises, renderPerformanceProfissionais, setupPreliminarToggle, setupTrendInteractivity, sparkline, stackbar } from './abas.js';
 import { gerarPdfDivergenciaOficial, init_listas_atividade_coletiva, pessoasAtendidasParaMeses, renderListsSection } from './listas.js';
 
@@ -817,7 +817,25 @@ function janelasInfoDeMeses(meses, jaMeses, jaJanelas){
   });
 }
 
+// Indicadores NÃO consideram quem tem "Óbito" / "MUDOU-SE (SAIU DO TERRITÓRIO)" em Pendências.
+// wb (usado nos cálculos) vem já sem essas pessoas; wb.todas guarda a versão completa, que só as
+// listas (populateSheetsCache) usam — assim elas continuam mostrando a pessoa e a coluna Pendências.
 function construirWb(parsedPorAba){
+  var excl = pessoasExcluidasPorPendencia(parsedPorAba);
+  var temExcl = !!excl.__n;
+  var algumaPend = ["Atendimentos","Participantes Ativ. Coletiva"].some(function(n){
+    var m = parsedPorAba[n]; return m && m.length && colPendencias(m[0]) >= 0;
+  });
+  if(!algumaPend) return construirWbDe(parsedPorAba);
+  var filtrado = Object.assign({}, parsedPorAba);
+  filtrado["Atendimentos"] = filtrarLinhasPorPendencia(parsedPorAba["Atendimentos"], excl, "nome");
+  filtrado["Participantes Ativ. Coletiva"] = filtrarLinhasPorPendencia(parsedPorAba["Participantes Ativ. Coletiva"], excl, "participante");
+  var wb = construirWbDe(filtrado);
+  wb.todas = construirWbDe(parsedPorAba);
+  return wb;
+}
+
+function construirWbDe(parsedPorAba){
       var wb = {SheetNames:[], Sheets:{}};
       var unidadesAtivas = estadoApp.currentUnidades || [];
       // Atividades coletivas: filtro pela equipe da linha; no "Geral" a mesma atividade que

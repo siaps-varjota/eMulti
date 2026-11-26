@@ -4,7 +4,7 @@
 // Cada seção "=== módulo: ... ===" corresponde a um arquivo original.
 // ======================================================================
 
-import { classificarDesempenho, monthShortLabel, CLASS_BANDS_M1, EQUIPES, OV_ICONS, PONTOS_POR_CLASSE, QUAD_LABELS, TOTAL_PROF_EMULTI_HEADER, profissionaisPorAtividade, avisarNomesProfissionaisSemMatch, addMonths, buildGauge, calcularJanelaPeriodo, calcularSerieTendencia, classificarM1, classificarM2, colIndex, colTotalProfEmulti, createMultiSelect, criarCalculadoraTotalProfEmulti, criarFiltroResponsavelEmulti, criarLigacaoAtividades, displayListName, ehProfissionalComparativoEmulti, equipeColIndex, linhaEntraNaEmulti, escapeHtml, estadoApp, filtrarLinhasPorEquipe, fmtBRDate, fmtDec, fmtInt, gaugeInterpretationHTML, gaugeLegendHTML, kpiPanelHTML, kpiPanelIcon, mesesDosQuadsSelecionadosUniao, nomeEhDaEmulti, normalizeText, ovIconHTML, ovLegendHTML, ovStatus, parseBRDate, pillHex, profissionaisRoster, quadShortLabel, sheetToRows, suffixedName, ultimoMesDosQuadsSelecionados, withinPeriod } from './nucleo.js';
+import { pessoasExcluidasPorPendencia, classificarDesempenho, monthShortLabel, CLASS_BANDS_M1, EQUIPES, OV_ICONS, PONTOS_POR_CLASSE, QUAD_LABELS, TOTAL_PROF_EMULTI_HEADER, profissionaisPorAtividade, avisarNomesProfissionaisSemMatch, addMonths, buildGauge, calcularJanelaPeriodo, calcularSerieTendencia, classificarM1, classificarM2, colIndex, colTotalProfEmulti, createMultiSelect, criarCalculadoraTotalProfEmulti, criarFiltroResponsavelEmulti, criarLigacaoAtividades, displayListName, ehProfissionalComparativoEmulti, equipeColIndex, linhaEntraNaEmulti, escapeHtml, estadoApp, filtrarLinhasPorEquipe, fmtBRDate, fmtDec, fmtInt, gaugeInterpretationHTML, gaugeLegendHTML, kpiPanelHTML, kpiPanelIcon, mesesDosQuadsSelecionadosUniao, nomeEhDaEmulti, normalizeText, ovIconHTML, ovLegendHTML, ovStatus, parseBRDate, pillHex, profissionaisRoster, quadShortLabel, sheetToRows, suffixedName, ultimoMesDosQuadsSelecionados, withinPeriod } from './nucleo.js';
 import { equipeLabelFromRaw, pdfComNumeracao, pdfLinhaProfissional, profissionalColIndex, slugifyFileName } from './listas.js';
 import { latestRawSheets, latestWb } from './app.js';
 
@@ -1325,6 +1325,7 @@ export function buscaAtivaCompute(){
   var mesAtual = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
   var janelaPeriodo = calcularJanelaPeriodo(mesAtual);
   var pessoasSet = {}; // nome em maiúsculas -> {nome, countPeriodo, ultima:Date, equipe, profissional}
+  var exclPend = pessoasExcluidasPorPendencia(latestRawSheets || {});
   var atCached = estadoApp.latestSheets[suffixedName("Atendimentos")];
   if(atCached){
     var iData = colIndex(atCached.headers, "data_hora");
@@ -1337,6 +1338,7 @@ export function buscaAtivaCompute(){
         var d = parseBRDate(r[iData]);
         if(!nome || !d) return;
         var chave = nome.toUpperCase();
+        if(exclPend[chave]) return; // Óbito / Mudou-se (Pendências): fora da Busca-Ativa
         if(!pessoasSet[chave]) pessoasSet[chave] = {nome:nome, countPeriodo:0, ultima:null, equipe:'', profissional:'', ultimosProfs:{}, profsJanela:{}, consultasPorProf:{}, ultimaDataPorProf:{}};
         var ps = pessoasSet[chave];
         var profLinha = iProf >= 0 ? String(r[iProf]||"").trim() : '';
@@ -1456,6 +1458,8 @@ export function buscaAtivaCompute(){
 }
 
 export function populateSheetsCache(wb){
+  // Listas usam a versão COMPLETA (com quem tem Óbito/Mudou-se em Pendências); indicadores usam wb filtrado.
+  if(wb && wb.todas) wb = wb.todas;
   estadoApp.latestSheets = {};
   // Mapa ID da atividade -> total de profissionais da eMulti (calculado a
   // partir de Participantes Ativ. Coletiva) pra exibir a coluna "Total de
