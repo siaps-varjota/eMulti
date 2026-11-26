@@ -688,7 +688,9 @@ export function aplicarMesReferencia(saveHistory){
     // somar contagens de contexto e montar "Pessoas atendidas" sem
     // sobrepor dados de meses vizinhos).
     var meses = mesesDosQuadsSelecionadosUniao();
-    var mesesUsados = mesesElapsedDosQuadsSelecionadosUniao();
+    // "Média do quadrimestre" (opção do filtro): usa os 4 meses inteiros, mesmo os que ainda não começaram.
+    // "Média Atual" (padrão): só os meses já decorridos.
+    var mesesUsados = estadoApp.mediaQuadCompleta ? meses : mesesElapsedDosQuadsSelecionadosUniao();
     var mesesProjecaoLabel = mesesUsados.length < meses.length
       ? mesesUsados.map(monthShortLabel).join('+')
       : null;
@@ -723,12 +725,12 @@ export function aplicarMesReferencia(saveHistory){
 
   if(anoMs) anoMs.setSelected(valoresUnicosOrdenados(estadoApp.quadsSelecionados.map(function(c){ return String(c.ano); })));
   if(quadMs) quadMs.setSelected(valoresUnicosOrdenados(estadoApp.quadsSelecionados.map(function(c){ return String(c.qIndex); })));
-  if(mesMs) mesMs.setSelected(estadoApp.refMonthDates.map(monthOptionValue));
+  if(mesMs) mesMs.setSelected(estadoApp.mediaQuadCompleta ? ['__quad__'] : estadoApp.refMonthDates.map(monthOptionValue));
   var winEl = document.getElementById('refWindowLabel');
   if(winEl){
     winEl.innerHTML = estadoApp.refMonthDates.length
       ? 'Resultado de <b>'+refMonthLabel()+'</b> — janela de '+JANELA_MESES+' meses cada ('+periodo.inicio+' a '+periodo.fim+')'
-      : 'Média de <b>'+labelQuadsSelecionados()+'</b> ('+periodo.inicio+' a '+periodo.fim+')';
+      : (estadoApp.mediaQuadCompleta ? 'Média do quadrimestre completo (4 meses) de <b>' : 'Média atual de <b>')+labelQuadsSelecionados()+'</b> ('+periodo.inicio+' a '+periodo.fim+')';
   }
 
   if(!saveHistory){

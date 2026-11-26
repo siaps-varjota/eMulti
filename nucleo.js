@@ -93,7 +93,7 @@ export function monthOptionLabel(d){
 // mês(es) escolhido(s) — este helper monta o rótulo certo pros dois
 // casos (usado nos lugares que exibem "Mês de referência (...)").
 export function refMonthLabel(){
-  if(!estadoApp.refMonthDates.length) return 'Média do quadrimestre';
+  if(!estadoApp.refMonthDates.length) return estadoApp.mediaQuadCompleta ? 'Média do quadrimestre' : 'Média Atual';
   if(estadoApp.refMonthDates.length === 1) return monthOptionLabel(estadoApp.refMonthDates[0]);
   return estadoApp.refMonthDates.map(monthShortLabel).join(' + ');
 }
@@ -355,6 +355,9 @@ export function init_nucleo_periodos(){
   // PADRÃO: começa SEM nenhum mês marcado (placeholder "Média do
   // quadrimestre"); o usuário escolhe o(s) mês(es) se quiser.
   estadoApp.refMonthDates = [];
+  // true = opção "Média do quadrimestre" do filtro de Mês: média dos 4 meses do quadrimestre, mesmo os que ainda
+  // não transcorreram. false (e nenhum mês marcado) = "Média Atual": só os meses que já começaram.
+  estadoApp.mediaQuadCompleta = false;
 }
 
 // ===== módulo: js/indicadores/calculo.js =====
@@ -3014,6 +3017,7 @@ function recomputarQuadsSelecionados(){
   combos.sort(function(a,b){ return (a.ano-b.ano) || (a.qIndex-b.qIndex); });
   estadoApp.quadsSelecionados = combos;
   estadoApp.refMonthDates = []; // volta a mostrar a média do(s) quadrimestre(s) escolhido(s)
+  estadoApp.mediaQuadCompleta = false;
   populateMonthSelectForQuad();
   aplicarMesReferencia(false);
 }
@@ -3053,29 +3057,41 @@ export function populateAnoQuadSelects(){
 function populateMonthSelectForQuad(){
   var container = document.getElementById('mesMs');
   if(!container) return;
+  var VAL_QUAD = '__quad__';
   if(!mesMs){
+    var selAnterior = [];
     mesMs = createMultiSelect(container, {
-      placeholder: 'Média do quadrimestre', multi: true, search: false, showTags: true,
+      placeholder: 'Média Atual', multi: true, search: false, showTags: true,
       onChange: function(keys){
-        estadoApp.refMonthDates = keys.map(function(v){
+        var tinhaQuad = selAnterior.indexOf(VAL_QUAD) >= 0;
+        var temQuad = keys.indexOf(VAL_QUAD) >= 0;
+        var meses = keys.filter(function(v){ return v !== VAL_QUAD; });
+        // "Média do quadrimestre" e meses específicos são excludentes: a última escolha vence.
+        if(temQuad && !tinhaQuad){ meses = []; }           // acabou de marcar a média → limpa os meses
+        else if(temQuad && tinhaQuad && meses.length){ temQuad = false; } // marcou um mês com a média ativa → vale o mês
+        estadoApp.mediaQuadCompleta = temQuad && !meses.length;
+        estadoApp.refMonthDates = meses.map(function(v){
           var parts = v.split('-');
           return new Date(+parts[0], +parts[1]-1, 1);
         }).sort(function(a,b){ return a-b; });
+        selAnterior = estadoApp.mediaQuadCompleta ? [VAL_QUAD] : meses;
+        mesMs.setSelected(selAnterior);
         aplicarMesReferencia(false);
       }
     });
   }
   var meses = mesesDosQuadsSelecionadosUniao();
   var mesesValidos = meses.map(monthOptionValue);
-  var opts = meses.map(function(d){
+  // 1ª opção: média dos 4 meses do quadrimestre (inclusive os que ainda não transcorreram); depois, os meses.
+  var opts = [{value: VAL_QUAD, label: 'Média do quadrimestre'}].concat(meses.map(function(d){
     return {value: monthOptionValue(d), label: monthOptionLabel(d)};
-  });
+  }));
   // Ao trocar de quadrimestre/ano, mantém só a seleção que ainda faz
   // parte do novo conjunto de meses (evita "mês fantasma" de outro
   // período).
   estadoApp.refMonthDates = estadoApp.refMonthDates.filter(function(d){ return mesesValidos.indexOf(monthOptionValue(d)) >= 0; });
   mesMs.setOptions(opts);
-  mesMs.setSelected(estadoApp.refMonthDates.map(monthOptionValue));
+  mesMs.setSelected(estadoApp.mediaQuadCompleta ? [VAL_QUAD] : estadoApp.refMonthDates.map(monthOptionValue));
 }
 
 // ===== módulo: js/indicadores/media-meses.js =====
