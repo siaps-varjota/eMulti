@@ -246,8 +246,8 @@ function capNoDiaAg(cap,iso){
 }
 
 // Último atendimento de uma linha de Pessoas atendidas: usa a data completa
-// (listas.js) e, se ela não existir, a maior das colunas "Data 1..N" (índice 6+).
-function ultimoAg(r){if(r.ultimoAtendimentoISO)return r.ultimoAtendimentoISO;var best='';for(var i=6;i<r.length;i++){var m=String(r[i]==null?'':r[i]).match(/^(\d{2})\/(\d{2})\/(\d{4})$/);if(m){var iso=m[3]+'-'+m[2]+'-'+m[1];if(iso>best)best=iso;}}return best;}
+// (listas.js) e, se ela não existir, a maior das colunas "Data 1..N" (índice 8+).
+function ultimoAg(r){if(r.ultimoAtendimentoISO)return r.ultimoAtendimentoISO;var best='';for(var i=8;i<r.length;i++){var m=String(r[i]==null?'':r[i]).match(/^(\d{2})\/(\d{2})\/(\d{4})$/);if(m){var iso=m[3]+'-'+m[2]+'-'+m[1];if(iso>best)best=iso;}}return best;}
 var normCacheAg=new Map();
 function normAg(v){var k=v==null?'':String(v),h=normCacheAg.get(k);if(h!==undefined)return h;h=k.trim().toLocaleLowerCase('pt-BR').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ');if(normCacheAg.size>20000)normCacheAg.clear();normCacheAg.set(k,h);return h;}
 // Mapa pessoa -> profissionais (histórico completo), vindo de Pessoas atendidas
@@ -265,7 +265,7 @@ function profMapAg(){
     // Profissional (da eMulti) do atendimento mais recente — base da distribuição automática de datas.
     var up=String(r.ultimoProfissionalAgenda==null?'':r.ultimoProfissionalAgenda).trim();
     if(up){ultProf[k]=up;nomes[up]=1;var un=String(r.ultimaUnidadeAgenda==null?'':r.ultimaUnidadeAgenda).trim();if(un){ultUnid[k]=un;(unidsDe[normAg(up)]=unidsDe[normAg(up)]||{})[un]=1;}}
-    var txt=String(r[5]==null?'':r[5]);
+    var txt=String(r[6]==null?'':r[6]);   // coluna Profissional
     if(txt&&txt!=='—')map[k]=normAg(txt);
   });
   // Profissional que atendeu em 2+ unidades: vagas, dias e lotação passam a valer por unidade.

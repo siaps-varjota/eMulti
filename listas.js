@@ -793,7 +793,7 @@ export function pessoasAtendidasParaMeses(monthValues){
     }
   }
   function novaPessoa(nome){
-    return {nome:nome, at:0, part:0, datas:[], profissionais:{}, infoPorProf:{}, ultimaData:null, ultimoTipo:null, ultimoProfissionalPrincipal:null, atEmulti:0, ultAgData:null, ultAgProf:'', ultAgUnid:'', mesesAg:{}, mesSiaps:'', mesSiapsData:null, ultEquipe:'', ultEquipeData:null};
+    return {nome:nome, at:0, part:0, datas:[], profissionais:{}, infoPorProf:{}, ultimaData:null, ultimoTipo:null, ultimoProfissionalPrincipal:null, atEmulti:0, ultAgData:null, ultAgProf:'', ultAgUnid:'', mesesAg:{}, mesSiaps:'', mesSiapsData:null, idadeVal:'', idadeNasc:null, idadeData:null, ultEquipe:'', ultEquipeData:null};
   }
   // Equipe/Unidade da pessoa = a do evento mais recente (Atendimento ou Participação em Atividade
   // Coletiva) que tenha equipe preenchida; em empate de data, vale a que apareceu primeiro.
@@ -822,6 +822,41 @@ export function pessoasAtendidasParaMeses(monthValues){
       if(d) p.mesSiapsData = d;
     }
   }
+  // IDADE: a aba pode trazer a idade pronta ("Idade") ou a data de nascimento ("Data de nascimento",
+  // "Dt. nascimento"...). Com data de nascimento, a idade é calculada até hoje. Vale o valor do evento
+  // mais recente que tenha o campo preenchido.
+  function colIdade(headers){
+    var nasc = -1;
+    for(var i=0;i<headers.length;i++){
+      var h = normalizeText(headers[i]).replace(/[_\.\s]+/g,' ').trim();
+      if(h === 'IDADE' || h === 'IDADE ANOS') return {idx:i, nasc:false};
+      if(nasc < 0 && /^(DATA |DT )?(DE )?NASC(IMENTO)?$/.test(h)) nasc = i;
+    }
+    return nasc >= 0 ? {idx:nasc, nasc:true} : null;
+  }
+  function registrarIdade(p, d, valor, ehNasc){
+    valor = String(valor===undefined||valor===null ? '' : valor).trim();
+    if(!valor) return;
+    var nasc = null;
+    if(ehNasc){
+      nasc = parseBRDate(valor);
+      if(!nasc) return;
+    }
+    if(!p.idadeVal && !p.idadeNasc || (d && (!p.idadeData || d.getTime() > p.idadeData.getTime()))){
+      p.idadeVal = ehNasc ? '' : valor;
+      p.idadeNasc = nasc;
+      if(d) p.idadeData = d;
+    }
+  }
+  function idadeTexto(p){
+    if(p.idadeNasc){
+      var hoje = new Date(), n = p.idadeNasc;
+      var anos = hoje.getFullYear() - n.getFullYear();
+      if(hoje.getMonth() < n.getMonth() || (hoje.getMonth() === n.getMonth() && hoje.getDate() < n.getDate())) anos--;
+      return anos >= 0 ? String(anos) : '—';
+    }
+    return p.idadeVal || '—';
+  }
   var atCached = estadoApp.latestSheets[suffixedName("Atendimentos")];
   if(atCached){
     var iData = colIndex(atCached.headers, "data_hora");
@@ -829,6 +864,7 @@ export function pessoasAtendidasParaMeses(monthValues){
     var iProfAt = profissionalColIndex(atCached.headers);
     var iUnidAt = equipeColIndex(atCached.headers);
     var iMesAt = colMesSiaps(atCached.headers);
+    var cIdAt = colIdade(atCached.headers);
     if(iData >= 0 && iNome >= 0){
       atCached.rows.forEach(function(r){
         var nome = String(r[iNome]||"").trim();
@@ -841,6 +877,7 @@ export function pessoasAtendidasParaMeses(monthValues){
         if(d) p.datas.push(d);
         registrarEquipe(p, d, iUnidAt >= 0 ? String(r[iUnidAt]||'').trim() : '');
         if(iMesAt >= 0) registrarMesSiaps(p, d, r[iMesAt]);
+        if(cIdAt) registrarIdade(p, d, r[cIdAt.idx], cIdAt.nasc);
         var prof = iProfAt >= 0 ? String(r[iProfAt]||"").trim() : '';
         if(prof){
           registrarProf(p, prof, d, TIPO_EVENTO_ATENDIMENTO);
@@ -869,6 +906,7 @@ export function pessoasAtendidasParaMeses(monthValues){
     var iPEquipe = colIndex(partCached.headers, "equipe_unidade");
     if(iPEquipe < 0) iPEquipe = equipeColIndex(partCached.headers);
     var iMesPart = colMesSiaps(partCached.headers);
+    var cIdPart = colIdade(partCached.headers);
     // colsProfissionaisParticipantes traz o Responsável primeiro (quando
     // preenchido), seguido de profissional 1..5 — profsDoEvento[0] abaixo
     // é sempre o primeiro NOME NÃO VAZIO nessa ordem, então já é o
@@ -887,6 +925,7 @@ export function pessoasAtendidasParaMeses(monthValues){
         if(d) p.datas.push(d);
         registrarEquipe(p, d, iPEquipe >= 0 ? String(r[iPEquipe]||'').trim() : '');
         if(iMesPart >= 0) registrarMesSiaps(p, d, r[iMesPart]);
+        if(cIdPart) registrarIdade(p, d, r[cIdPart.idx], cIdPart.nasc);
         var profsDoEvento = [];
         iProfPartCols.forEach(function(idx){
           var prof = limparNomeResponsavel(r[idx]);
@@ -913,7 +952,7 @@ export function pessoasAtendidasParaMeses(monthValues){
   var dataHeaders = [];
   for(var i=1;i<=maxDatas;i++){ dataHeaders.push("Data "+i); }
   return {
-    headers: ["Nome","Atendimentos","Participantes Ativ. Coletiva","Total","Equipe","Profissional","MÊS SIAPS"].concat(dataHeaders),
+    headers: ["Nome","Idade","Atendimentos","Participantes Ativ. Coletiva","Total","Equipe","Profissional","MÊS SIAPS"].concat(dataHeaders),
     rows: pessoasLista.map(function(p){
       // profissionalCol: lista completa (todo mundo que já atendeu essa
       // pessoa, histórico inteiro) — continua igual a antes, usada só
@@ -923,7 +962,7 @@ export function pessoasAtendidasParaMeses(monthValues){
       // alfabética.
       var listaProf = Object.keys(p.profissionais).sort(prioridadeMenor);
       var profissionalCol = listaProf.length ? listaProf.join(', ') : '—';
-      var row = [p.nome, p.at, p.part, p.at+p.part, p.ultEquipe || '—', profissionalCol, p.mesSiaps || '—'];
+      var row = [p.nome, idadeTexto(p), p.at, p.part, p.at+p.part, p.ultEquipe || '—', profissionalCol, p.mesSiaps || '—'];
       for(var i=0;i<maxDatas;i++){
         row.push(p.datas[i] ? fmtBRDate(p.datas[i]) : "—");
       }
@@ -1079,7 +1118,10 @@ function construirModeloLista(name, cached, anterior, stateKey){
         var strTrim = str.trim();
         var tituloCel = strTrim.length > 14 ? ' title="'+escapeHtml(strTrim).replace(/"/g,'&quot;')+'"' : '';
         var ehColData = /^Data \d+$/.test(String(h));
-        c.push('<td class="'+(ehColData ? 'cell-data' : 'cell-trunc')+(oculta ? ' part-col-oculta' : '')+(idxsDataExtra.indexOf(i) !== -1 ? ' pa-data-extra' : '')+'"'+tituloCel+'>'+escapeHtml(str)+'</td>');
+        // Pessoas atendidas: o nome da pessoa aparece inteiro (sem "…").
+        var ehNomeCompleto = (name === suffixedName("Pessoas atendidas")) && String(h) === 'Nome';
+        if(ehNomeCompleto) tituloCel = '';
+        c.push('<td class="'+(ehColData ? 'cell-data' : (ehNomeCompleto ? 'cell-nome-completo' : 'cell-trunc'))+(oculta ? ' part-col-oculta' : '')+(idxsDataExtra.indexOf(i) !== -1 ? ' pa-data-extra' : '')+'"'+tituloCel+'>'+escapeHtml(str)+'</td>');
         t.push(strTrim);
       }
     });
