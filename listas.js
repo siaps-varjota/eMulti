@@ -793,7 +793,7 @@ export function pessoasAtendidasParaMeses(monthValues){
     }
   }
   function novaPessoa(nome){
-    return {nome:nome, at:0, part:0, datas:[], profissionais:{}, infoPorProf:{}, ultimaData:null, ultimoTipo:null, ultimoProfissionalPrincipal:null, atEmulti:0, ultAgData:null, ultAgProf:'', ultAgUnid:'', mesesAg:{}, ultEquipe:'', ultEquipeData:null};
+    return {nome:nome, at:0, part:0, datas:[], profissionais:{}, infoPorProf:{}, ultimaData:null, ultimoTipo:null, ultimoProfissionalPrincipal:null, atEmulti:0, ultAgData:null, ultAgProf:'', ultAgUnid:'', mesesAg:{}, mesSiaps:'', mesSiapsData:null, ultEquipe:'', ultEquipeData:null};
   }
   // Equipe/Unidade da pessoa = a do evento mais recente (Atendimento ou Participação em Atividade
   // Coletiva) que tenha equipe preenchida; em empate de data, vale a que apareceu primeiro.
@@ -804,12 +804,31 @@ export function pessoasAtendidasParaMeses(monthValues){
       if(d) p.ultEquipeData = d;
     }
   }
+  // "MÊS SIAPS": última coluna das abas Atendimentos e Participantes Ativ. Coletiva. A pessoa mostra o
+  // valor do evento mais recente que tenha o campo preenchido (mesma regra da Equipe); em empate de
+  // data vale o primeiro que apareceu.
+  function colMesSiaps(headers){
+    for(var i=0;i<headers.length;i++){
+      var h = normalizeText(headers[i]).replace(/[_\s]+/g,' ').trim();
+      if(h === 'MES SIAPS') return i;
+    }
+    return -1;
+  }
+  function registrarMesSiaps(p, d, valor){
+    valor = String(valor===undefined||valor===null ? '' : valor).trim();
+    if(!valor) return;
+    if(!p.mesSiaps || (d && (!p.mesSiapsData || d.getTime() > p.mesSiapsData.getTime()))){
+      p.mesSiaps = valor;
+      if(d) p.mesSiapsData = d;
+    }
+  }
   var atCached = estadoApp.latestSheets[suffixedName("Atendimentos")];
   if(atCached){
     var iData = colIndex(atCached.headers, "data_hora");
     var iNome = colIndex(atCached.headers, "nome");
     var iProfAt = profissionalColIndex(atCached.headers);
     var iUnidAt = equipeColIndex(atCached.headers);
+    var iMesAt = colMesSiaps(atCached.headers);
     if(iData >= 0 && iNome >= 0){
       atCached.rows.forEach(function(r){
         var nome = String(r[iNome]||"").trim();
@@ -821,6 +840,7 @@ export function pessoasAtendidasParaMeses(monthValues){
         p.at++;
         if(d) p.datas.push(d);
         registrarEquipe(p, d, iUnidAt >= 0 ? String(r[iUnidAt]||'').trim() : '');
+        if(iMesAt >= 0) registrarMesSiaps(p, d, r[iMesAt]);
         var prof = iProfAt >= 0 ? String(r[iProfAt]||"").trim() : '';
         if(prof){
           registrarProf(p, prof, d, TIPO_EVENTO_ATENDIMENTO);
@@ -848,6 +868,7 @@ export function pessoasAtendidasParaMeses(monthValues){
     var iPNome = colIndex(partCached.headers, "participante");
     var iPEquipe = colIndex(partCached.headers, "equipe_unidade");
     if(iPEquipe < 0) iPEquipe = equipeColIndex(partCached.headers);
+    var iMesPart = colMesSiaps(partCached.headers);
     // colsProfissionaisParticipantes traz o Responsável primeiro (quando
     // preenchido), seguido de profissional 1..5 — profsDoEvento[0] abaixo
     // é sempre o primeiro NOME NÃO VAZIO nessa ordem, então já é o
@@ -865,6 +886,7 @@ export function pessoasAtendidasParaMeses(monthValues){
         p.part++;
         if(d) p.datas.push(d);
         registrarEquipe(p, d, iPEquipe >= 0 ? String(r[iPEquipe]||'').trim() : '');
+        if(iMesPart >= 0) registrarMesSiaps(p, d, r[iMesPart]);
         var profsDoEvento = [];
         iProfPartCols.forEach(function(idx){
           var prof = limparNomeResponsavel(r[idx]);
@@ -891,7 +913,7 @@ export function pessoasAtendidasParaMeses(monthValues){
   var dataHeaders = [];
   for(var i=1;i<=maxDatas;i++){ dataHeaders.push("Data "+i); }
   return {
-    headers: ["Nome","Atendimentos","Participantes Ativ. Coletiva","Total","Equipe","Profissional"].concat(dataHeaders),
+    headers: ["Nome","Atendimentos","Participantes Ativ. Coletiva","Total","Equipe","Profissional","MÊS SIAPS"].concat(dataHeaders),
     rows: pessoasLista.map(function(p){
       // profissionalCol: lista completa (todo mundo que já atendeu essa
       // pessoa, histórico inteiro) — continua igual a antes, usada só
@@ -901,7 +923,7 @@ export function pessoasAtendidasParaMeses(monthValues){
       // alfabética.
       var listaProf = Object.keys(p.profissionais).sort(prioridadeMenor);
       var profissionalCol = listaProf.length ? listaProf.join(', ') : '—';
-      var row = [p.nome, p.at, p.part, p.at+p.part, p.ultEquipe || '—', profissionalCol];
+      var row = [p.nome, p.at, p.part, p.at+p.part, p.ultEquipe || '—', profissionalCol, p.mesSiaps || '—'];
       for(var i=0;i<maxDatas;i++){
         row.push(p.datas[i] ? fmtBRDate(p.datas[i]) : "—");
       }
