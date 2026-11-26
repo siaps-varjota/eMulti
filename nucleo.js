@@ -1166,9 +1166,9 @@ export function normalizarNomeProf(s){
 // - limparNomeResponsavel: devolve só o nome, sem o aviso (identidade da pessoa, usada em
 //   comparações, deduplicação e filtros — assim "Fulano" e "Fulano (Responsável sem vínculo...)"
 //   são a mesma pessoa).
-// - temAvisoSemVinculo: true quando o aviso está presente. Nesse caso o responsável é tratado
-//   como FORA da eMulti (mesma regra de antes: atividade sai das listas e dos cálculos),
-//   mesmo que o nome exista em outra equipe do cadastro PROFISSIONAIS.
+// - temAvisoSemVinculo: true quando o aviso está presente. O aviso só diz que o responsável não
+//   é da eMulti DAQUELA linha; ele continua valendo como eMulti se estiver no cadastro de
+//   QUALQUER equipe, e a atividade conta para cada eMulti que tenha um profissional seu nela.
 var RE_AVISO_SEM_VINCULO = /\s*\(\s*respons[aá]vel\s+sem\s+v[ií]nculo[^)]*\)\s*/gi;
 export function limparNomeResponsavel(nome){
   return String(nome===undefined||nome===null ? "" : nome).replace(RE_AVISO_SEM_VINCULO, " ").replace(/\s+/g," ").trim();
@@ -1355,7 +1355,6 @@ export function nomeEhDaEmulti(nome){
     profissionaisRoster.forEach(function(p){ rosterNomesEmultiCache[normalizarNomeProf(p.nome)] = true; });
     rosterNomesEmultiCacheFor = profissionaisRoster;
   }
-  if(temAvisoSemVinculo(nome)) return false; // aviso "(Responsável sem vínculo...)": fora da eMulti
   nome = String(nome||"").trim();
   return !!nome && !!rosterNomesEmultiCache[normalizarNomeProf(nome)];
 }
@@ -1389,7 +1388,6 @@ export function nomeEhDaEmultiDasEquipes(nome, equipes){
     });
     rosterEquipesPorNomeCacheFor = profissionaisRoster;
   }
-  if(temAvisoSemVinculo(nome)) return false; // aviso "(Responsável sem vínculo...)": fora da eMulti
   nome = String(nome||"").trim();
   if(!nome) return false;
   var porEq = rosterEquipesPorNomeCache[normalizarNomeProf(nome)];
