@@ -1157,6 +1157,23 @@ function ordenarModeloLista(listName, m){
   });
 }
 
+// Pills de equipe por lista (chave = container::lista). '' = Todas.
+var listEquipePill = {};
+var EQUIPE_PILLS = [
+  {key:'', label:'Todas', kw:''},
+  {key:'centro', label:'EMULTI CENTRO', kw:'CENTRO'},
+  {key:'croata', label:'EMULTI CROATÁ DOS MARTINS', kw:'CROATA'},
+  {key:'pedreira', label:'EMULTI PEDREIRAS', kw:'PEDREIRA'}
+];
+function equipePillsHtml(sk){
+  var ativa = listEquipePill[sk] || '';
+  return '<div class="list-equipe-pills" role="group" aria-label="Filtrar por equipe">'
+    + EQUIPE_PILLS.map(function(p){
+        return '<button type="button" class="list-equipe-pill'+(p.key === ativa ? ' active' : '')+'" data-equipe-pill="'+p.key+'" aria-pressed="'+(p.key === ativa ? 'true' : 'false')+'">'+escapeHtml(p.label)+'</button>';
+      }).join('')
+    + '</div>';
+}
+
 function renderListCard(name, containerId){
   // Como M1 e M2 agora têm as mesmas listas, o estado de cada uma
   // (modelo/linhas filtradas, filtro de mês, coluna de data) é guardado
@@ -1278,6 +1295,11 @@ function renderListCard(name, containerId){
       + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 12l6 6"/><path d="M15 12l-6 6"/></svg>'
       + '<span>Gerar Excel</span></button>'
     : '';
+  var syncBtnHtml = '<button type="button" class="pdf-btn sync-btn" data-sync-listas="1" title="Relê só as abas das listas (mais rápido que o Atualizar geral)">'
+    + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M3 21v-5h5"/></svg>'
+    + '<span>Sincronizar</span></button>';
+  var temEquipeCol = !!(cached && cached.headers && equipeColIndex(cached.headers) >= 0);
+  var pillsHtml = (hasTable && temEquipeCol) ? equipePillsHtml(sk) : '';
   // Lista "Atendimentos": botão extra com o relatório de potencial de atendimento por profissional.
   var potBtnHtml = (hasTable && name === suffixedName("Atendimentos"))
     ? '<button type="button" class="pdf-btn pot-btn" data-potencial-btn="1">'
@@ -1285,7 +1307,7 @@ function renderListCard(name, containerId){
       + '<span>Potencial de atendimento</span></button>'
     : '';
   return '<div class="card list-card'+(listDatasExpandidas[sk] ? ' pa-datas-expandidas' : '')+'" data-list-card="'+escapeHtml(name)+'" data-state-key="'+escapeHtml(sk)+'">'
-    + '<div class="list-card-head"><h4>'+escapeHtml(displayListName(name))+'</h4>'+'<div class="list-card-actions">'+potBtnHtml+xlsxBtnHtml+pdfBtnHtml+'</div>'+'</div>'
+    + '<div class="list-card-head"><h4>'+escapeHtml(displayListName(name))+'</h4>'+pillsHtml+'<div class="list-card-actions">'+potBtnHtml+xlsxBtnHtml+syncBtnHtml+pdfBtnHtml+'</div>'+'</div>'
     + body + '</div>';
 }
 
@@ -1525,7 +1547,14 @@ export function renderListsSection(containerId, names){
     var m = listModel[listKey];
     if(!m) return;
     var view = [];
+    var pillEq = EQUIPE_PILLS.filter(function(p){ return p.key === (listEquipePill[listKey] || ''); })[0];
+    var kwEquipe = pillEq ? pillEq.kw : '';
+    var idxEquipe = (kwEquipe && cached && cached.headers) ? equipeColIndex(cached.headers) : -1;
     m.rows.forEach(function(row){
+      if(kwEquipe && idxEquipe >= 0){
+        var txtEq = row.t[idxEquipe];
+        if(normalizeText(txtEq === undefined ? '' : txtEq).indexOf(kwEquipe) === -1) return;
+      }
       var matchesText = true;
       if(term){
         if(row.s === undefined) row.s = row.t.join(' ').toLowerCase();
@@ -1802,6 +1831,26 @@ export function renderListsSection(containerId, names){
       var cachedLista = estadoApp.latestSheets[listName];
       if(!cachedLista || !cachedLista.rows[idx]) return;
       abrirDetalhesParticipacao(cachedLista.headers, cachedLista.rows[idx], listName);
+    });
+  });
+
+  // Pills de equipe e botão Sincronizar (cabeçalho de cada lista).
+  el.querySelectorAll('.list-card').forEach(function(card){
+    var sk = card.getAttribute('data-state-key');
+    card.querySelectorAll('[data-equipe-pill]').forEach(function(pill){
+      pill.addEventListener('click', function(){
+        listEquipePill[sk] = pill.getAttribute('data-equipe-pill');
+        card.querySelectorAll('[data-equipe-pill]').forEach(function(p){
+          var on = p === pill;
+          p.classList.toggle('active', on);
+          p.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+        applyFilters(card);
+      });
+    });
+    var syncBtn = card.querySelector('[data-sync-listas]');
+    if(syncBtn) syncBtn.addEventListener('click', function(){
+      try{ window.dispatchEvent(new CustomEvent('emulti:sincronizar-listas')); }catch(e){}
     });
   });
 

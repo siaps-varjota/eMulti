@@ -4,7 +4,7 @@
 // Cada seção "=== módulo: ... ===" corresponde a um arquivo original.
 // ======================================================================
 
-import { unidadesDisponiveisDasAbas, definirUnidadesSelecionadas, unidadesDasEquipesAtuais, filtrarLinhasPorUnidade, equipeColIndex, colRespParticipantes, nomeEhDaEmultiDasEquipes, nomeEhDaEmultiSelecionada, linhaEntraNaEmulti, anexarMensalNaSerie, CLASS_BANDS_M1, CLASS_BANDS_M1_OV, CLASS_BANDS_M2, CLASS_BANDS_M2_OV, CLASS_BANDS_NOTA_OV, CLASS_PILL_HEX, EQUIPES, JANELA_MESES, LEGEND_M1, LEGEND_M2, OV_LEGEND_M1, OV_LEGEND_M2, OV_LEGEND_NOTA, STORAGE_AVAILABLE, STORAGE_KEY, TREND_MESES, TREND_SEMANAS, anchorMonthDate, animateGauges, anoMs, calcularIndicadoresDoPeriodo, calcularJanelaComOverride, calcularJanelaPeriodo, calcularSerieSemanal, calcularSerieTendencia, classificarDesempenho, classificarM1, classificarM2, colIndex, compCardHeaderHTML, createMultiSelect, criarLigacaoAtividades, criarFiltroResponsavelEmulti, projecaoMesFuturo, escapeHtml, estadoApp, fetchAllSheets, fetchAtualizacaoSafe, fetchOfficialOverridesSafe, fetchProfissionaisSafe, filtrarLinhasPorEquipe, filtrarAtividadesColetivasPorEquipe, fmtBRDate, fmtDate, fmtDec, fmtInt, init_nucleo_config, init_nucleo_dados, init_nucleo_listas_estado, init_nucleo_periodos, init_nucleo_popovers, init_visual_gauge, init_visual_painel_kpi, isMesFuturo, labelQuadsSelecionados, m1ListNames, m2ListNames, mediaDeMeses, mesMs, mesesDosQuadsSelecionadosUniao, mesesElapsedDosQuadsSelecionadosUniao, monthOptionValue, monthShortLabel, normalizeText, parseBRDate, parseCsv, periodoMesUnico, pillHex, populateAnoQuadSelects, profissionaisRoster, quadCode, quadKeyOfDate, quadShortLabel, quadMs, refMonthLabel, sheetToRows, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, valoresUnicosOrdenados, withinPeriod } from './nucleo.js';
+import { unidadesDisponiveisDasAbas, definirUnidadesSelecionadas, unidadesDasEquipesAtuais, filtrarLinhasPorUnidade, equipeColIndex, colRespParticipantes, nomeEhDaEmultiDasEquipes, nomeEhDaEmultiSelecionada, linhaEntraNaEmulti, anexarMensalNaSerie, CLASS_BANDS_M1, CLASS_BANDS_M1_OV, CLASS_BANDS_M2, CLASS_BANDS_M2_OV, CLASS_BANDS_NOTA_OV, CLASS_PILL_HEX, EQUIPES, JANELA_MESES, LEGEND_M1, LEGEND_M2, OV_LEGEND_M1, OV_LEGEND_M2, OV_LEGEND_NOTA, STORAGE_AVAILABLE, STORAGE_KEY, TREND_MESES, TREND_SEMANAS, anchorMonthDate, animateGauges, anoMs, calcularIndicadoresDoPeriodo, calcularJanelaComOverride, calcularJanelaPeriodo, calcularSerieSemanal, calcularSerieTendencia, classificarDesempenho, classificarM1, classificarM2, colIndex, compCardHeaderHTML, createMultiSelect, criarLigacaoAtividades, criarFiltroResponsavelEmulti, projecaoMesFuturo, escapeHtml, estadoApp, fetchAllSheets, fetchSheetsPorNome, listSheetNames, fetchAtualizacaoSafe, fetchOfficialOverridesSafe, fetchProfissionaisSafe, filtrarLinhasPorEquipe, filtrarAtividadesColetivasPorEquipe, fmtBRDate, fmtDate, fmtDec, fmtInt, init_nucleo_config, init_nucleo_dados, init_nucleo_listas_estado, init_nucleo_periodos, init_nucleo_popovers, init_visual_gauge, init_visual_painel_kpi, isMesFuturo, labelQuadsSelecionados, m1ListNames, m2ListNames, mediaDeMeses, mesMs, mesesDosQuadsSelecionadosUniao, mesesElapsedDosQuadsSelecionadosUniao, monthOptionValue, monthShortLabel, normalizeText, parseBRDate, parseCsv, periodoMesUnico, pillHex, populateAnoQuadSelects, profissionaisRoster, quadCode, quadKeyOfDate, quadShortLabel, quadMs, refMonthLabel, sheetToRows, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, valoresUnicosOrdenados, withinPeriod } from './nucleo.js';
 import { renderFluxoPacientes, ovMesesHTML, M1_META_THRESHOLDS, M2_META_THRESHOLDS, calcularAnalises, calcularMetasQuadrimestre, calcularPerformanceProfissionais, calcularQuadrimestreAnterior, init_abas_analises_calculo, init_abas_analises_render, init_abas_m1_m2, init_abas_profissionais, ipGaugeCardHTML, ipReadingHTML, metaQuadrimestreHTML, metaQuadrimestreMiniHTML, overviewCardHTML, populateSheetsCache, profListaAtual, renderAnalises, renderPerformanceProfissionais, setupPreliminarToggle, setupTrendInteractivity, sparkline, stackbar } from './abas.js';
 import { gerarPdfDivergenciaOficial, init_listas_atividade_coletiva, pessoasAtendidasParaMeses, renderListsSection } from './listas.js';
 
@@ -817,6 +817,70 @@ function janelasInfoDeMeses(meses, jaMeses, jaJanelas){
   });
 }
 
+function construirWb(parsedPorAba){
+      var wb = {SheetNames:[], Sheets:{}};
+      var unidadesAtivas = estadoApp.currentUnidades || [];
+      // Atividades coletivas: filtro pela equipe da linha; no "Geral" a mesma atividade que
+      // aparece em duas eMulti conta uma vez só. Ver filtrarAtividadesColetivasPorEquipe.
+      var ativColetivas = filtrarAtividadesColetivasPorEquipe(
+        parsedPorAba["Participantes Ativ. Coletiva"], parsedPorAba["Resumo Atividade Coletiva"], estadoApp.currentEquipes);
+      // Com unidade marcada: wb = abas restritas às unidades (M1, listas...); semUnidade = só por equipe
+      // (usado pra manter o M2 igual, independente da unidade — ver calcularIndicadoresDoPeriodo).
+      var wbSemUnidade = unidadesAtivas.length ? {SheetNames:[], Sheets:{}} : null;
+      Object.keys(parsedPorAba).forEach(function(nomeAba){
+        // nomeAba é o nome REAL da aba (sem sufixo). Filtra as linhas pela equipe selecionada e
+        // guarda no workbook sob a chave "sufixada" — o resto do painel lê por essa chave.
+        // SEM filtro de período aqui — cada mês de referência filtra por data na hora.
+        var porEquipe;
+        if(nomeAba === "Participantes Ativ. Coletiva" && ativColetivas.part) porEquipe = ativColetivas.part;
+        else if(nomeAba === "Resumo Atividade Coletiva" && ativColetivas.rac) porEquipe = ativColetivas.rac;
+        else porEquipe = filtrarLinhasPorEquipe(parsedPorAba[nomeAba], estadoApp.currentEquipes);
+        var key = suffixedName(nomeAba);
+        wb.Sheets[key] = filtrarLinhasPorUnidade(porEquipe, unidadesAtivas);
+        wb.SheetNames.push(key);
+        if(wbSemUnidade){ wbSemUnidade.Sheets[key] = porEquipe; wbSemUnidade.SheetNames.push(key); }
+      });
+      if(wbSemUnidade) wb.semUnidade = wbSemUnidade;
+
+      return wb;
+}
+
+// Sincroniza SOMENTE as abas das listas (mais rápido que o "Atualizar" geral):
+// relê Atendimentos, Participantes, Resumos, refaz o workbook com o cache das
+// demais abas e redesenha as listas. Indicadores (M1/M2, gauges) só mudam no
+// "Atualizar" geral.
+var sincronizandoListas = false;
+export function sincronizarListas(){
+  if(sincronizandoListas) return Promise.resolve();
+  sincronizandoListas = true;
+  var btns = document.querySelectorAll('[data-sync-listas]');
+  btns.forEach(function(b){ b.disabled = true; b.classList.add('loading'); var l=b.querySelector('span'); if(l) l.textContent = 'Sincronizando…'; });
+  return fetchSheetsPorNome(listSheetNames()).then(function(results){
+    var faltando = results.filter(function(r){ return !r.ok; });
+    if(faltando.length){
+      throw new Error('Falha ao ler: ' + faltando.map(function(r){ return r.name + ' (' + ((r.error && r.error.message) || 'erro') + ')'; }).join('; '));
+    }
+    results.forEach(function(r){
+      var rows = parseCsv(r.csvText);
+      if(rows.length) latestRawSheets[r.name] = rows;
+    });
+    latestWb = construirWb(Object.assign({}, latestRawSheets));
+    populateSheetsCache(latestWb);
+    renderListsSection('listsM1', m1ListNames());
+    renderListsSection('listsM2', m2ListNames());
+    window.__emultiPessoasAtendidas = function(){ return pessoasAtendidasParaMeses([]); };
+    if(fetchStatusEl){ fetchStatusEl.textContent = 'Listas sincronizadas.'; fetchStatusEl.className = 'fetch-status'; }
+  }).catch(function(err){
+    var msg = (err && err.message) ? err.message : 'verifique sua conexão.';
+    if(fetchStatusEl){ fetchStatusEl.textContent = 'Não foi possível sincronizar as listas: ' + msg; fetchStatusEl.className = 'fetch-status err'; }
+    try{ alert('Não foi possível sincronizar as listas: ' + msg); }catch(e){}
+  }).finally(function(){
+    sincronizandoListas = false;
+    document.querySelectorAll('[data-sync-listas]').forEach(function(b){ b.disabled = false; b.classList.remove('loading'); var l=b.querySelector('span'); if(l) l.textContent = 'Sincronizar'; });
+  });
+}
+window.addEventListener('emulti:sincronizar-listas', function(){ sincronizarListas(); });
+
 export function fetchAndLoad(){
   refreshBtn.classList.add('loading');
   refreshBtn.disabled = true;
@@ -842,7 +906,6 @@ export function fetchAndLoad(){
           + '". Motivo: ' + motivos.join(' | ') + '.');
       }
 
-      var wb = {SheetNames:[], Sheets:{}};
       var parsedPorAba = {};
       results.forEach(function(r){
         var parsedRows = parseCsv(r.csvText);
@@ -852,29 +915,7 @@ export function fetchAndLoad(){
       });
       // Filtro "Equipe - Unidade": as opções vêm dos dados brutos (sem filtro de equipe).
       atualizarOpcoesUnidade(unidadesDisponiveisDasAbas(parsedPorAba));
-      var unidadesAtivas = estadoApp.currentUnidades || [];
-      // Atividades coletivas: filtro pela equipe da linha; no "Geral" a mesma atividade que
-      // aparece em duas eMulti conta uma vez só. Ver filtrarAtividadesColetivasPorEquipe.
-      var ativColetivas = filtrarAtividadesColetivasPorEquipe(
-        parsedPorAba["Participantes Ativ. Coletiva"], parsedPorAba["Resumo Atividade Coletiva"], estadoApp.currentEquipes);
-      // Com unidade marcada: wb = abas restritas às unidades (M1, listas...); semUnidade = só por equipe
-      // (usado pra manter o M2 igual, independente da unidade — ver calcularIndicadoresDoPeriodo).
-      var wbSemUnidade = unidadesAtivas.length ? {SheetNames:[], Sheets:{}} : null;
-      Object.keys(parsedPorAba).forEach(function(nomeAba){
-        // nomeAba é o nome REAL da aba (sem sufixo). Filtra as linhas pela equipe selecionada e
-        // guarda no workbook sob a chave "sufixada" — o resto do painel lê por essa chave.
-        // SEM filtro de período aqui — cada mês de referência filtra por data na hora.
-        var porEquipe;
-        if(nomeAba === "Participantes Ativ. Coletiva" && ativColetivas.part) porEquipe = ativColetivas.part;
-        else if(nomeAba === "Resumo Atividade Coletiva" && ativColetivas.rac) porEquipe = ativColetivas.rac;
-        else porEquipe = filtrarLinhasPorEquipe(parsedPorAba[nomeAba], estadoApp.currentEquipes);
-        var key = suffixedName(nomeAba);
-        wb.Sheets[key] = filtrarLinhasPorUnidade(porEquipe, unidadesAtivas);
-        wb.SheetNames.push(key);
-        if(wbSemUnidade){ wbSemUnidade.Sheets[key] = porEquipe; wbSemUnidade.SheetNames.push(key); }
-      });
-      if(wbSemUnidade) wb.semUnidade = wbSemUnidade;
-
+      var wb = construirWb(parsedPorAba);
       latestWb = wb;
       aplicarMesReferencia(true);
     })

@@ -1624,3 +1624,12 @@ h1,h2,h3,.serif{font-optical-sizing:auto;}
 
 /* Linha "Total" (soma das parcelas) no fim da legenda da composição do numerador */
 .legend-item.legend-total{margin-top:4px;padding-top:8px;border-top:1px dashed var(--line);font-weight:700;}
+
+/* Pills de equipe nas listas + botão Sincronizar */
+.list-equipe-pills{display:flex;flex-wrap:wrap;gap:6px;flex:1 1 auto;justify-content:center}
+.list-equipe-pill{padding:6px 12px;border-radius:999px;border:1px solid #D9E1D6;background:#fff;color:#1B2E27;font-family:'Inter',sans-serif;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:background .15s ease,color .15s ease}
+.list-equipe-pill:hover{background:#EEF3EA}
+.list-equipe-pill.active{background:#153F35;border-color:#153F35;color:#EEF3EA}
+.list-equipe-pill:focus-visible{outline:none;box-shadow:var(--ring)}
+.sync-btn.loading svg{animation:syncSpin .9s linear infinite}
+@keyframes syncSpin{to{transform:rotate(360deg)}}

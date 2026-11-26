@@ -1097,8 +1097,17 @@ function fetchSheetCsvComRetry(name, tentativa){
   });
 }
 
+// Abas que alimentam as listas (Atendimentos, Participantes, Resumos). Usado
+// pelo botão "Sincronizar" das listas, que não precisa reler as demais abas.
+export function listSheetNames(){
+  return ["Atendimentos", "Participantes Ativ. Coletiva", "Resumo Atividade Coletiva", "Resumo Reuniões"];
+}
+
 export function fetchAllSheets(){
-  var nomes = requiredSheetNames();
+  return fetchSheetsPorNome(requiredSheetNames());
+}
+
+export function fetchSheetsPorNome(nomes){
   var resultados = new Array(nomes.length);
   var proximo = 0;
   function worker(){
