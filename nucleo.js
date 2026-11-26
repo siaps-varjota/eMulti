@@ -500,7 +500,7 @@ export function criarLigacaoAtividades(partRows, racHeader, todasPartRows){
     return d ? (d.getFullYear()+"-"+d.getMonth()+"-"+d.getDate()) : String(v||"").trim();
   }
   var idP = colIndex(partHeader, "id_atividade"), idR = colIndex(racHeader, "id_atividade");
-  function limpa(v){ return normalizeText(v).replace(/\s+/g," ").trim(); }
+  function limpa(v){ return normalizeText(limparNomeResponsavel(v)).replace(/\s+/g," ").trim(); }
   // Em quais eMulti a atividade aparece na planilha (uma linha por eMulti), olhando Participantes
   // SEM filtro de equipe (todasPartRows). Chave sem equipe: ID da atividade, ou data+responsável+tipo.
   var origemEq = (todasPartRows && todasPartRows.length > 1) ? todasPartRows : partRows;
@@ -576,7 +576,7 @@ export function criarLigacaoAtividades(partRows, racHeader, todasPartRows){
       // (Resumo/Participantes têm uma linha por eMulti). Se nenhuma bater, usa o cadastro.
       var eqsCad = EQUIPES.filter(function(eq){ return nomeEhDaEmultiDasEquipes(nome, [eq]); });
       var eqsAtiv = equipesAtiv ? eqsCad.filter(function(eq){ return equipesAtiv[eq.key]; }) : [];
-      vistos[k] = {nome:nome, responsavel:(ci === iRespLig), emulti:nomeEhDaEmulti(nome),
+      vistos[k] = {nome:limparNomeResponsavel(nome), responsavel:(ci === iRespLig), emulti:nomeEhDaEmulti(nome),
         equipes:(eqsAtiv.length ? eqsAtiv : eqsCad).map(function(eq){ return eq.suffix; })};
       lista.push(vistos[k]);
     });
@@ -1158,7 +1158,26 @@ export function normalizeText(s){
 // ("Maria  Silva " = "MARIA SILVA"). Usada pra comparar nomes de
 // Participantes Ativ. Coletiva com a aba PROFISSIONAIS.
 export function normalizarNomeProf(s){
-  return normalizeText(s).replace(/\s+/g,' ').trim();
+  return normalizeText(limparNomeResponsavel(s)).replace(/\s+/g,' ').trim();
+}
+
+// A coluna "Responsável" pode vir com um aviso entre parênteses no fim do nome, ex.:
+// "Karoliny Melo de Castro (Responsável sem vínculo com a eMulti Centro)".
+// - limparNomeResponsavel: devolve só o nome, sem o aviso (identidade da pessoa, usada em
+//   comparações, deduplicação e filtros — assim "Fulano" e "Fulano (Responsável sem vínculo...)"
+//   são a mesma pessoa).
+// - temAvisoSemVinculo: true quando o aviso está presente. Nesse caso o responsável é tratado
+//   como FORA da eMulti (mesma regra de antes: atividade sai das listas e dos cálculos),
+//   mesmo que o nome exista em outra equipe do cadastro PROFISSIONAIS.
+var RE_AVISO_SEM_VINCULO = /\s*\(\s*respons[aá]vel\s+sem\s+v[ií]nculo[^)]*\)\s*/gi;
+export function limparNomeResponsavel(nome){
+  return String(nome===undefined||nome===null ? "" : nome).replace(RE_AVISO_SEM_VINCULO, " ").replace(/\s+/g," ").trim();
+}
+export function temAvisoSemVinculo(nome){
+  RE_AVISO_SEM_VINCULO.lastIndex = 0;
+  var r = RE_AVISO_SEM_VINCULO.test(String(nome===undefined||nome===null ? "" : nome));
+  RE_AVISO_SEM_VINCULO.lastIndex = 0;
+  return r;
 }
 
 // Profissionais de cada linha do "Resumo Atividade Coletiva" (WeakMap:
@@ -1336,6 +1355,7 @@ export function nomeEhDaEmulti(nome){
     profissionaisRoster.forEach(function(p){ rosterNomesEmultiCache[normalizarNomeProf(p.nome)] = true; });
     rosterNomesEmultiCacheFor = profissionaisRoster;
   }
+  if(temAvisoSemVinculo(nome)) return false; // aviso "(Responsável sem vínculo...)": fora da eMulti
   nome = String(nome||"").trim();
   return !!nome && !!rosterNomesEmultiCache[normalizarNomeProf(nome)];
 }
@@ -1369,6 +1389,7 @@ export function nomeEhDaEmultiDasEquipes(nome, equipes){
     });
     rosterEquipesPorNomeCacheFor = profissionaisRoster;
   }
+  if(temAvisoSemVinculo(nome)) return false; // aviso "(Responsável sem vínculo...)": fora da eMulti
   nome = String(nome||"").trim();
   if(!nome) return false;
   var porEq = rosterEquipesPorNomeCache[normalizarNomeProf(nome)];

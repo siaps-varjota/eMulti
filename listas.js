@@ -4,7 +4,7 @@
 // Cada seção "=== módulo: ... ===" corresponde a um arquivo original.
 // ======================================================================
 
-import { profissionaisRoster, ehProfissionalComparativoEmulti, EQUIPES, TOTAL_PROF_EMULTI_HEADER, profissionaisPorAtividade, calcularJanelaPeriodo, colIndex, colRespParticipantes, colTotalProfEmulti, createMultiSelect, dateColIndexForList, debounce, displayListName, equipeColIndex, escapeHtml, estadoApp, fmtBRDate, fmtDec, fmtInt, listDatasExpandidas, listDateColIdx, listModel, listMonthFilters, monthOptionLabel, monthOptionValue, monthOptionsForList, monthShortLabel, nomeEhDaEmulti, equipesDaEmultiDoProfissional, normalizeText, parseBRDate, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, withinPeriod } from './nucleo.js';
+import { limparNomeResponsavel, temAvisoSemVinculo, profissionaisRoster, ehProfissionalComparativoEmulti, EQUIPES, TOTAL_PROF_EMULTI_HEADER, profissionaisPorAtividade, calcularJanelaPeriodo, colIndex, colRespParticipantes, colTotalProfEmulti, createMultiSelect, dateColIndexForList, debounce, displayListName, equipeColIndex, escapeHtml, estadoApp, fmtBRDate, fmtDec, fmtInt, listDatasExpandidas, listDateColIdx, listModel, listMonthFilters, monthOptionLabel, monthOptionValue, monthOptionsForList, monthShortLabel, nomeEhDaEmulti, equipesDaEmultiDoProfissional, normalizeText, parseBRDate, suffixedName, temaEhDiscussaoCasoPts, tipoEhReuniao, toInt, withinPeriod } from './nucleo.js';
 import { ACAO_M2_FILTER_VALUE, DIAS_SEM_ATENDIMENTO_HEADER, FAIXAS_DIAS_SEM_ATENDIMENTO, PROF_EMULTI_FILTER_VALUE, riscoCfgBusca, buscaAtivaCompute, diasBucketLabel, profissionalBadgeHtml, riscoTableHtml, wireRiscoFiltros } from './abas.js';
 import { latestWb } from './app.js';
 
@@ -343,7 +343,7 @@ function nomesEnvolvidosParticipacao(headers, row){
     var vResp = String(row[iResp]||"").trim();
     if(vResp){
       var respEhEmulti = nomeEhDaEmulti(vResp);
-      envolvidos.push({rotulo: respEhEmulti ? "Responsável (eMulti)" : "Responsável", nome:vResp});
+      envolvidos.push({rotulo: respEhEmulti ? "Responsável (eMulti)" : (temAvisoSemVinculo(vResp) ? "Responsável (sem vínculo com a eMulti)" : "Responsável"), nome:limparNomeResponsavel(vResp)});
     }
   }
   var secundarios = [];
@@ -867,7 +867,7 @@ export function pessoasAtendidasParaMeses(monthValues){
         registrarEquipe(p, d, iPEquipe >= 0 ? String(r[iPEquipe]||'').trim() : '');
         var profsDoEvento = [];
         iProfPartCols.forEach(function(idx){
-          var prof = String(r[idx]||"").trim();
+          var prof = limparNomeResponsavel(r[idx]);
           if(prof){ registrarProf(p, prof, d, TIPO_EVENTO_PARTICIPACAO); profsDoEvento.push(prof); }
         });
         if(profsDoEvento.length) atualizarUltimoGeral(p, d, TIPO_EVENTO_PARTICIPACAO, profsDoEvento[0]);
