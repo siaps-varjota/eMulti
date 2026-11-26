@@ -132,14 +132,22 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
       title:'Parte do numerador que vem do resultado oficial do SIAPS dos meses já publicados (e da diferença entre janelas oficiais). O oficial traz só o total, sem separar atendimentos compartilhados, atividades coletivas, reuniões e compartilhamento de cuidado.'});
   }
   var numM2Bar = stackbar(numM2Parts, numM2Gauge, true);
-  var denM2Bar = stackbar([
+  var denM2Parts = [
       {label:'Atendimentos individuais (específicos)', value:atendEspGauge||0, color:'#CBD3C4', title:DEF_ATEND_ESPECIFICO},
       {label:'Atendimentos individuais (compartilhados)', value:atendCompGauge||0, color:'#3B7DDD', title:DEF_ATEND_COMPARTILHADO},
       {label:'Atividades coletivas (específicas)', value:(atividadesTotaisGauge!=null && atividadesCompGauge!=null) ? Math.max(0, atividadesTotaisGauge-atividadesCompGauge) : 0, color:'#E7DFC9', title:DEF_AC_ESPECIFICA},
       {label:'Atividades coletivas compartilhadas', value:atividadesCompGauge||0, color:'#153F35', title:DEF_AC_COMPARTILHADA},
       {label:'Reuniões (específicas)', value:(reunioesTotaisGauge!=null && reunioesCompGauge!=null) ? Math.max(0, reunioesTotaisGauge-reunioesCompGauge) : 0, color:'#F1E6D2', title:DEF_REUNIAO_ESPECIFICA},
       {label:'Reuniões compartilhadas', value:reunioesCompGauge||0, color:'#C68A3D', title:DEF_REUNIAO_COMPARTILHADA}
-    ], denM2Gauge);
+    ];
+  // Parte do denominador que vem do resultado OFICIAL (SIAPS): ações que o oficial conta e a planilha não detalha
+  // (as ações compartilhadas do "Resultado oficial" do numerador também são ações realizadas, então contam aqui).
+  var restoDenM2 = (denM2Gauge||0) - denM2Parts.reduce(function(s,x){ return s + (x.value||0); }, 0);
+  if(restoDenM2 > 0.5){
+    denM2Parts.push({label:'Resultado oficial (sem detalhamento)', value:restoDenM2, color:'#9AA7A0',
+      title:'Parte do denominador que vem do resultado oficial do SIAPS dos meses já publicados (e da diferença entre janelas oficiais). O oficial traz só o total, sem separar atendimentos, atividades coletivas e reuniões. As ações compartilhadas dessa parcela no numerador também são contadas aqui.'});
+  }
+  var denM2Bar = stackbar(denM2Parts, denM2Gauge);
 
   document.getElementById('compRow').innerHTML =
       '<div class="card comp-card">'+compCardHeaderHTML('Numerador do M1', numM1Gauge)+numM1Bar+'</div>'

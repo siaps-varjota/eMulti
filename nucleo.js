@@ -1701,6 +1701,11 @@ function aplicarOverrideOficial(data, ano, mesIdx, wb){
     if(!data.m2Oficial){
       var numHib2 = numeradorHibrido(wb, mesRef, 'M2');
       if(numHib2 != null){
+        // A parte do numerador que vem do oficial (sem detalhamento) é ação compartilhada que a planilha não
+        // mostra; como todo numerador também é ação realizada, ela precisa entrar no denominador também.
+        var extraOficialM2 = Math.max(0, numHib2 - (data.numeradorM2 || 0));
+        data.denominadorM2Oficial = extraOficialM2;
+        data.denominadorM2 = (data.denominadorM2 || 0) + extraOficialM2;
         data.numeradorM2 = numHib2;
         data.m2 = data.denominadorM2 ? (numHib2/data.denominadorM2*100) : null;
         data.classificacaoM2 = classificarM2(data.m2);
