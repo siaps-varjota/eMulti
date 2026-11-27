@@ -838,8 +838,8 @@ function construirWb(parsedPorAba){
   });
   if(!algumaPend) return construirWbDe(parsedPorAba);
   var filtrado = Object.assign({}, parsedPorAba);
-  filtrado["Atendimentos"] = filtrarLinhasPorPendencia(parsedPorAba["Atendimentos"], excl, "nome");
-  filtrado["Participantes Ativ. Coletiva"] = filtrarLinhasPorPendencia(parsedPorAba["Participantes Ativ. Coletiva"], excl, "participante");
+  filtrado["Atendimentos"] = filtrarLinhasPorPendencia(parsedPorAba["Atendimentos"], excl, "nome", "data_hora");
+  filtrado["Participantes Ativ. Coletiva"] = filtrarLinhasPorPendencia(parsedPorAba["Participantes Ativ. Coletiva"], excl, "participante", "data");
   var wb = construirWbDe(filtrado);
   wb.todas = construirWbDe(parsedPorAba);
   return wb;

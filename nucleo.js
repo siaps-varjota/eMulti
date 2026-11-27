@@ -1165,9 +1165,10 @@ export function normalizeText(s){
   return String(s||"").toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
 }
 
-// ---------- Coluna "Pendências" (última coluna de Atendimentos e Participantes Ativ. Coletiva) ----------
+// ---------- Coluna "Pendências" (+ "Última atualização") nas abas Atendimentos e Participantes Ativ. Coletiva ----------
 // Pessoa com "Óbito" ou "MUDOU-SE (SAIU DO TERRITÓRIO)" em Pendências continua aparecendo nas listas
-// (com a coluna "Pendências"), mas NÃO entra em nenhum cálculo de indicador.
+// (com a coluna "Pendências"), mas SAI dos indicadores A PARTIR DO MÊS da "Última atualização":
+// atendimentos/participações de meses anteriores a esse mês continuam contando normalmente.
 export function colPendencias(headers){
   for(var i=0;i<(headers||[]).length;i++){
     var h = normalizeText(headers[i]).replace(/[_\s]+/g,' ').trim();
@@ -1175,41 +1176,59 @@ export function colPendencias(headers){
   }
   return -1;
 }
+export function colUltimaAtualizacao(headers){
+  for(var i=0;i<(headers||[]).length;i++){
+    var h = normalizeText(headers[i]).replace(/[_\s]+/g,' ').trim();
+    if(h === 'ULTIMA ATUALIZACAO' || h === 'ULTIMA ATUALIZACAO EM') return i;
+  }
+  return -1;
+}
 export function pendenciaExcluiDoCalculo(valor){
   var t = normalizeText(valor).replace(/[_\s]+/g,' ');
   return t.indexOf('OBITO') !== -1 || /MUDOU[- ]?SE/.test(t);
 }
-// Pessoas (nome em maiúsculas) cuja Pendências MAIS RECENTE (entre Atendimentos e Participantes, por data;
-// em empate vale a última linha lida) é Óbito / Mudou-se. A condição vale pra pessoa, não só pra linha:
-// se o "Óbito" foi marcado só no último registro, os registros anteriores também saem dos cálculos.
+// Pessoas (nome em maiúsculas) cuja Pendências MAIS RECENTE (entre as duas abas, por data do evento; em empate
+// vale a última linha lida) é Óbito / Mudou-se → { NOME: {corte: <1º dia do mês da Última atualização>} }.
+// Sem "Última atualização" preenchida, usa o mês do próprio evento mais recente como corte.
 export function pessoasExcluidasPorPendencia(parsedPorAba){
-  var ultimo = {}; // chave -> {t, v}
+  var ultimo = {}; // chave -> {t, v, ua}
   [["Atendimentos","nome","data_hora"],["Participantes Ativ. Coletiva","participante","data"]].forEach(function(cfg){
     var m = parsedPorAba && parsedPorAba[cfg[0]];
     if(!m || m.length < 2) return;
-    var iP = colPendencias(m[0]), iN = colIndex(m[0], cfg[1]), iD = colIndex(m[0], cfg[2]);
+    var iP = colPendencias(m[0]), iN = colIndex(m[0], cfg[1]), iD = colIndex(m[0], cfg[2]), iU = colUltimaAtualizacao(m[0]);
     if(iP < 0 || iN < 0) return;
     m.slice(1).forEach(function(r){
       var nome = String(r[iN]||'').trim();
       var v = String(r[iP]||'').trim();
       if(!nome || !v) return;
       var d = iD >= 0 ? parseBRDate(r[iD]) : null;
+      var ua = iU >= 0 ? parseBRDate(r[iU]) : null;
       var t = d ? d.getTime() : 0, k = nome.toUpperCase();
-      if(!ultimo[k] || t >= ultimo[k].t) ultimo[k] = {t:t, v:v};
+      if(!ultimo[k] || t >= ultimo[k].t) ultimo[k] = {t:t, v:v, ua:ua, d:d};
     });
   });
   var out = {}, n = 0;
-  Object.keys(ultimo).forEach(function(k){ if(pendenciaExcluiDoCalculo(ultimo[k].v)){ out[k] = true; n++; } });
+  Object.keys(ultimo).forEach(function(k){
+    var u = ultimo[k];
+    if(!pendenciaExcluiDoCalculo(u.v)) return;
+    var base = u.ua || u.d; // sem data nenhuma: corte = 0 (sai de tudo)
+    out[k] = {corte: base ? new Date(base.getFullYear(), base.getMonth(), 1).getTime() : 0};
+    n++;
+  });
   out.__n = n;
   return out;
 }
-export function filtrarLinhasPorPendencia(matrix, excl, nomeCol){
+// Tira da matriz só as linhas da pessoa excluída cujo evento é do mês de corte em diante.
+export function filtrarLinhasPorPendencia(matrix, excl, nomeCol, dataCol){
   if(!matrix || matrix.length < 2 || !excl || !excl.__n) return matrix;
-  var iN = colIndex(matrix[0], nomeCol), iP = colPendencias(matrix[0]);
+  var iN = colIndex(matrix[0], nomeCol), iD = colIndex(matrix[0], dataCol);
   if(iN < 0) return matrix;
   return [matrix[0]].concat(matrix.slice(1).filter(function(r){
-    if(excl[String(r[iN]||'').trim().toUpperCase()]) return false;
-    return !(iP >= 0 && pendenciaExcluiDoCalculo(r[iP]));
+    var e = excl[String(r[iN]||'').trim().toUpperCase()];
+    if(!e || e === true) return true;
+    var d = iD >= 0 ? parseBRDate(r[iD]) : null;
+    if(!d) return e.corte > 0; // sem data: só sai se não há corte definido
+    return d.getTime() < e.corte;
   }));
 }
 
