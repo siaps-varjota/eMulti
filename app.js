@@ -234,6 +234,13 @@ export function renderDashboard(record, serieTendencia, performanceProfissionais
   document.getElementById('readingM2').innerHTML =
     ipReadingHTML('Leitura do M2', d.m2, d.classificacaoM2, quadAnterior.m2, 2, '%', CLASS_BANDS_M2, 'de ações compartilhadas', metaM2.cards.somaDen);
   renderListsSection('listsM2', m2ListNames());
+  // Cabeçalho "M1 Atendimentos por pessoa" / "M2 Ações compartilhadas" vai pra DENTRO do 1º card
+  // (acima de "Resultado do indicador"), em vez de ocupar uma faixa própria acima dele.
+  [['tabM1','gaugeRowM1'],['tabM2','gaugeRowM2']].forEach(function(par){
+    var cab = document.querySelector('#'+par[0]+' > .ip-header');
+    var card = document.querySelector('#'+par[1]+' .ip-gauge-card');
+    if(cab && card && !card.querySelector(':scope > .ip-header')) card.insertBefore(cab.cloneNode(true), card.firstChild);
+  });
   window.__emultiPessoasAtendidas = function(){ return pessoasAtendidasParaMeses([]); };
 
   // Tendência mês a mês: cada ponto é o M1/M2 calculado com sua própria
