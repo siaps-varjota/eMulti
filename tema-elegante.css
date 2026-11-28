@@ -1,0 +1,230 @@
+/* =====================================================================
+   Tema elegante — camada FINAL (carregada depois de style.css).
+   Objetivo: tirar o aspecto "fosco" e aproximar do painel de Saúde Bucal:
+   fundo com degradê suave, cabeçalho com brilho, abas em pílula, filtros
+   em painel de vidro, cartões luminosos com sombra em camadas e realce
+   colorido, tabelas com cabeçalho em degradê e botões com relevo.
+
+   Só aparência: não altera dados, cálculos, estrutura HTML nem JavaScript.
+   Para desligar o tema, basta remover a linha <link ... tema-elegante.css>.
+   ===================================================================== */
+
+:root{
+  --tema-azul:#28569B;
+  --tema-verde:#1C6D53;
+  --tema-vidro:rgba(255,255,255,.72);
+  --tema-borda:rgba(40,86,155,.14);
+  --tema-sombra-1:0 1px 2px rgba(16,42,67,.06),0 4px 12px -2px rgba(16,42,67,.08);
+  --tema-sombra-2:0 2px 4px rgba(16,42,67,.06),0 16px 34px -12px rgba(16,42,67,.20);
+  --tema-sombra-3:0 4px 8px rgba(16,42,67,.08),0 24px 48px -16px rgba(16,42,67,.28);
+  --shadow-card:var(--tema-sombra-1);
+  --shadow-card-hover:var(--tema-sombra-2);
+  --shadow-1:var(--tema-sombra-1);
+  --shadow-2:var(--tema-sombra-2);
+  --ring:0 0 0 3px rgba(40,86,155,.20);
+}
+
+/* ---------- Fundo da página ---------- */
+html{background:#EEF3F7;}
+body{
+  background:
+    radial-gradient(1100px 520px at 8% -8%, rgba(40,86,155,.13), transparent 60%),
+    radial-gradient(900px 480px at 96% 0%, rgba(28,109,83,.12), transparent 58%),
+    linear-gradient(180deg,#F3F7FA 0%,#EAF0F4 100%);
+  background-attachment:fixed;
+}
+
+/* ---------- Cabeçalho ---------- */
+.topbar{
+  position:relative;
+  background:
+    radial-gradient(520px 160px at 85% -40%, rgba(255,255,255,.22), transparent 70%),
+    linear-gradient(120deg,#2B7A44 0%,#256B6E 45%,#28569B 100%);
+  box-shadow:inset 0 -1px 0 rgba(255,255,255,.12);
+}
+.topbar-logo{border-radius:16px;box-shadow:0 4px 14px rgba(0,0,0,.25),0 0 0 1px rgba(255,255,255,.5) inset;}
+.topbar-left h1{font-weight:700;letter-spacing:-.02em;text-shadow:0 1px 10px rgba(0,0,0,.18);}
+.topbar-left .kicker{color:rgba(255,255,255,.78);}
+.topbar-left .tagline{color:rgba(255,255,255,.82);}
+.topbar-meta .periodo,.topbar-meta .dt{color:rgba(255,255,255,.80);}
+.refresh-pill,.logout-pill{
+  background:linear-gradient(180deg,rgba(255,255,255,.22),rgba(255,255,255,.10));
+  border:1px solid rgba(255,255,255,.34);
+  box-shadow:0 2px 8px rgba(0,0,0,.14),inset 0 1px 0 rgba(255,255,255,.28);
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);
+}
+.refresh-pill:hover,.logout-pill:hover{background:linear-gradient(180deg,rgba(255,255,255,.32),rgba(255,255,255,.16));}
+.header-group{box-shadow:0 10px 30px -14px rgba(16,42,67,.45);}
+
+/* ---------- Abas em pílula ---------- */
+.tabbar{
+  gap:6px;row-gap:6px;padding:9px 16px;
+  background:linear-gradient(180deg,#E4EBF1,#D9E2EA);
+  border-bottom:1px solid rgba(40,86,155,.16);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.7),0 6px 16px -12px rgba(16,42,67,.35);
+  -webkit-backdrop-filter:saturate(1.4) blur(10px);backdrop-filter:saturate(1.4) blur(10px);
+}
+.tab{
+  padding:8px 15px;border:none;border-bottom:none;border-radius:999px;
+  font-size:13px;font-weight:600;letter-spacing:0;color:#41546A;
+  transition:background .18s ease,color .18s ease,box-shadow .18s ease;
+}
+.tab:hover{background:rgba(255,255,255,.65);color:#15304F;}
+.tab.active{
+  background:#fff;color:#12304F;font-weight:700;border:none;
+  box-shadow:0 1px 2px rgba(16,42,67,.12),0 6px 14px -4px rgba(40,86,155,.30);
+}
+.tab.active:hover{background:#fff;}
+.tab:focus-visible{outline:none;box-shadow:var(--ring);}
+
+/* ---------- Filtros em painel de vidro ---------- */
+.ref-month-row{
+  background:linear-gradient(180deg,rgba(255,255,255,.92),rgba(255,255,255,.74));
+  border:1px solid rgba(255,255,255,.9);
+  border-radius:20px;
+  box-shadow:0 0 0 1px var(--tema-borda),var(--tema-sombra-2);
+  -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+}
+.ms-field > label{color:#5B6F86;}
+.ms-btn{
+  border:1px solid #CBD7E4;border-radius:12px;
+  background:linear-gradient(180deg,#fff,#F6F9FC);
+  box-shadow:0 1px 2px rgba(16,42,67,.05);
+}
+.ms-btn:hover{border-color:#8FAAC9;background:#fff;}
+.ms-wrap.ms-has-value .ms-btn{border-color:var(--tema-azul);background:linear-gradient(180deg,#F5F9FF,#EAF2FD);}
+.ms-wrap:not(.ms-has-value) .ms-btn{background:linear-gradient(180deg,#fff,#F6F9FC);}
+.ms-panel{
+  border:1px solid #D3DEEA;border-radius:14px;
+  box-shadow:var(--tema-sombra-3);
+}
+.ms-option:hover{background:#EEF4FB;}
+.filter-bar-toggle{box-shadow:var(--tema-sombra-1);}
+
+/* ---------- Cartões ---------- */
+.card{
+  background:linear-gradient(180deg,#FFFFFF 0%,#FBFDFE 100%);
+  border:1px solid rgba(40,86,155,.12);
+  border-radius:20px;
+  box-shadow:var(--tema-sombra-1);
+}
+.card:hover{
+  transform:translateY(-2px);
+  box-shadow:var(--tema-sombra-2);
+  border-color:rgba(40,86,155,.22);
+}
+.card-title{letter-spacing:-.01em;color:#10263F;}
+
+/* Cartões de indicador (Visão geral): realce colorido, vidro e relevo */
+.ov-card{
+  border-top-width:4px !important;
+  background:linear-gradient(180deg,#FFFFFF 0%,#F8FBFD 100%);
+}
+.ov-card .kpi-panel{
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--kpi-accent) 20%,transparent),
+             inset 0 1px 0 rgba(255,255,255,.7),
+             0 6px 16px -10px color-mix(in srgb,var(--kpi-accent) 45%,transparent);
+}
+.ov-card .kpi-icon{box-shadow:0 2px 6px rgba(16,42,67,.14),inset 0 0 0 1px color-mix(in srgb,var(--kpi-accent) 26%,transparent);}
+.ov-badge{box-shadow:0 1px 2px rgba(16,42,67,.10),inset 0 0 0 1px rgba(255,255,255,.35);}
+.ov-evo,.kpi-container{
+  background:linear-gradient(180deg,#F8FBFE,#F1F6FA);
+  border:1px solid rgba(40,86,155,.12);
+}
+.ov-evo-percent{box-shadow:0 3px 10px rgba(16,42,67,.14);}
+.ov-mes{
+  background:linear-gradient(180deg,#fff,#F8FBFD);
+  border-color:rgba(40,86,155,.12);
+  box-shadow:var(--tema-sombra-1);
+}
+.ov-legend{border-top-color:rgba(40,86,155,.12);}
+
+/* Metas do quadrimestre e cartões menores */
+.meta-quad-wrap{
+  background:linear-gradient(135deg,#F7F4FF 0%,#F1F5FF 100%);
+  border:1px solid rgba(110,80,200,.18);
+  box-shadow:var(--tema-sombra-2);
+}
+.meta-mini-row,.meta-card{
+  background:linear-gradient(180deg,#FFFFFF,#F7FAFC);
+  border-color:rgba(40,86,155,.12);
+}
+.gauge-card,.comp-card{border-radius:20px;}
+
+/* Blocos de leitura/interpretação */
+.gi-right,.ip-reading{
+  background:linear-gradient(180deg,#EEF6FF,#E6F0FB);
+  border:1px solid #D3E2F4;
+}
+.ip-header-icon,.gi-icon,.prof-avatar{
+  background:linear-gradient(145deg,#2F7BC9,#1F4F8F);
+  box-shadow:0 6px 16px -4px rgba(31,79,143,.45),inset 0 1px 0 rgba(255,255,255,.3);
+}
+
+/* ---------- Títulos de seção ---------- */
+.section-title{color:#10263F;}
+.section-title::after{background:linear-gradient(90deg,rgba(40,86,155,.28),transparent);}
+
+/* ---------- Selos e botões ---------- */
+.pill{box-shadow:0 2px 6px rgba(16,42,67,.18),inset 0 1px 0 rgba(255,255,255,.22);}
+.pill-preliminar{
+  background:linear-gradient(180deg,#FFF4E0,#FDEBCB);
+  box-shadow:inset 0 0 0 1px rgba(224,152,45,.25);
+}
+.pdf-btn{
+  background:linear-gradient(180deg,#2F7BC9,#245EA6);
+  border-color:#1F4F8F;
+  box-shadow:0 2px 6px rgba(31,79,143,.35),inset 0 1px 0 rgba(255,255,255,.25);
+}
+.pdf-btn:hover{background:linear-gradient(180deg,#3A87D6,#2A67B3);box-shadow:0 8px 18px -6px rgba(31,79,143,.55);}
+.pill-btn,.sheet-pill{
+  background:linear-gradient(180deg,#fff,#F5F8FB);
+  border-color:#CBD7E4;
+  box-shadow:0 1px 2px rgba(16,42,67,.06);
+}
+.pill-btn:hover,.sheet-pill:hover{border-color:#8FAAC9;background:#fff;}
+.pill-btn.active,.pill-btn.selected,.sheet-pill.active,.sheet-pill.selected{
+  background:linear-gradient(180deg,#1E3A5F,#12263F);color:#fff;border-color:#12263F;
+  box-shadow:0 6px 14px -4px rgba(18,38,63,.5);
+}
+
+/* ---------- Tabelas ---------- */
+.table-wrap{
+  border:1px solid rgba(40,86,155,.14);border-radius:16px;
+  box-shadow:var(--tema-sombra-1);background:#fff;
+}
+.data-table thead th{
+  background:linear-gradient(180deg,#F1F6FB,#E8EFF6);
+  color:#3F5671;
+  border-bottom:1px solid rgba(40,86,155,.18);
+}
+.data-table tbody td{border-bottom-color:#E9EFF5;}
+.data-table tbody tr:nth-child(even){background:rgba(238,244,250,.55);}
+.data-table tbody tr:hover{background:rgba(40,86,155,.08);}
+.table-wrap::-webkit-scrollbar-thumb,.ms-list::-webkit-scrollbar-thumb{background:#B9C9DB;background-clip:padding-box;}
+.table-wrap::-webkit-scrollbar-thumb:hover,.ms-list::-webkit-scrollbar-thumb:hover{background:#97AFC9;background-clip:padding-box;}
+
+/* ---------- Login ---------- */
+#loginOverlay{
+  background:
+    radial-gradient(900px 500px at 10% 0%, rgba(40,86,155,.30), transparent 60%),
+    radial-gradient(800px 480px at 100% 100%, rgba(28,109,83,.30), transparent 60%),
+    linear-gradient(135deg,#0F2A44,#12372F);
+}
+.login-card{
+  border-radius:24px;
+  box-shadow:0 30px 70px -20px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.25) inset;
+}
+.login-submit{
+  background:linear-gradient(180deg,#2F7BC9,#245EA6);
+  box-shadow:0 6px 16px -4px rgba(31,79,143,.55),inset 0 1px 0 rgba(255,255,255,.25);
+}
+
+/* ---------- Rodapé ---------- */
+.app-footer{color:#5B6F86;}
+
+/* Respeita quem prefere menos movimento */
+@media (prefers-reduced-motion:reduce){
+  .card,.tab,.pdf-btn{transition:none !important;}
+  .card:hover{transform:none;}
+}
