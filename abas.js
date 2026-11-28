@@ -3165,7 +3165,7 @@ export function ovMesesHTML(kind, pontos, larga){
 export function overviewCardHTML(opts){
   var st = ovStatus(opts.classe);
   var mesesHtml = ovMesesHTML(opts.mesesKind, opts.meses);
-  var card = '<div class="card ov-card" style="border-top:4px solid '+st.accent+';">'
+  var card = '<div class="card ov-card" style="border-top:4px solid '+st.accent+';--kpi-accent:'+st.accent+';">'
     + '<div class="ov-head">'
     +   '<div class="ov-head-left">'+ovIconHTML(opts.iconKind, st)+'<h3 class="ov-title" title="'+opts.title+'">'+opts.title+'</h3></div>'
     +   '<span class="ov-badge" style="background:'+st.badgeBg+';color:'+st.badgeText+';">'+st.icon+' '+(opts.classe||'—')+'</span>'
