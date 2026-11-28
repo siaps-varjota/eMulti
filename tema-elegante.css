@@ -96,7 +96,7 @@ body{
   -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
 }
 /* ALTURA DO MENU DE FILTROS (2/3): espaço entre o rótulo e o seletor (era 5px) */
-.ms-field{gap:2px;}
+.ms-field{gap:4px;}
 /* REDUÇÃO EXTRA DE 25% NA ALTURA DO MENU DE FILTROS (86px -> ~64px):
    respiro do topo (era 30px, reservado pra lingueta "Filtros"), rótulo menor e lingueta mais baixa (22px -> 16px) */
 .filter-bar-outer:not(.filter-bar-collapsed):not(.filter-bar-recolhendo) #filterBar{padding-top:15px;padding-bottom:4px;}
