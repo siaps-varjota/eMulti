@@ -176,7 +176,10 @@ function montar() {
   if (!painel || estado.montado) return;
   painel.innerHTML =
       '<div class="card ap-card">'
-    +   '<h3 class="ap-titulo">Análises — onde estão os pontos perdidos</h3>'
+    +   '<div class="ap-topo">'
+    +     '<h3 class="ap-titulo">Análises — onde estão os pontos perdidos</h3>'
+    +     '<button type="button" class="pdf-btn ap-pdf-btn" id="apPdf"><span>Gerar PDF</span></button>'
+    +   '</div>'
     +   '<p class="ap-sub">A nota final do Componente III vale até 10 pontos (M1 pesa 6 e M2 pesa 4). O gráfico de Pareto mostra quanto cada indicador deixa de somar; os itens que, juntos, respondem por cerca de 80% da perda são os que mais compensam acompanhar primeiro.</p>'
     +   '<div class="ap-filtros">'
     +     '<div class="list-month-filter"><label class="list-month-filter-label">Quadrimestre</label><div class="ms-wrap" id="apQuadMs"></div></div>'
@@ -221,6 +224,9 @@ function montar() {
     onChange: function (keys) { estado.profissional = keys[0] || ''; estado.analise = null; renderizar(); }
   });
   atualizarOpcoesProf();
+
+  var btnPdf = el('apPdf');
+  if (btnPdf) btnPdf.addEventListener('click', gerarPdf);
 
   estado.montado = true;
 }
@@ -420,6 +426,144 @@ function gerarAnalise() {
     .then(function (j) { estado.analise = { resumo: String(j.resumo || ''), prioridades: j.prioridades, usouRegras: false }; })
     .catch(function () { estado.analise = regras; })
     .then(function () { clearTimeout(timer); estado.carregandoIa = false; desenharPrioridades(); });
+}
+
+
+// ---------- PDF da aba ----------
+// Mesma faixa de cabeçalho verde dos outros PDFs do painel. Inclui filtros usados,
+// resumo de pontos, gráfico de Pareto (imagem do canvas), tabelas e, se já foi
+// gerada, a análise de prioridades e ações sugeridas.
+function gerarPdf() {
+  var ns = window.jspdf;
+  if (!ns || !ns.jsPDF) {
+    alert('Não foi possível carregar a biblioteca de geração de PDF (verifique a conexão com a internet) — tente novamente.');
+    return;
+  }
+  var resultados = estado.resultados || [];
+  var linhas = [];
+  resultados.forEach(function (r) { linhas = linhas.concat(linhasDePerda(r)); });
+  if (estado.indicador !== 'todos') linhas = linhas.filter(function (l) { return l.indicador === estado.indicador; });
+  if (!linhas.length) { alert('Não há dados pra gerar o PDF com os filtros atuais.'); return; }
+
+  var pareto = agregarPareto(linhas, 'indicador');
+  var possivel = linhas.reduce(function (s, l) { return s + l.peso; }, 0);
+  var obtido = linhas.reduce(function (s, l) { return s + l.obtido; }, 0);
+  var perdido = possivel - obtido;
+
+  var quadsTxt = estado.quads.map(function (k) { var p = k.split('-'); return rotuloQuad(+p[0], +p[1]); }).join(', ');
+  var eqTxt = estado.equipes.map(function (e) { return e.label; }).join(' + ');
+  var indTxt = estado.indicador === 'todos' ? 'Todos' : estado.indicador;
+  var filtrosTxt = 'Quadrimestre: ' + quadsTxt + '  |  Equipe: ' + eqTxt + '  |  Indicador: ' + indTxt + (estado.profissional ? '  |  Profissional: ' + estado.profissional : '');
+
+  var doc = new ns.jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+  var W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
+  var margin = 28, fullW = W - margin * 2;
+
+  function cabecalho() {
+    doc.setFillColor(21, 63, 53); doc.rect(0, 0, W, 64, 'F');
+    doc.setTextColor(238, 243, 234); doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
+    doc.text('Painel eMulti — Análises (Pareto dos pontos perdidos)', margin, 26);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(159, 192, 174);
+    doc.text('Gerado em ' + new Date().toLocaleString('pt-BR'), W - margin, 26, { align: 'right' });
+    var linhasFiltro = doc.splitTextToSize(filtrosTxt, fullW);
+    doc.text(linhasFiltro.slice(0, 2), margin, 44);
+  }
+  function titulo(txt, y) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(21, 63, 53);
+    doc.text(txt, margin, y);
+    return y + 8;
+  }
+  function garantir(y, h) {
+    if (y + h > H - 36) { doc.addPage(); return 40; }
+    return y;
+  }
+
+  cabecalho();
+  var y = 84;
+
+  // KPIs
+  var kpis = [['Pontos possíveis', fmtNum(possivel, 2)], ['Pontos obtidos', fmtNum(obtido, 2)], ['Pontos perdidos', fmtNum(perdido, 2)], ['Maior perda', perdido > 0 ? pareto[0].rotulo : 'Nenhuma']];
+  var kw = (fullW - 3 * 10) / 4;
+  kpis.forEach(function (k, i) {
+    var x = margin + i * (kw + 10);
+    doc.setFillColor(244, 247, 241); doc.setDrawColor(224, 228, 220); doc.roundedRect(x, y, kw, 46, 6, 6, 'FD');
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(81, 96, 90); doc.text(k[0], x + 12, y + 17);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(21, 63, 53); doc.text(String(k[1]), x + 12, y + 36, { maxWidth: kw - 24 });
+  });
+  y += 46 + 20;
+
+  // Gráfico de Pareto
+  y = titulo('Pareto dos pontos perdidos', y);
+  if (estado.chart) {
+    try {
+      var img = estado.chart.toBase64Image('image/png', 1);
+      var cw = estado.chart.canvas.width || 1, ch = estado.chart.canvas.height || 1;
+      var hMax = 210, esc = Math.min(fullW / cw, hMax / ch);
+      var iw = cw * esc, ih = ch * esc;
+      doc.addImage(img, 'PNG', margin + (fullW - iw) / 2, y + 6, iw, ih);
+      y += ih + 20;
+    } catch (e) { y += 6; }
+  }
+
+  var estiloTab = { theme: 'grid', styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 4 }, headStyles: { fillColor: [21, 63, 53], textColor: [238, 243, 234] }, alternateRowStyles: { fillColor: [244, 247, 241] }, margin: { left: margin, right: margin } };
+
+  y = garantir(y, 90); // só quebra de página se a tabela não couber embaixo do gráfico
+  y = titulo('Prioridades pelo Pareto 80/20', y);
+  doc.autoTable(Object.assign({}, estiloTab, {
+    startY: y + 4,
+    head: [['#', 'Item', 'Pontos possíveis', 'Obtidos', 'Perdidos', '% da perda', '% acumulado', 'Foco']],
+    body: pareto.map(function (i, n) {
+      return [n + 1, i.rotulo, fmtNum(i.peso, 2), fmtNum(i.obtido, 2), fmtNum(i.perda, 2), fmtNum(i.pct, 1) + '%', fmtNum(i.acumulado, 1) + '%',
+        i.perda > 0 ? (i.prioritario ? 'Foco (até 80%)' : 'Acompanhar') : 'Sem perda'];
+    })
+  }));
+  y = doc.lastAutoTable.finalY + 24;
+
+  y = garantir(y, 90);
+  y = titulo('Resultado por equipe e quadrimestre', y);
+  doc.autoTable(Object.assign({}, estiloTab, {
+    startY: y + 4,
+    head: [['Equipe', 'Período', 'M1 (atend. por pessoa)', 'M2 (ações compartilhadas)', 'Nota final', 'Desempenho']],
+    body: resultados.map(function (r) {
+      return [r.equipe, r.periodo, fmtNum(r.m1, 2) + (r.classeM1 !== '—' ? ' (' + r.classeM1 + ')' : ''), fmtNum(r.m2, 2) + '%' + (r.classeM2 !== '—' ? ' (' + r.classeM2 + ')' : ''), fmtNum(r.nota, 2), r.desempenho || '—'];
+    })
+  }));
+  y = doc.lastAutoTable.finalY + 24;
+
+  // Prioridades e ações sugeridas (só se a análise já foi gerada na tela)
+  var a = estado.analise;
+  if (a) {
+    y = garantir(y, 60);
+    y = titulo('Prioridades e ações sugeridas', y) + 8;
+    function bloco(txt, x, w, fonte, estilo, cor) {
+      doc.setFont('helvetica', estilo); doc.setFontSize(fonte); doc.setTextColor(cor[0], cor[1], cor[2]);
+      doc.splitTextToSize(txt, w).forEach(function (ln) { y = garantir(y, fonte + 4); doc.text(ln, x, y); y += fonte + 3; });
+    }
+    bloco(a.resumo, margin, fullW, 9.5, 'normal', [30, 40, 36]);
+    y += 6;
+    a.prioridades.forEach(function (p, i) {
+      var n = NIVEL[p.nivel] || { rot: p.nivel };
+      y = garantir(y, 50);
+      bloco((i + 1) + '. ' + p.indicador + ' — ' + p.equipe + '  [Prioridade ' + n.rot + ']', margin, fullW, 10, 'bold', [21, 63, 53]);
+      bloco(p.motivo, margin + 10, fullW - 10, 9, 'normal', [81, 96, 90]);
+      (p.acoes || []).forEach(function (x) { bloco('• ' + x, margin + 14, fullW - 14, 9, 'normal', [30, 40, 36]); });
+      y += 8;
+    });
+    bloco(a.usouRegras ? 'Sugestões por regras fixas: são mais genéricas. Revise com a equipe antes de aplicar.' : 'Sugestões geradas por IA — revise com a equipe antes de aplicar.', margin, fullW, 8.5, 'italic', [81, 96, 90]);
+  } else {
+    y = garantir(y, 30);
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(9); doc.setTextColor(81, 96, 90);
+    doc.text('As prioridades e ações sugeridas não aparecem aqui porque a análise não foi gerada. Clique em "Gerar análise" na tela e gere o PDF de novo para incluí-las.', margin, y, { maxWidth: fullW });
+  }
+
+  // Rodapé com numeração
+  var total = doc.internal.getNumberOfPages();
+  for (var pg = 1; pg <= total; pg++) {
+    doc.setPage(pg); doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(120, 130, 125);
+    doc.text('Secretaria Municipal de Saúde de Varjota — Painel eMulti', margin, H - 16);
+    doc.text('Página ' + pg + ' de ' + total, W - margin, H - 16, { align: 'right' });
+  }
+  doc.save('analises-emulti-' + new Date().toISOString().slice(0, 10) + '.pdf');
 }
 
 // ---------- ativação da aba ----------
