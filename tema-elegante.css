@@ -91,16 +91,22 @@ body{
   border-radius:20px;
   /* ALTURA DO MENU DE FILTROS (1/3): padding da caixa e espaço entre linhas
      (era 12px, vindo de style.css, e gap de 10px) */
-  padding:6px 12px;gap:6px 10px;
+  padding:4px 12px;gap:4px 10px;
   box-shadow:0 0 0 1px var(--tema-borda),var(--tema-sombra-2);
   -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
 }
 /* ALTURA DO MENU DE FILTROS (2/3): espaço entre o rótulo e o seletor (era 5px) */
-.ms-field{gap:2px;}
+.ms-field{gap:1px;}
+/* REDUÇÃO EXTRA DE 25% NA ALTURA DO MENU DE FILTROS (86px -> ~64px):
+   respiro do topo (era 30px, reservado pra lingueta "Filtros"), rótulo menor e lingueta mais baixa (22px -> 16px) */
+.filter-bar-outer:not(.filter-bar-collapsed):not(.filter-bar-recolhendo) #filterBar{padding-top:15px;padding-bottom:4px;}
+.ms-field > label{font-size:11.5px;line-height:1.2;}
+.filter-bar-toggle{height:14px;}
+.filter-bar-toggle svg{width:11px;height:11px;}
 .ms-field > label{color:#5B6F86;}
 .ms-btn{
   /* ALTURA DO MENU DE FILTROS (3/3): altura do seletor (era min-height 38px e padding 8px 12px) */
-  min-height:30px;padding:4px 12px;
+  min-height:23px;padding:2px 12px;font-size:13px;
   /* COR DOS BOTÕES DE FILTRO: todos iguais, azulados (com ou sem valor selecionado) */
   border:1px solid var(--tema-azul);border-radius:12px;
   background:linear-gradient(180deg,#F5F9FF,#EAF2FD);
