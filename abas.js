@@ -3227,7 +3227,7 @@ function gaugeCardHTML(title, formula, value, domainMax, bands, gaugeId, valueHt
 
 
 // ---------- Composition bars ----------
-export function stackbar(segments, total, mostrarTotal){
+export function stackbar(segments, total, mostrarTotal, mostrarDif){
   var t = total || segments.reduce(function(s,x){return s+(x.value||0);},0);
   var bars = segments.map(function(s){
     var pct = t>0 ? (s.value/t*100) : 0;
@@ -3261,6 +3261,19 @@ export function stackbar(segments, total, mostrarTotal){
     legend += '<span class="legend-item legend-total"><i style="background:transparent"></i>'
       + '<span class="legend-label">Total</span>'
       + '<span class="legend-count">'+fmtInt(soma)+'<span class="legend-pct">('+fmtDec(pctTotal,1)+'%)</span></span></span>';
+  }
+  // mostrarDif: linha "Diferença p/ oficial" = soma das parcelas (preliminar, calculado da planilha) MENOS o
+  // total oficial (t, o número do selo no topo do card), em números absolutos e em % do oficial.
+  // Varia de mês pra mês. Positivo = o calculado passa do oficial; negativo = fica abaixo.
+  if(mostrarDif && t>0){
+    var somaDif = segments.reduce(function(a, x){ return a + (x.value||0); }, 0);
+    var dif = Math.round(somaDif) - Math.round(t);
+    var pctDif = (somaDif - t)/t*100;
+    var sinal = dif > 0 ? '+' : (dif < 0 ? '−' : '');
+    legend += '<span class="legend-item legend-total legend-dif" title="Soma calculada (preliminar) menos o total oficial do selo no topo do card.">'
+      + '<i style="background:transparent"></i>'
+      + '<span class="legend-label">Diferença entre preliminar e oficial</span>'
+      + '<span class="legend-count">'+sinal+fmtInt(Math.abs(dif))+'<span class="legend-pct">('+sinal+fmtDec(Math.abs(pctDif),1)+'%)</span></span></span>';
   }
   return '<div class="stackbar">'+bars+'</div><div class="legend">'+legend+'</div>';
 }
