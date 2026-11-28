@@ -67,11 +67,16 @@ body{
 }
 .tab{
   /* ALTURA DA BARRA DE ABAS (2/2): padding vertical de cada aba (era 8px 15px) */
-  padding:5px 12px;border:none;border-bottom:none;border-radius:999px;
+  padding:5px 14px;border:none;border-bottom:none;border-radius:999px;
   font-size:13px;font-weight:600;letter-spacing:0;color:#41546A;
   transition:background .18s ease,color .18s ease,box-shadow .18s ease;
 }
-.tab:hover{background:rgba(255,255,255,.65);color:#15304F;}
+/* HOVER DAS ABAS: sem escurecer nem clarear o fundo; a aba ganha um contorno azul neon.
+   Pra mudar a cor/brilho, troque #19A7FF (contorno) e rgba(25,167,255,.55) (brilho). */
+.tab:not(.active):hover{
+  background:transparent;color:#15304F;
+  box-shadow:0 0 0 2px #19A7FF,0 0 12px 2px rgba(25,167,255,.55);
+}
 .tab.active{
   background:#fff;color:#12304F;font-weight:700;border:none;
   box-shadow:0 1px 2px rgba(16,42,67,.12),0 6px 14px -4px rgba(40,86,155,.30);
