@@ -160,7 +160,11 @@ body{
 /* HOVER NEON NOS CONTAINERS DA VISÃO GERAL: contorno + brilho na cor própria de cada indicador
    (verde/azul/etc. = --kpi-accent, definida no card em abas.js; meses usam --mes-accent).
    Pra mudar: 2px = espessura do contorno, 12px/2px = tamanho do brilho, 55% = intensidade do brilho. */
-.ov-card .kpi-panel,.ov-card .ov-evo,.ov-mes{transition:box-shadow .18s ease;}
+.ov-card,.ov-card .kpi-panel,.ov-card .ov-evo,.ov-mes{transition:box-shadow .18s ease;}
+/* Card inteiro da Visão geral (igual ao card das abas M1/M2) */
+.ov-card:hover{
+  box-shadow:0 0 0 2px var(--kpi-accent),0 0 12px 2px color-mix(in srgb,var(--kpi-accent) 55%,transparent);
+}
 .ov-card .kpi-panel:hover,.ov-card .ov-evo:hover{
   box-shadow:0 0 0 2px var(--kpi-accent),0 0 12px 2px color-mix(in srgb,var(--kpi-accent) 55%,transparent);
 }
