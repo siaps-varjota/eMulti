@@ -1603,6 +1603,8 @@ h1,h2,h3,.serif{font-optical-sizing:auto;}
 #tabPareto .ap-kpi span{font-size:12px;color:var(--ink-soft);}
 #tabPareto .ap-kpi b{font-size:20px;line-height:1.2;}
 #tabPareto .ap-kpi-perda b{color:#B5474B;}
+/* Último card ("Maior perda"): texto longo, letra menor pra caber em 1 linha (era 20px) */
+#tabPareto .ap-kpi:last-child b{font-size:14px;}
 #tabPareto .ap-chart-box{position:relative;height:340px;}
 #tabPareto .ap-scroll{overflow-x:auto;}
 #tabPareto .ap-tabela{white-space:normal;}
