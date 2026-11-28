@@ -106,7 +106,7 @@ body{
 .ms-field > label{color:#5B6F86;}
 .ms-btn{
   /* ALTURA DO MENU DE FILTROS (3/3): altura do seletor (era min-height 38px e padding 8px 12px) */
-  min-height:23px;padding:2px 12px;font-size:13px;
+  min-height:30px;padding:2px 12px;font-size:13px;
   /* COR DOS BOTÕES DE FILTRO: todos iguais, azulados (com ou sem valor selecionado) */
   border:1px solid var(--tema-azul);border-radius:12px;
   background:linear-gradient(180deg,#F5F9FF,#EAF2FD);
