@@ -99,7 +99,7 @@ body{
 .ms-field{gap:4px;}
 /* REDUÇÃO EXTRA DE 25% NA ALTURA DO MENU DE FILTROS (86px -> ~64px):
    respiro do topo (era 30px, reservado pra lingueta "Filtros"), rótulo menor e lingueta mais baixa (22px -> 16px) */
-.filter-bar-outer:not(.filter-bar-collapsed):not(.filter-bar-recolhendo) #filterBar{padding-top:15px;padding-bottom:4px;}
+.filter-bar-outer:not(.filter-bar-collapsed):not(.filter-bar-recolhendo) #filterBar{padding-top:15px;padding-bottom:10px;}
 .ms-field > label{font-size:11.5px;line-height:1.2;}
 .filter-bar-toggle{height:14px;}
 .filter-bar-toggle svg{width:11px;height:11px;}
