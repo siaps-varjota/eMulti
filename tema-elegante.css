@@ -96,19 +96,23 @@ body{
 .ms-btn{
   /* ALTURA DO MENU DE FILTROS (3/3): altura do seletor (era min-height 38px e padding 8px 12px) */
   min-height:30px;padding:4px 12px;
-  border:1px solid #CBD7E4;border-radius:12px;
-  background:linear-gradient(180deg,#fff,#F6F9FC);
+  /* COR DOS BOTÕES DE FILTRO: todos iguais, azulados (com ou sem valor selecionado) */
+  border:1px solid var(--tema-azul);border-radius:12px;
+  background:linear-gradient(180deg,#F5F9FF,#EAF2FD);
   box-shadow:0 1px 2px rgba(16,42,67,.05);
 }
-.ms-btn:hover{border-color:#8FAAC9;background:#fff;}
-.ms-wrap.ms-has-value .ms-btn{border-color:var(--tema-azul);background:linear-gradient(180deg,#F5F9FF,#EAF2FD);}
-.ms-wrap:not(.ms-has-value) .ms-btn{background:linear-gradient(180deg,#fff,#F6F9FC);}
+.ms-btn:hover,.ms-wrap.ms-has-value .ms-btn:hover{border-color:var(--tema-azul);background:linear-gradient(180deg,#EAF2FD,#DCE9FA);}
+.ms-wrap.ms-has-value .ms-btn,.ms-wrap:not(.ms-has-value) .ms-btn{border-color:var(--tema-azul);background:linear-gradient(180deg,#F5F9FF,#EAF2FD);}
+.ms-wrap:not(.ms-has-value) .ms-btn-text{color:var(--ink);}
 .ms-panel{
   border:1px solid #D3DEEA;border-radius:14px;
   box-shadow:var(--tema-sombra-3);
 }
 .ms-option:hover{background:#EEF4FB;}
 .filter-bar-toggle{box-shadow:var(--tema-sombra-1);}
+/* MENUS DOS FILTROS POR CIMA DOS CARDS: a barra de filtros fica numa camada acima do conteúdo
+   (4 = abaixo do cabeçalho, que é 5, e acima dos cards) */
+.filter-bar-outer{z-index:4;}
 
 /* ---------- Cartões ---------- */
 .card{
