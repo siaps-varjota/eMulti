@@ -168,6 +168,28 @@ body{
   box-shadow:0 0 0 2px var(--mes-accent),0 0 12px 2px color-mix(in srgb,var(--mes-accent) 55%,transparent);
 }
 
+/* HOVER NEON NAS ABAS M1 / M2: mesma ideia, cada container na sua cor.
+   Indicador (card principal, resultado, evolução) = --kpi-accent; faixas de meta = --hv / --tc;
+   alerta "Faltam..." = vermelho; composição/denominador/demais cartões = verde do tema (#1C6D53). */
+.ip-gauge-card,.ip-gauge-card .kpi-panel,.ip-gauge-card .ov-evo,.meta-mini-row,.mq-tier,.meta-mini-alert,.comp-card,.ip-reading,.gi-right{
+  transition:box-shadow .18s ease;
+}
+.ip-gauge-card:hover,.ip-gauge-card .kpi-panel:hover,.ip-gauge-card .ov-evo:hover{
+  box-shadow:0 0 0 2px var(--kpi-accent),0 0 12px 2px color-mix(in srgb,var(--kpi-accent) 55%,transparent);
+}
+.meta-mini-row:hover{
+  box-shadow:0 0 0 2px var(--hv,#1C6D53),0 0 12px 2px color-mix(in srgb,var(--hv,#1C6D53) 55%,transparent);
+}
+.mq-tier:hover{
+  box-shadow:0 0 0 2px var(--tc,#1C6D53),0 0 12px 2px color-mix(in srgb,var(--tc,#1C6D53) 55%,transparent);
+}
+.meta-mini-alert:hover{
+  box-shadow:0 0 0 2px #DC2626,0 0 12px 2px rgba(220,38,38,.5);
+}
+.comp-card:hover,.ip-reading:hover,.gi-right:hover{
+  box-shadow:0 0 0 2px #1C6D53,0 0 12px 2px rgba(28,109,83,.5);
+}
+
 /* Metas do quadrimestre e cartões menores */
 .meta-quad-wrap{
   background:linear-gradient(135deg,#F7F4FF 0%,#F1F5FF 100%);

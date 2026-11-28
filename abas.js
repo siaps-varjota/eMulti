@@ -2381,7 +2381,7 @@ export function ipGaugeCardHTML(value, domainMax, bands, gaugeId, valueHtml, cla
   // compatibilidade — bands ainda é usado pela trilha de Evolução.
   var st = ovStatus(classLabel);
   iconKind = iconKind || 'pulse';
-  return '<div class="card ip-gauge-card" style="border-top:4px solid '+st.accent+';">'
+  return '<div class="card ip-gauge-card" style="border-top:4px solid '+st.accent+';--kpi-accent:'+st.accent+';">'
     + '<div class="kpi-head">'
     +   '<div class="ov-head-left">'+ovIconHTML(iconKind, st)+'<h3 class="kpi-head-title">Resultado do indicador</h3></div>'
     +   '<span class="ov-badge" style="background:'+st.badgeBg+';color:'+st.badgeText+';">'+st.icon+' '+(classLabel||'—')+'</span>'
@@ -2587,7 +2587,7 @@ export function metaQuadrimestreMiniHTML(base, baseLabel, cardsCfg, preliminar, 
         + (c.porMes && c.porMes.length ? ' '+faltaPorMesTexto(c.porMes, c.pct) : '')
         + (c.divisao ? '<br><span class="meta-mini-divisao">'+faltaDivisaoTexto(c.divisao)+'</span>' : '')+'</span></div>'
       : '';
-    return '<div class="meta-mini-row" style="background:color-mix(in srgb,'+c.color+' 10%,white);border-color:color-mix(in srgb,'+c.color+' 30%,white);">'
+    return '<div class="meta-mini-row" style="--hv:'+c.color+';background:color-mix(in srgb,'+c.color+' 10%,white);border-color:color-mix(in srgb,'+c.color+' 30%,white);">'
       + '<div class="meta-mini-row-left">'
       +   '<span class="meta-mini-dot" style="background:'+c.color+'"></span>'
       +   '<div><p class="meta-mini-label" style="color:'+c.color+';">'+c.label+'</p>'
